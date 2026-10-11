@@ -85,7 +85,7 @@ fun CampusPostCard(
             }
         }
         Spacer(Modifier.size(Spacing.sm))
-        Text(post.text, style = MaterialTheme.typography.bodyLarge)
+        if (post.text.isNotBlank()) Text(post.text, style = MaterialTheme.typography.bodyLarge)
         if (post.mediaAccent != null) {
             Spacer(Modifier.size(Spacing.sm + 4.dp))
             Box(

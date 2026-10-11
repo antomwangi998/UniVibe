@@ -1,5 +1,12 @@
 package com.univibe.app.features.home
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,35 +15,48 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DynamicFeed
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Poll
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,27 +71,44 @@ import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.StoryRing
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.UniVibeLockup
-import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
+import kotlinx.coroutines.launch
 
 @Composable
-fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
+fun HomeScreen(
+    onOpenEvents: () -> Unit = {},
+    viewModel: HomeViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val composerFocus = remember { FocusRequester() }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
             VibeTopBar(title = "UniVibe", titleContent = { UniVibeLockup() })
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                item(key = "stories") { StoriesRow(state.me, state.stories) }
-                item(key = "composer") { Composer(state.me?.name ?: "Aisha Njoki", viewModel::openComposer) }
+                item(key = "stories") { StoriesRow(state.stories) }
+                item(key = "composer") {
+                    Composer(
+                        fullName = state.me?.name ?: "Aisha Njoki",
+                        publishing = state.publishing,
+                        error = state.publishError,
+                        postedCount = state.postedCount,
+                        focusRequester = composerFocus,
+                        onOpenEvents = onOpenEvents,
+                        onPost = viewModel::publish,
+                    )
+                }
                 item(key = "filters") {
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         FeedFilter.entries.forEach { filter ->
@@ -101,54 +138,134 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             }
         }
 
-        // Sits inside the NavHost area, so it is always above the floating bottom bar.
+        // Scrolls to the composer and focuses it. Lives inside the NavHost area, so it is above the floating bar.
         FloatingActionButton(
-            onClick = viewModel::openComposer,
+            onClick = {
+                scope.launch {
+                    listState.animateScrollToItem(0)
+                    composerFocus.requestFocus()
+                }
+            },
             shape = CircleShape,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.md),
-        ) { Icon(Icons.Outlined.Add, contentDescription = "Create post") }
-    }
-
-    if (state.composing) {
-        CreatePostSheet(
-            publishing = state.publishing,
-            error = state.publishError,
-            onDismiss = viewModel::closeComposer,
-            onPost = viewModel::publish,
-        )
+        ) { Icon(Icons.Outlined.Edit, contentDescription = "Write a post") }
     }
 }
 
+/**
+ * Inline composer. Typing, Post, and each shortcut are separate controls; the card itself is not a button.
+ */
 @Composable
-private fun Composer(fullName: String, onOpen: () -> Unit) {
+private fun Composer(
+    fullName: String,
+    publishing: Boolean,
+    error: String?,
+    postedCount: Int,
+    focusRequester: FocusRequester,
+    onOpenEvents: () -> Unit,
+    onPost: (text: String, hasMedia: Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    var text by rememberSaveable { mutableStateOf("") }
+    var attached by rememberSaveable { mutableStateOf<String?>(null) }
+    var seenPosts by rememberSaveable { mutableStateOf(postedCount) }
+
+    // Clear the draft after a successful post.
+    LaunchedEffect(postedCount) {
+        if (postedCount != seenPosts) {
+            text = ""
+            attached = null
+            seenPosts = postedCount
+        }
+    }
+
+    // System photo picker: no storage permission needed.
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) attached = "Photo"
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) attached = "Video"
+    }
+
+    val tooLong = text.length > MAX_POST_LENGTH
+    val hasContent = text.isNotBlank() || attached != null
     val firstName = fullName.substringBefore(' ')
-    VibeCard(onClick = onOpen) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StudentAvatar(fullName, size = 40.dp)
+
+    VibeCard {
+        Row(verticalAlignment = Alignment.Top) {
+            StudentAvatar(fullName, size = 40.dp, modifier = Modifier.padding(top = 8.dp))
             Spacer(Modifier.width(Spacing.sm + 4.dp))
-            Text(
-                "What's on your mind, $firstName?",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            VibeTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                placeholder = "What's on your mind, $firstName?",
+                singleLine = false,
+                isError = tooLong || error != null,
+                supportingText = error ?: if (text.isNotEmpty()) "${text.length}/$MAX_POST_LENGTH" else null,
             )
         }
+
+        attached?.let { kind ->
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(top = Spacing.sm),
+            ) {
+                Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (kind == "Photo") Icons.Outlined.Image else Icons.Outlined.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("$kind attached", style = MaterialTheme.typography.labelMedium)
+                    IconButton(onClick = { attached = null }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Remove $kind", modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = hasContent) {
+            Row(Modifier.fillMaxWidth().padding(top = Spacing.sm), horizontalArrangement = Arrangement.End) {
+                VibeButton(
+                    text = "Post",
+                    onClick = { onPost(text, attached != null) },
+                    enabled = !tooLong,
+                    loading = publishing,
+                    compact = true,
+                )
+            }
+        }
+
         Row(
-            Modifier.fillMaxWidth().padding(top = Spacing.md),
+            Modifier.fillMaxWidth().padding(top = Spacing.xs),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            ComposerAction(Icons.Outlined.Image, "Photo")
-            ComposerAction(Icons.Outlined.Videocam, "Video")
-            ComposerAction(Icons.Outlined.Event, "Event")
-            ComposerAction(Icons.Outlined.Poll, "Poll")
+            ComposerAction(Icons.Outlined.Image, "Photo") {
+                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            ComposerAction(Icons.Outlined.Videocam, "Video") {
+                videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+            }
+            ComposerAction(Icons.Outlined.Event, "Event", onOpenEvents)
+            ComposerAction(Icons.Outlined.Poll, "Poll") {
+                Toast.makeText(context, "Polls are coming soon", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }
 
 @Composable
-private fun ComposerAction(icon: ImageVector, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun ComposerAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(6.dp))
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -156,7 +273,7 @@ private fun ComposerAction(icon: ImageVector, label: String) {
 }
 
 @Composable
-private fun StoriesRow(me: Student?, stories: List<Student>) {
+private fun StoriesRow(stories: List<Student>) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.lg)) {
         item(key = "you") {
             Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -187,38 +304,5 @@ private fun StoriesRow(me: Student?, stories: List<Student>) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun CreatePostSheet(
-    publishing: Boolean,
-    error: String?,
-    onDismiss: () -> Unit,
-    onPost: (String) -> Unit,
-) {
-    var text by rememberSaveable { mutableStateOf("") }
-    val tooLong = text.length > MAX_POST_LENGTH
-    val valid = text.isNotBlank() && !tooLong
-    VibeBottomSheet(onDismiss = onDismiss) {
-        Text("New post", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.size(Spacing.md))
-        VibeTextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = "What's on your mind?",
-            singleLine = false,
-            minLines = 4,
-            isError = tooLong || error != null,
-            supportingText = error ?: "${text.length}/$MAX_POST_LENGTH",
-        )
-        Spacer(Modifier.size(Spacing.md))
-        VibeButton(
-            text = "Post",
-            onClick = { onPost(text) },
-            enabled = valid,
-            loading = publishing,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }

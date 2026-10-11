@@ -22,9 +22,10 @@ data class HomeUiState(
     val me: Student? = null,
     val posts: List<Post> = emptyList(),
     val stories: List<Student> = emptyList(),
-    val composing: Boolean = false,
     val publishing: Boolean = false,
     val publishError: String? = null,
+    /** Increments after each successful post so the composer can clear itself. */
+    val postedCount: Int = 0,
 )
 
 class HomeViewModel(
@@ -72,18 +73,15 @@ class HomeViewModel(
     private fun updatePost(id: String, change: (Post) -> Post) =
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) change(it) else it }) }
 
-    fun openComposer() = _state.update { it.copy(composing = true, publishError = null) }
-    fun closeComposer() = _state.update { it.copy(composing = false, publishError = null) }
-
     /** Client-side checks are convenience only; the backend must validate again. */
-    fun publish(text: String) {
+    fun publish(text: String, hasMedia: Boolean) {
         val clean = text.trim()
-        if (clean.isEmpty() || clean.length > MAX_POST_LENGTH || _state.value.publishing) return
+        if ((clean.isEmpty() && !hasMedia) || clean.length > MAX_POST_LENGTH || _state.value.publishing) return
         viewModelScope.launch {
             _state.update { it.copy(publishing = true, publishError = null) }
             try {
-                val post = repository.createPost(clean)
-                _state.update { it.copy(publishing = false, composing = false, posts = listOf(post) + it.posts) }
+                val post = repository.createPost(clean, hasMedia)
+                _state.update { it.copy(publishing = false, posts = listOf(post) + it.posts, postedCount = it.postedCount + 1) }
             } catch (e: Exception) {
                 _state.update { it.copy(publishing = false, publishError = "Couldn't post. Please try again.") }
             }

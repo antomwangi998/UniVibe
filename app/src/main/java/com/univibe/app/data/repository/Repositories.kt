@@ -19,7 +19,7 @@ interface FeedRepository {
     suspend fun setLiked(postId: String, liked: Boolean)
     suspend fun setSaved(postId: String, saved: Boolean)
     /** Server must validate length/content; returns the stored post. */
-    suspend fun createPost(text: String): Post
+    suspend fun createPost(text: String, hasMedia: Boolean): Post
 }
 
 interface DiscoverRepository {

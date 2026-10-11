@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -39,7 +41,17 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barItems = remember { TopLevelDestination.entries.map { it.toBarItem() } }
-    val showBar = TopLevelDestination.entries.any { it.route == currentRoute }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val showBar = TopLevelDestination.entries.any { it.route == currentRoute } && !imeVisible
+    val selectTab: (String) -> Unit = { route ->
+        if (route != currentRoute) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -54,15 +66,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                 VibeBottomBar(
                     items = barItems,
                     selectedRoute = currentRoute,
-                    onSelect = { route ->
-                        if (route != currentRoute) {
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    },
+                    onSelect = selectTab,
                 )
             }
         },
@@ -76,7 +80,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
             popEnterTransition = { fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f) },
             popExitTransition = { fadeOut(tween(90)) },
         ) {
-            composable(TopLevelDestination.Home.route) { HomeScreen() }
+            composable(TopLevelDestination.Home.route) {
+                HomeScreen(onOpenEvents = { selectTab(TopLevelDestination.Events.route) })
+            }
             composable(TopLevelDestination.Discover.route) { DiscoverScreen() }
             composable(TopLevelDestination.Chats.route) { ChatsScreen() }
             composable(TopLevelDestination.Events.route) { EventsScreen() }

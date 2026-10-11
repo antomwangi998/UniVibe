@@ -36,7 +36,7 @@ class MockRepositoriesTest {
     @Test
     fun createdPostAppearsFirst() = runTest {
         val repo = MockFeedRepository()
-        val created = repo.createPost("  hello campus  ")
+        val created = repo.createPost("  hello campus  ", hasMedia = false)
         assertEquals("hello campus", created.text)
         assertEquals(created.id, repo.getPosts(FeedFilter.Campus).first().id)
     }
