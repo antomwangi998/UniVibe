@@ -7,9 +7,21 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.draw.clip
+import com.univibe.app.ui.components.InterestChip
+import com.univibe.app.ui.components.VibeBottomSheet
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -66,49 +78,94 @@ fun DiscoverScreen(viewModel: DiscoverViewModel = viewModel()) {
         when {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             state.error != null -> ErrorState(state.error!!, onRetry = viewModel::load)
-            state.deck.isEmpty() -> EmptyState(
-                icon = Icons.Outlined.Groups,
-                title = "You're all caught up",
-                message = "Check back soon for more students who share your interests.",
-                actionLabel = "Refresh",
-                onAction = viewModel::load,
-            )
             else -> {
-                val top = state.deck.first()
-                Column(
-                    Modifier.fillMaxSize().padding(horizontal = Spacing.md),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = Spacing.md),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    modifier = Modifier.padding(bottom = Spacing.sm),
                 ) {
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        key(top.id) {
-                            SwipeableCard(
-                                student = top,
-                                request = request,
-                                onDecision = { liked ->
-                                    request = null
-                                    viewModel.decide(liked)
-                                },
-                            )
+                    items(DiscoverFilter.entries, key = { it.name }) { f ->
+                        InterestChip(f.label, selected = state.filter == f, onClick = { viewModel.setFilter(f) })
+                    }
+                }
+                val top = state.deck.firstOrNull()
+                if (top == null) {
+                    EmptyState(
+                        icon = Icons.Outlined.Groups,
+                        title = if (state.remaining.isEmpty()) "You're all caught up" else "No matches for this filter",
+                        message = if (state.remaining.isEmpty()) "Check back soon for more students who share your interests."
+                        else "Try another filter to see more students.",
+                        actionLabel = if (state.remaining.isEmpty()) "Refresh" else "Show everyone",
+                        onAction = { if (state.remaining.isEmpty()) viewModel.load() else viewModel.setFilter(DiscoverFilter.All) },
+                    )
+                } else {
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = Spacing.md),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            key(top.id) {
+                                SwipeableCard(
+                                    student = top,
+                                    request = request,
+                                    onDecision = { liked ->
+                                        request = null
+                                        viewModel.decide(liked)
+                                    },
+                                )
+                            }
+                        }
+                        ProgressRow(state.reviewed, state.total, onInfo = { viewModel.showInfo(true) })
+                        Row(
+                            Modifier.padding(bottom = Spacing.md),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RoundAction(Icons.Outlined.Close, "Pass on ${top.name}", filled = false, enabled = request == null) { request = false }
+                            RoundAction(Icons.Filled.Favorite, "Connect with ${top.name}", filled = true, enabled = request == null) { request = true }
                         }
                     }
-                    Row(
-                        Modifier.padding(vertical = Spacing.md),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RoundAction(Icons.Outlined.Close, "Pass on ${top.name}", filled = false, enabled = request == null) { request = false }
-                        RoundAction(Icons.Filled.Favorite, "Connect with ${top.name}", filled = true, enabled = request == null) { request = true }
-                    }
-                    Text(
-                        "Only students who opted in to discovery appear here.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(bottom = Spacing.sm),
-                    )
                 }
             }
         }
+    }
+
+    if (state.showInfo) {
+        VibeBottomSheet(onDismiss = { viewModel.showInfo(false) }) {
+            Text("How discovery works", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Only verified students who chose to appear in Discover are shown. A connection only happens when both of you say yes. " +
+                    "You can turn discovery off any time in Profile ▸ Privacy.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = Spacing.sm),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProgressRow(reviewed: Int, total: Int, onInfo: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = Spacing.sm)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${minOf(reviewed + 1, total)} / $total",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            LinearProgressIndicator(
+                progress = { if (total == 0) 0f else reviewed / total.toFloat() },
+                modifier = Modifier.weight(1f).padding(horizontal = Spacing.sm + 4.dp).height(6.dp).clip(CircleShape),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+            IconButton(onClick = onInfo, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Outlined.Info, contentDescription = "About discovery", modifier = Modifier.size(20.dp))
+            }
+        }
+        Text(
+            "Only students who opted in to discovery appear here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -161,15 +218,23 @@ private fun SwipeableCard(student: Student, request: Boolean?, onDecision: (Bool
 @Composable
 private fun RoundAction(icon: ImageVector, description: String, filled: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.88f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "actionPress",
+    )
     Surface(
         shape = CircleShape,
         color = if (filled) colors.primary else colors.surface,
         contentColor = if (filled) colors.onPrimary else colors.onSurface,
         border = if (filled) null else BorderStroke(1.5.dp, colors.outline),
         shadowElevation = if (filled) 6.dp else 0.dp,
+        modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
     ) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(64.dp)) {
-            Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp))
+        IconButton(onClick = onClick, enabled = enabled, interactionSource = interaction, modifier = Modifier.size(72.dp)) {
+            Icon(icon, contentDescription = description, modifier = Modifier.size(32.dp))
         }
     }
 }

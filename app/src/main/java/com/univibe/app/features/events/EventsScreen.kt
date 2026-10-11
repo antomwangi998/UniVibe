@@ -1,28 +1,48 @@
 package com.univibe.app.features.events
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.model.EventsTab
+import com.univibe.app.data.model.RsvpState
 import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.EventCard
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
+import com.univibe.app.ui.components.VibeBottomSheet
+import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
@@ -32,31 +52,65 @@ fun EventsScreen(viewModel: EventsViewModel = viewModel()) {
 
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Events")
+        VibeTextField(
+            value = state.query,
+            onValueChange = viewModel::setQuery,
+            placeholder = "Search events",
+            leadingIcon = Icons.Outlined.Search,
+            modifier = Modifier.padding(horizontal = Spacing.md),
+        )
         Row(
-            Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             InterestChip("Upcoming", selected = state.tab == EventsTab.Upcoming, onClick = { viewModel.setTab(EventsTab.Upcoming) })
             InterestChip("My Events", selected = state.tab == EventsTab.MyEvents, onClick = { viewModel.setTab(EventsTab.MyEvents) })
+            InterestChip("Past", selected = state.tab == EventsTab.Past, onClick = { viewModel.setTab(EventsTab.Past) })
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Spacing.md),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            items(EventCategories, key = { it }) { c ->
+                InterestChip(c, selected = state.category == c, onClick = { viewModel.setCategory(c) })
+            }
         }
         when {
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
             state.error != null -> ErrorState(state.error!!, onRetry = viewModel::load)
             state.visible.isEmpty() -> EmptyState(
                 icon = Icons.Outlined.CalendarMonth,
-                title = "No events yet",
-                message = "Events you RSVP to will show up here.",
-                actionLabel = "Browse upcoming",
+                title = when (state.tab) {
+                    EventsTab.MyEvents -> "No RSVPs yet"
+                    EventsTab.Past -> "No past events"
+                    EventsTab.Upcoming -> "No events found"
+                },
+                message = when (state.tab) {
+                    EventsTab.MyEvents -> "Events you mark as Going or Interested will show up here."
+                    EventsTab.Past -> "Events you attended will appear here."
+                    EventsTab.Upcoming -> "Try a different search or category."
+                },
+                actionLabel = if (state.tab == EventsTab.MyEvents) "Browse upcoming" else null,
                 onAction = { viewModel.setTab(EventsTab.Upcoming) },
             )
             else -> LazyColumn(
-                contentPadding = PaddingValues(Spacing.md),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.md, bottom = Spacing.md),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 items(state.visible, key = { it.id }) { event ->
-                    EventCard(event, onRsvpClick = { viewModel.onRsvpClick(event) })
+                    EventCard(event, onRsvpClick = { viewModel.openRsvp(event) })
                 }
             }
+        }
+    }
+
+    state.rsvpFor?.let { event ->
+        VibeBottomSheet(onDismiss = viewModel::closeRsvp) {
+            Text(event.title, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.size(Spacing.sm))
+            RsvpOption(Icons.Outlined.Check, "Going", event.rsvp == RsvpState.Going) { viewModel.chooseRsvp(RsvpState.Going) }
+            RsvpOption(Icons.Outlined.StarOutline, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
+            RsvpOption(Icons.Outlined.Close, "Not going", event.rsvp == RsvpState.None) { viewModel.chooseRsvp(RsvpState.None) }
         }
     }
 
@@ -70,5 +124,26 @@ fun EventsScreen(viewModel: EventsViewModel = viewModel()) {
             onConfirm = viewModel::confirmCancel,
             onDismiss = viewModel::dismissCancel,
         )
+    }
+}
+
+@Composable
+private fun RsvpOption(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(role = Role.RadioButton, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(Spacing.md))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
     }
 }

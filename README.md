@@ -46,3 +46,10 @@ Drop Inter (or Poppins) `.ttf` files in `res/font/` and point `UniVibeFont` in `
 Push to GitHub; the **Android CI** workflow runs unit tests and builds a debug APK.
 Download it from the run's *Artifacts* (`univibe-debug-apk`) and install on your phone.
 Failed build? Open the run log and send the first `e:` error lines.
+
+## UI improvement pass (from the "UI improvement prompt")
+Done: animated story rings + online dots, post composer + create-post sheet, FAB above the floating bar, 16:9/4:5 media,
+save/like states, Discover filters + progress + info sheet + bouncy actions, profile cover/stat cards/photos/saved/groups/
+editable interests/privacy toggles, chats pinned section + filter + swipe mute/archive, events tabs (Upcoming/My/Past) +
+search + category filters + Going/Interested/Not going sheet, softer borders, Poppins, rounded nav icons.
+Not done: real photos (gradient placeholders), event details screen, comments, "Nearby" filter (skipped: needs location consent).

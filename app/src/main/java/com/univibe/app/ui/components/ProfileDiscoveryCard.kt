@@ -72,13 +72,20 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier) {
                 .padding(top = Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            Text("${student.name.substringBefore(' ')}, ${student.age}", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${student.name.substringBefore(' ')}, ${student.age}", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                if (student.online) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.size(10.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                }
+            }
             Text("${student.course} · ${student.year}", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.bodyMedium)
             Text(student.university, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.size(Spacing.xs))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 student.interests.forEach { interest ->
-                    Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.2f), contentColor = Color.White) {
+                    val isShared = interest in student.shared
+                    Surface(shape = CircleShape, color = Color.White.copy(alpha = if (isShared) 0.38f else 0.2f), contentColor = Color.White) {
                         Text(interest, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                     }
                 }

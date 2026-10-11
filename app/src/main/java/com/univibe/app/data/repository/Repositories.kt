@@ -5,6 +5,7 @@ import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
 
 /**
@@ -12,9 +13,13 @@ import com.univibe.app.data.model.Student
  * backend (paginated, authenticated) can replace the mock implementations later.
  */
 interface FeedRepository {
+    suspend fun getCurrentUser(): Student
     suspend fun getPosts(filter: FeedFilter): List<Post>
     suspend fun getStories(): List<Student>
     suspend fun setLiked(postId: String, liked: Boolean)
+    suspend fun setSaved(postId: String, saved: Boolean)
+    /** Server must validate length/content; returns the stored post. */
+    suspend fun createPost(text: String): Post
 }
 
 interface DiscoverRepository {
@@ -25,11 +30,13 @@ interface DiscoverRepository {
 
 interface ChatRepository {
     suspend fun getChats(): List<Chat>
+    suspend fun setMuted(chatId: String, muted: Boolean)
+    suspend fun archive(chatId: String)
 }
 
 interface EventRepository {
     suspend fun getEvents(): List<CampusEvent>
-    suspend fun setRsvp(eventId: String, going: Boolean)
+    suspend fun setRsvp(eventId: String, state: RsvpState)
 }
 
 interface ProfileRepository {

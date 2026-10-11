@@ -13,12 +13,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+const val MAX_POST_LENGTH = 280
+
 data class HomeUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val filter: FeedFilter = FeedFilter.Campus,
+    val me: Student? = null,
     val posts: List<Post> = emptyList(),
     val stories: List<Student> = emptyList(),
+    val composing: Boolean = false,
+    val publishing: Boolean = false,
+    val publishError: String? = null,
 )
 
 class HomeViewModel(
@@ -33,9 +39,10 @@ class HomeViewModel(
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
+                val me = repository.getCurrentUser()
                 val posts = repository.getPosts(_state.value.filter)
                 val stories = repository.getStories()
-                _state.update { it.copy(loading = false, posts = posts, stories = stories) }
+                _state.update { it.copy(loading = false, me = me, posts = posts, stories = stories) }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "We couldn't load your feed. Check your connection and try again.") }
             }
@@ -51,11 +58,35 @@ class HomeViewModel(
     fun toggleLike(postId: String) {
         val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
         val nowLiked = !target.likedByMe
-        _state.update { s ->
-            s.copy(posts = s.posts.map {
-                if (it.id == postId) it.copy(likedByMe = nowLiked, likeCount = it.likeCount + if (nowLiked) 1 else -1) else it
-            })
-        }
+        updatePost(postId) { it.copy(likedByMe = nowLiked, likeCount = it.likeCount + if (nowLiked) 1 else -1) }
         viewModelScope.launch { runCatching { repository.setLiked(postId, nowLiked) } }
+    }
+
+    fun toggleSave(postId: String) {
+        val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
+        val nowSaved = !target.savedByMe
+        updatePost(postId) { it.copy(savedByMe = nowSaved) }
+        viewModelScope.launch { runCatching { repository.setSaved(postId, nowSaved) } }
+    }
+
+    private fun updatePost(id: String, change: (Post) -> Post) =
+        _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) change(it) else it }) }
+
+    fun openComposer() = _state.update { it.copy(composing = true, publishError = null) }
+    fun closeComposer() = _state.update { it.copy(composing = false, publishError = null) }
+
+    /** Client-side checks are convenience only; the backend must validate again. */
+    fun publish(text: String) {
+        val clean = text.trim()
+        if (clean.isEmpty() || clean.length > MAX_POST_LENGTH || _state.value.publishing) return
+        viewModelScope.launch {
+            _state.update { it.copy(publishing = true, publishError = null) }
+            try {
+                val post = repository.createPost(clean)
+                _state.update { it.copy(publishing = false, composing = false, posts = listOf(post) + it.posts) }
+            } catch (e: Exception) {
+                _state.update { it.copy(publishing = false, publishError = "Couldn't post. Please try again.") }
+            }
+        }
     }
 }

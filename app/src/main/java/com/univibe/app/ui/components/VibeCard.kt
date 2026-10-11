@@ -18,17 +18,18 @@ fun VibeCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(Spacing.md),
+    elevation: androidx.compose.ui.unit.Dp = 0.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.large
     val color = MaterialTheme.colorScheme.surface
     val border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
     if (onClick != null) {
-        Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = border) {
+        Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = border, shadowElevation = elevation) {
             Column(Modifier.padding(contentPadding), content = content)
         }
     } else {
-        Surface(modifier = modifier, shape = shape, color = color, border = border) {
+        Surface(modifier = modifier, shape = shape, color = color, border = border, shadowElevation = elevation) {
             Column(Modifier.padding(contentPadding), content = content)
         }
     }

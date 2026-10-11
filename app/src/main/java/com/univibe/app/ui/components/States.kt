@@ -1,6 +1,9 @@
 package com.univibe.app.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +39,7 @@ fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+        EmptyIllustration(icon)
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Text(
             message, style = MaterialTheme.typography.bodyMedium,
@@ -92,4 +95,17 @@ fun ConfirmDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(dismissLabel) } },
     )
+}
+
+/** Simple layered illustration: soft rings, accent dots and a centred icon. */
+@Composable
+fun EmptyIllustration(icon: ImageVector, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Box(modifier.size(132.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(132.dp).background(colors.primaryContainer.copy(alpha = 0.35f), CircleShape))
+        Box(Modifier.size(96.dp).background(colors.primaryContainer.copy(alpha = 0.7f), CircleShape))
+        Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(14.dp).background(colors.tertiary.copy(alpha = 0.8f), CircleShape))
+        Box(Modifier.align(Alignment.BottomStart).padding(14.dp).size(10.dp).background(colors.primary.copy(alpha = 0.7f), CircleShape))
+        Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(44.dp))
+    }
 }

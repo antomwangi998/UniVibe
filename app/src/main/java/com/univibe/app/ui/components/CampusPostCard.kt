@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.outlined.BookmarkBorder
@@ -59,8 +60,9 @@ fun CampusPostCard(
     onLike: () -> Unit,
     onComment: () -> Unit,
     modifier: Modifier = Modifier,
+    onSave: () -> Unit = {},
 ) {
-    VibeCard(modifier = modifier) {
+    VibeCard(modifier = modifier, elevation = 2.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StudentAvatar(post.author.name, size = 44.dp, accent = post.author.accent)
             Spacer(Modifier.width(Spacing.sm + 4.dp))
@@ -89,7 +91,7 @@ fun CampusPostCard(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 10f)
+                    .aspectRatio(if (post.mediaPortrait) 4f / 5f else 16f / 9f)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Brush.linearGradient(accentGradient(post.mediaAccent))),
                 contentAlignment = Alignment.Center,
@@ -108,13 +110,17 @@ fun CampusPostCard(
             )
             CountAction(
                 icon = { Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(22.dp)) },
-                count = null,
-                description = "Share",
+                count = post.shareCount,
+                description = "Share, ${post.shareCount}",
                 onClick = { /* TODO: share sheet */ },
             )
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = { /* TODO: save post */ }) {
-                Icon(Icons.Outlined.BookmarkBorder, contentDescription = "Save post")
+            IconButton(onClick = onSave) {
+                Icon(
+                    imageVector = if (post.savedByMe) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = if (post.savedByMe) "Remove from saved" else "Save post",
+                    tint = if (post.savedByMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

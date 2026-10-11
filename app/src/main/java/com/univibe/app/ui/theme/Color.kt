@@ -18,7 +18,7 @@ internal val LightOutline = Color(0xFF94A3B8)
 internal val LightOutlineVariant = Color(0xFFE2E8F0)
 
 // Dark scheme.
-internal val DarkPrimary = Color(0xFF2DD4BF)
+internal val DarkPrimary = Color(0xFF00C7B7)
 internal val DarkPrimaryContainer = Color(0xFF134E4A)
 internal val DarkOnPrimaryContainer = Color(0xFFCCFBF1)
 internal val DarkBackground = Color(0xFF0D1117)
