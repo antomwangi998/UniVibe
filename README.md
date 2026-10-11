@@ -53,3 +53,11 @@ save/like states, Discover filters + progress + info sheet + bouncy actions, pro
 editable interests/privacy toggles, chats pinned section + filter + swipe mute/archive, events tabs (Upcoming/My/Past) +
 search + category filters + Going/Interested/Not going sheet, softer borders, Poppins, rounded nav icons.
 Not done: real photos (gradient placeholders), event details screen, comments, "Nearby" filter (skipped: needs location consent).
+
+## Phase 2 — Authentication (mock backend)
+Welcome, sign-up, log-in, email verification (6-digit code, resend cooldown), forgot/reset password, 4-step onboarding,
+log out, and an `AuthState` machine in `AuthGate`. All data comes from `MockAuthRepository` (device-only, **not real
+authentication**). In debug builds the verification/reset code is shown in a labelled "DEV MODE" banner because no
+email is sent. See `docs/AUTH_BACKEND.md` for the endpoints a real backend needs.
+Unit tests: validators, repository state transitions, login view model.
+Not done: real backend, deep links, Google/other sign-in, student-ID document verification, UI tests.

@@ -36,7 +36,7 @@ import com.univibe.app.features.settings.SettingsScreen
 import com.univibe.app.ui.components.VibeBottomBar
 
 @Composable
-fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
+fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -98,6 +98,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
                     onBack = { navController.popBackStack() },
+                    onLogOut = onLogOut,
                 )
             }
         }

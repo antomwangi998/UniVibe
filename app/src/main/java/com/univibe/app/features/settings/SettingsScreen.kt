@@ -19,6 +19,11 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.univibe.app.ui.components.ConfirmDialog
 import androidx.compose.material.icons.outlined.Accessibility
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -49,7 +54,9 @@ fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     onBack: () -> Unit,
+    onLogOut: () -> Unit,
 ) {
+    var confirmLogOut by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             title = "Settings",
@@ -84,6 +91,18 @@ fun SettingsScreen(
                 }
             }
             item {
+                VibeCard(onClick = { confirmLogOut = true }, contentPadding = PaddingValues(vertical = Spacing.xs)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(Spacing.md))
+                        Text("Log out", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            item {
                 Text(
                     "UniVibe 0.1.0 · Preview build with sample data",
                     style = MaterialTheme.typography.bodySmall,
@@ -92,6 +111,16 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+    if (confirmLogOut) {
+        ConfirmDialog(
+            title = "Log out?",
+            message = "You'll need to log in again to use UniVibe on this device.",
+            confirmLabel = "Log out",
+            destructive = true,
+            onConfirm = { confirmLogOut = false; onLogOut() },
+            onDismiss = { confirmLogOut = false },
+        )
     }
 }
 

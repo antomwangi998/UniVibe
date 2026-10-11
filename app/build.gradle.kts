@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// API base URL comes from gradle.properties / -P, never from source. Blank = mock auth (debug only).
+val apiBaseUrl = (project.findProperty("univibe.apiBaseUrl") as? String).orEmpty()
+
 android {
     namespace = "com.univibe.app"
     compileSdk = 34
@@ -14,6 +17,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
@@ -28,7 +32,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 dependencies {

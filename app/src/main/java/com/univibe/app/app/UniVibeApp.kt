@@ -12,7 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.prefs.ThemeMode
-import com.univibe.app.navigation.AppShell
+import com.univibe.app.features.auth.AuthGate
 import com.univibe.app.ui.theme.UniVibeTheme
 
 @Composable
@@ -36,6 +36,6 @@ fun UniVibeApp(appViewModel: AppViewModel = viewModel()) {
     }
 
     UniVibeTheme(darkTheme = darkTheme) {
-        AppShell(themeMode = themeMode, onThemeModeChange = appViewModel::setThemeMode)
+        AuthGate(themeMode = themeMode, onThemeModeChange = appViewModel::setThemeMode)
     }
 }
