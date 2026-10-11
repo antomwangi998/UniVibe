@@ -74,7 +74,7 @@ fun VibeBottomBar(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 10.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
         ) {
             Row(
                 Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.sm).selectableGroup(),

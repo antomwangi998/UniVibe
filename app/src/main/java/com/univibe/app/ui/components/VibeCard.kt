@@ -22,7 +22,7 @@ fun VibeCard(
 ) {
     val shape = MaterialTheme.shapes.large
     val color = MaterialTheme.colorScheme.surface
-    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    val border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
     if (onClick != null) {
         Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = border) {
             Column(Modifier.padding(contentPadding), content = content)
