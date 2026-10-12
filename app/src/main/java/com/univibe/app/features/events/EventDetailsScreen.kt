@@ -58,7 +58,9 @@ import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeButtonStyle
 import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibeIconButton
+import com.univibe.app.ui.components.VenueMap
 import com.univibe.app.ui.components.VibeTopBar
+import com.univibe.app.ui.components.openInMaps
 import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.theme.Spacing
 
@@ -96,6 +98,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit) {
                         }
                     }
                     if (details.agenda.isNotEmpty()) Agenda(details)
+                    VenueSection(details)
                 }
             }
             ActionBar(details, onGoing = viewModel::toggleGoing, onInterested = viewModel::toggleInterested)
@@ -226,6 +229,25 @@ private fun Agenda(details: EventDetails) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun VenueSection(details: EventDetails) {
+    val lat = details.latitude
+    val lng = details.longitude
+    if (lat == null || lng == null) return
+    val context = LocalContext.current
+    val venue = details.event.location
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Text("Venue", style = MaterialTheme.typography.titleMedium)
+        VenueMap(lat, lng, venue, onClick = { openInMaps(context, lat, lng, venue) })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(Spacing.sm))
+            Text(venue, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        }
+        VibeButton("Open in Maps", onClick = { openInMaps(context, lat, lng, venue) }, style = VibeButtonStyle.Secondary, modifier = Modifier.fillMaxWidth())
     }
 }
 

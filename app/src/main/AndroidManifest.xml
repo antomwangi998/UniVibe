@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Needed for map tiles. The app never asks for the device location. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".app.UniVibeApplication"
         android:allowBackup="false"

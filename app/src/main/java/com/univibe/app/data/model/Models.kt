@@ -78,6 +78,9 @@ data class EventDetails(
     val hostAccent: Int,
     val agenda: List<AgendaItem> = emptyList(),
     val capacity: Int? = null,
+    /** Venue position for the map; null hides the map (e.g. online events). */
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 ) {
     /** Full for everyone except people who already hold a place. */
     val isFull: Boolean

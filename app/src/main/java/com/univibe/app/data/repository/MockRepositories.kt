@@ -79,26 +79,32 @@ object MockData {
         CampusEvent("e6", "Career Fair", "APR", "02", "Tue, 2 Apr · 9:00 AM", "Sports Complex", 150, 80, "Academic", 4, isPast = true),
     )
 
-    private fun info(id: String, host: String, accent: Int, description: String, capacity: Int?, vararg agenda: Pair<String, String>) =
-        EventDetails(
-            event = events.first { it.id == id },
-            description = description, host = host, hostAccent = accent, capacity = capacity,
-            agenda = agenda.map { AgendaItem(it.first, it.second) },
-        )
+    private fun info(
+        id: String, host: String, accent: Int, description: String, capacity: Int?,
+        lat: Double?, lng: Double?, vararg agenda: Pair<String, String>,
+    ) = EventDetails(
+        event = events.first { it.id == id },
+        description = description, host = host, hostAccent = accent, capacity = capacity,
+        latitude = lat, longitude = lng,
+        agenda = agenda.map { AgendaItem(it.first, it.second) },
+    )
 
-    /** Mock-only descriptive content; a real backend returns this with the event. */
+    /**
+     * Mock-only descriptive content. The coordinates are PLACEHOLDERS near central Nairobi, not real
+     * venue positions: a real backend must return the true venue location with each event.
+     */
     val eventInfo: Map<String, EventDetails> by lazy {
         listOf(
             info("e1", "Student Council", 0, "An open-doors evening of music, food stalls and games to kick off the term. Bring a friend and your student ID.", 150,
-                "7:00 PM" to "Doors open", "8:00 PM" to "Live DJ set", "10:30 PM" to "Wrap-up"),
+                -1.2796, 36.8170, "7:00 PM" to "Doors open", "8:00 PM" to "Live DJ set", "10:30 PM" to "Wrap-up"),
             info("e2", "Sports Union", 5, "Faculties go head to head in a friendly knockout. Come and cheer, or sign your faculty team up at the sports office.", null,
-                "2:00 PM" to "Kick-off", "3:45 PM" to "Halftime games", "5:00 PM" to "Final and awards"),
+                -1.2803, 36.8160, "2:00 PM" to "Kick-off", "3:45 PM" to "Halftime games", "5:00 PM" to "Final and awards"),
             info("e3", "Design Club", 1, "A hands-on introduction to user research and prototyping. Laptops recommended; no experience needed.", 40,
-                "10:00 AM" to "Intro to UX", "11:00 AM" to "Prototyping lab", "12:30 PM" to "Show and tell"),
+                -1.2789, 36.8174, "10:00 AM" to "Intro to UX", "11:00 AM" to "Prototyping lab", "12:30 PM" to "Show and tell"),
             info("e4", "Entrepreneurship Society", 2, "Founders from around the region talk about starting out, failing fast and what they would do differently.", 200,
-                "3:00 PM" to "Keynote", "4:00 PM" to "Panel and questions"),
-            info("e5", "Student Council", 3, "The welcome party for new students.", null),
-            info("e6", "Careers Office", 4, "Meet employers and book interview slots for the coming semester.", null),
+                -1.2792, 36.8162, "3:00 PM" to "Keynote", "4:00 PM" to "Panel and questions"),
+            info("e5", "Student Council", 3, "The welcome party for new students.", null, -1.2799, 36.8165),
+            info("e6", "Careers Office", 4, "Meet employers and book interview slots for the coming semester.", null, -1.2810, 36.8180),
         ).associateBy { it.event.id }
     }
 

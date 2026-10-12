@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose) // loads picked photos from app storage
+    implementation(libs.osmdroid.android) // venue map preview; OpenStreetMap tiles, no API key (see docs/MAPS.md)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
