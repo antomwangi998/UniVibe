@@ -51,6 +51,7 @@ import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
 import com.univibe.app.features.profile.EditProfileScreen
+import com.univibe.app.features.profile.FullProfileScreen
 import com.univibe.app.features.profile.FollowKind
 import com.univibe.app.features.profile.FollowListScreen
 import com.univibe.app.features.profile.PhotosScreen
@@ -156,7 +157,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenStudent = { open(AppRoutes.student(it)) },
                         )
                     }
-                    tab(TopLevelDestination.Discover.route) { DiscoverScreen() }
+                    tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }) }
                     tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }) }
                     tab(TopLevelDestination.Profile.route) {
@@ -185,9 +186,10 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         EventDetailsScreen(eventId = entry.arg("eventId"), onBack = back)
                     }
                     subScreen(AppRoutes.STUDENT, stringArgs("studentId")) { entry ->
-                        StudentProfileScreen(
+                        FullProfileScreen(
                             studentId = entry.arg("studentId"), onBack = back,
                             onOpenChat = { open(AppRoutes.chat(it)) }, onEditProfile = { open(AppRoutes.EDIT_PROFILE) },
+                            onOpenCommunity = { open(AppRoutes.community(it)) }, onOpenComments = { open(AppRoutes.comments(it)) },
                         )
                     }
                     subScreen(AppRoutes.EDIT_PROFILE) { EditProfileScreen(onBack = back) }

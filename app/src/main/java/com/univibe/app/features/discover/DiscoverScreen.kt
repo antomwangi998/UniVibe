@@ -57,6 +57,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.model.Student
@@ -70,8 +72,9 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
-fun DiscoverScreen(viewModel: DiscoverViewModel = viewModel()) {
+fun DiscoverScreen(onOpenStudent: (String) -> Unit = {}, viewModel: DiscoverViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     var request by remember { mutableStateOf<Boolean?>(null) }
 
     Column(Modifier.fillMaxSize()) {
@@ -109,6 +112,7 @@ fun DiscoverScreen(viewModel: DiscoverViewModel = viewModel()) {
                                 SwipeableCard(
                                     student = top,
                                     request = request,
+                                    onOpen = { onOpenStudent(top.id) },
                                     onDecision = { liked ->
                                         request = null
                                         viewModel.decide(liked)
@@ -171,7 +175,7 @@ private fun ProgressRow(reviewed: Int, total: Int, onInfo: () -> Unit) {
 }
 
 @Composable
-private fun SwipeableCard(student: Student, request: Boolean?, onDecision: (Boolean) -> Unit) {
+private fun SwipeableCard(student: Student, request: Boolean?, onOpen: () -> Unit, onDecision: (Boolean) -> Unit) {
     val scope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
     val enter = remember { Animatable(0.94f) }
@@ -188,6 +192,7 @@ private fun SwipeableCard(student: Student, request: Boolean?, onDecision: (Bool
 
     ProfileDiscoveryCard(
         student = student,
+        onClick = onOpen,
         modifier = Modifier
             .fillMaxSize()
             .offset { IntOffset(offsetX.value.roundToInt(), 0) }
