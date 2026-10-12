@@ -30,6 +30,7 @@ import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
+import com.univibe.app.data.model.StudentProfile
 import kotlinx.coroutines.delay
 
 /*
@@ -107,6 +108,17 @@ object MockData {
             info("e6", "Careers Office", 4, "Meet employers and book interview slots for the coming semester.", null, -1.2810, 36.8180),
         ).associateBy { it.event.id }
     }
+
+    class Extra(val bio: String, val posts: Int, val followers: Int, val following: Int, val communityIds: List<String>)
+
+    /** Mock-only profile content for other students; a real backend returns this with the profile. */
+    val studentExtras: Map<String, Extra> = mapOf(
+        "s2" to Extra("Third-year CS student. Building campus apps and playing five-a-side on Fridays.", 42, 310, 280, listOf("tech", "football", "music")),
+        "s3" to Extra("Business and photography. Chasing sunsets and good business ideas.", 87, 940, 410, listOf("photo", "startup")),
+        "s4" to Extra("Robotics team lead. If it has motors, I want to take it apart.", 23, 205, 190, listOf("tech", "football")),
+        "s5" to Extra("Law, first year. Poetry on weekends and always up for a debate.", 15, 120, 260, listOf("debate", "music")),
+        "s6" to Extra("Talks, hack nights and projects for anyone curious about technology.", 64, 2400, 12, listOf("tech")),
+    )
 
     val allStudents = listOf(aisha, brian, grace, kevin, amina, tech)
     const val ME_ID = "s1"
@@ -246,17 +258,20 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
 }
 
 class MockDiscoverRepository : DiscoverRepository {
+    /** Students you already passed on or connected with, kept for this app session only. */
+    private val decided = mutableSetOf<String>()
+
     override suspend fun getCandidates(): List<Student> {
         delay(350)
         val me = MockData.aisha
-        return listOf(MockData.amina, MockData.brian, MockData.grace, MockData.kevin).map {
+        return listOf(MockData.amina, MockData.brian, MockData.grace, MockData.kevin).filter { it.id !in decided }.map {
             it.copy(
                 shared = it.interests.filter { i -> i in me.interests },
                 sameCourse = it.course == me.course,
             )
         }
     }
-    override suspend fun recordDecision(studentId: String, liked: Boolean) = Unit
+    override suspend fun recordDecision(studentId: String, liked: Boolean) { decided += studentId }
 }
 
 class MockChatRepository(private val store: MockStore = MockStore()) : ChatRepository {
@@ -435,6 +450,22 @@ class MockProfileRepository(
     }
 
     override suspend fun getStudent(id: String): Student? = MockData.allStudents.firstOrNull { it.id == id }
+
+    override suspend fun getStudentProfile(id: String): StudentProfile? {
+        if (id == MockData.ME_ID) {
+            val me = MockData.me
+            return StudentProfile(me.student, me.bio, me.posts, me.followers, me.following, listOf("tech", "photo", "debate"))
+        }
+        val student = MockData.allStudents.firstOrNull { it.id == id } ?: return null
+        val extra = MockData.studentExtras[id]
+        val me = MockData.aisha
+        // The data layer computes what you have in common; the UI never guesses it.
+        val withCommon = student.copy(shared = student.interests.filter { it in me.interests }, sameCourse = student.course == me.course)
+        return StudentProfile(
+            withCommon, extra?.bio.orEmpty(), extra?.posts ?: 0, extra?.followers ?: 0, extra?.following ?: 0,
+            extra?.communityIds.orEmpty(),
+        )
+    }
 
     override suspend fun getFollowers(): List<FollowEntry> =
         listOf(MockData.kevin, MockData.amina, MockData.grace, MockData.brian).map { FollowEntry(it, it.id in store.following) }

@@ -68,6 +68,16 @@ data class CampusEvent(
 
 enum class EventsTab { Upcoming, MyEvents, Past }
 
+/** Everything the full student profile shows. Counts and communities come from the server. */
+data class StudentProfile(
+    val student: Student,
+    val bio: String,
+    val posts: Int,
+    val followers: Int,
+    val following: Int,
+    val communityIds: List<String> = emptyList(),
+)
+
 data class AgendaItem(val time: String, val title: String)
 
 /** Everything the event details screen shows. [capacity] == null means unlimited places. */
