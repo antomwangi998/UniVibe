@@ -1,6 +1,7 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.FollowEntry
@@ -47,6 +48,8 @@ interface ChatRepository {
 
 interface EventRepository {
     suspend fun getEvents(): List<CampusEvent>
+    /** Null when the id is unknown (ids from deep links are untrusted). */
+    suspend fun getEvent(id: String): EventDetails?
     suspend fun setRsvp(eventId: String, state: RsvpState)
 }
 

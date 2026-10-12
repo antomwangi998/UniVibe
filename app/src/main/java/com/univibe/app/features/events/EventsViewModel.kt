@@ -2,11 +2,11 @@ package com.univibe.app.features.events
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.univibe.app.app.AppContainer
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventsTab
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.repository.EventRepository
-import com.univibe.app.data.repository.MockEventRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,7 +42,7 @@ data class EventsUiState(
 }
 
 class EventsViewModel(
-    private val repository: EventRepository = MockEventRepository(),
+    private val repository: EventRepository = AppContainer.eventRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EventsUiState())
     val state: StateFlow<EventsUiState> = _state.asStateFlow()
@@ -58,6 +58,14 @@ class EventsViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "We couldn't load events right now.") }
             }
+        }
+    }
+
+    /** Quiet reload when returning to the list (e.g. after RSVPing on the details screen). */
+    fun refresh() {
+        if (_state.value.loading) return
+        viewModelScope.launch {
+            runCatching { repository.getEvents() }.onSuccess { events -> _state.update { it.copy(events = events, error = null) } }
         }
     }
 

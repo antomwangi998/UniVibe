@@ -42,9 +42,10 @@ fun EventCard(
     event: CampusEvent,
     onRsvpClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    VibeCard(modifier = modifier.animateContentSize(), contentPadding = PaddingValues(0.dp), elevation = 2.dp) {
+    VibeCard(modifier = modifier.animateContentSize(), onClick = onClick, contentPadding = PaddingValues(0.dp), elevation = 2.dp) {
         Box(
             Modifier
                 .fillMaxWidth()

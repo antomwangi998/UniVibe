@@ -68,6 +68,24 @@ data class CampusEvent(
 
 enum class EventsTab { Upcoming, MyEvents, Past }
 
+data class AgendaItem(val time: String, val title: String)
+
+/** Everything the event details screen shows. [capacity] == null means unlimited places. */
+data class EventDetails(
+    val event: CampusEvent,
+    val description: String,
+    val host: String,
+    val hostAccent: Int,
+    val agenda: List<AgendaItem> = emptyList(),
+    val capacity: Int? = null,
+) {
+    /** Full for everyone except people who already hold a place. */
+    val isFull: Boolean
+        get() = capacity != null && event.going >= capacity && event.rsvp != RsvpState.Going
+    val spotsLeft: Int?
+        get() = capacity?.let { (it - event.going).coerceAtLeast(0) }
+}
+
 data class GroupSummary(val name: String, val members: Int, val accent: Int)
 
 data class MyProfile(

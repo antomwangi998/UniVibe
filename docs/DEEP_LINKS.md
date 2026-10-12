@@ -24,6 +24,7 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://chats/{chatId}` | A conversation (e.g. `univibe://chats/c1`) |
 | `univibe://post/{postId}/comments` | Comments on a post |
 | `univibe://student/{studentId}` | Another student's profile |
+| `univibe://events/{eventId}` | Event details (e.g. `univibe://events/e1`) |
 | `univibe://communities` | Communities list |
 | `univibe://communities/{communityId}` | Community details (e.g. `univibe://communities/tech`) |
 | `univibe://profile/edit` | Edit profile |
@@ -42,4 +43,3 @@ or `termux-open-url "univibe://events"`.
   and `android:autoVerify="true"`. Add them once you own a domain.
 - Email verification / password-reset links can reuse the same mechanism (see docs/AUTH_BACKEND.md).
 - Ids in links are untrusted input: screens look them up and show a "not found" state for unknown ids.
-- Event details (`univibe://events/{id}`) will be added with the event details screen.

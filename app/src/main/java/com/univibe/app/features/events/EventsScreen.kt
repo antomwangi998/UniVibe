@@ -32,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.model.EventsTab
@@ -48,8 +50,9 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun EventsScreen(viewModel: EventsViewModel = viewModel()) {
+fun EventsScreen(onOpenEvent: (String) -> Unit = {}, viewModel: EventsViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Events")
@@ -99,7 +102,7 @@ fun EventsScreen(viewModel: EventsViewModel = viewModel()) {
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 items(state.visible, key = { it.id }) { event ->
-                    EventCard(event, onRsvpClick = { viewModel.openRsvp(event) })
+                    EventCard(event, onRsvpClick = { viewModel.openRsvp(event) }, onClick = { onOpenEvent(event.id) })
                 }
             }
         }

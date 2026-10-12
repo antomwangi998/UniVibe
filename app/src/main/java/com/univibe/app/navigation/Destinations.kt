@@ -30,6 +30,7 @@ object SettingsRoutes {
 object AppRoutes {
     const val CHAT = "chats/{chatId}"
     const val COMMENTS = "post/{postId}/comments"
+    const val EVENT = "events/{eventId}"
     const val STUDENT = "student/{studentId}"
     const val COMMUNITIES = "communities"
     const val COMMUNITY = "communities/{communityId}"
@@ -41,6 +42,7 @@ object AppRoutes {
 
     fun chat(id: String) = "chats/$id"
     fun comments(postId: String) = "post/$postId/comments"
+    fun event(id: String) = "events/$id"
     fun student(id: String) = "student/$id"
     fun community(id: String) = "communities/$id"
 }

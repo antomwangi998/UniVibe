@@ -60,6 +60,7 @@ import com.univibe.app.features.profile.StudentProfileScreen
 import com.univibe.app.data.prefs.ThemeMode
 import com.univibe.app.features.chats.ChatsScreen
 import com.univibe.app.features.discover.DiscoverScreen
+import com.univibe.app.features.events.EventDetailsScreen
 import com.univibe.app.features.events.EventsScreen
 import com.univibe.app.features.home.HomeScreen
 import com.univibe.app.features.profile.ProfileScreen
@@ -157,7 +158,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
                     tab(TopLevelDestination.Discover.route) { DiscoverScreen() }
                     tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }) }
-                    tab(TopLevelDestination.Events.route) { EventsScreen() }
+                    tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }) }
                     tab(TopLevelDestination.Profile.route) {
                         ProfileScreen(
                             ProfileActions(
@@ -179,6 +180,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
                     subScreen(AppRoutes.COMMENTS, stringArgs("postId")) { entry ->
                         CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
+                    }
+                    subScreen(AppRoutes.EVENT, stringArgs("eventId")) { entry ->
+                        EventDetailsScreen(eventId = entry.arg("eventId"), onBack = back)
                     }
                     subScreen(AppRoutes.STUDENT, stringArgs("studentId")) { entry ->
                         StudentProfileScreen(

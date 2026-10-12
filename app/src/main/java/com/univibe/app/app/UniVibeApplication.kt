@@ -10,6 +10,8 @@ import com.univibe.app.data.profile.DataStoreProfileLocalStore
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.CommentRepository
 import com.univibe.app.data.repository.CommunityRepository
+import com.univibe.app.data.repository.EventRepository
+import com.univibe.app.data.repository.MockEventRepository
 import com.univibe.app.data.repository.FeedRepository
 import com.univibe.app.data.repository.MessageRepository
 import com.univibe.app.data.repository.MockChatRepository
@@ -42,6 +44,8 @@ object AppContainer {
     val chatRepository: ChatRepository by lazy { MockChatRepository(mockStore) }
     val messageRepository: MessageRepository by lazy { MockMessageRepository(mockStore) }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
+    /** One shared instance so RSVPs made on the details screen show up in the list. */
+    val eventRepository: EventRepository by lazy { MockEventRepository() }
     val profileRepository: ProfileRepository by lazy { MockProfileRepository(mockStore, DataStoreProfileLocalStore(app)) }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }

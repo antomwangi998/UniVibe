@@ -1,6 +1,8 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.model.AgendaItem
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.CommunityRole
@@ -76,6 +78,29 @@ object MockData {
         CampusEvent("e5", "Freshers Welcome", "APR", "12", "Fri, 12 Apr · 6:00 PM", "Main Hall", 210, 64, "Party", 3, isPast = true),
         CampusEvent("e6", "Career Fair", "APR", "02", "Tue, 2 Apr · 9:00 AM", "Sports Complex", 150, 80, "Academic", 4, isPast = true),
     )
+
+    private fun info(id: String, host: String, accent: Int, description: String, capacity: Int?, vararg agenda: Pair<String, String>) =
+        EventDetails(
+            event = events.first { it.id == id },
+            description = description, host = host, hostAccent = accent, capacity = capacity,
+            agenda = agenda.map { AgendaItem(it.first, it.second) },
+        )
+
+    /** Mock-only descriptive content; a real backend returns this with the event. */
+    val eventInfo: Map<String, EventDetails> by lazy {
+        listOf(
+            info("e1", "Student Council", 0, "An open-doors evening of music, food stalls and games to kick off the term. Bring a friend and your student ID.", 150,
+                "7:00 PM" to "Doors open", "8:00 PM" to "Live DJ set", "10:30 PM" to "Wrap-up"),
+            info("e2", "Sports Union", 5, "Faculties go head to head in a friendly knockout. Come and cheer, or sign your faculty team up at the sports office.", null,
+                "2:00 PM" to "Kick-off", "3:45 PM" to "Halftime games", "5:00 PM" to "Final and awards"),
+            info("e3", "Design Club", 1, "A hands-on introduction to user research and prototyping. Laptops recommended; no experience needed.", 40,
+                "10:00 AM" to "Intro to UX", "11:00 AM" to "Prototyping lab", "12:30 PM" to "Show and tell"),
+            info("e4", "Entrepreneurship Society", 2, "Founders from around the region talk about starting out, failing fast and what they would do differently.", 200,
+                "3:00 PM" to "Keynote", "4:00 PM" to "Panel and questions"),
+            info("e5", "Student Council", 3, "The welcome party for new students.", null),
+            info("e6", "Careers Office", 4, "Meet employers and book interview slots for the coming semester.", null),
+        ).associateBy { it.event.id }
+    }
 
     val allStudents = listOf(aisha, brian, grace, kevin, amina, tech)
     const val ME_ID = "s1"
@@ -339,10 +364,27 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
 
 class MockEventRepository : EventRepository {
     private val states = mutableMapOf<String, RsvpState>()
+    /** Counts include your own RSVP so lists and details always agree after a reload. */
+    private fun withState(e: CampusEvent): CampusEvent {
+        val state = states[e.id] ?: RsvpState.None
+        return e.copy(
+            rsvp = state,
+            going = e.going + if (state == RsvpState.Going) 1 else 0,
+            interested = e.interested + if (state == RsvpState.Interested) 1 else 0,
+        )
+    }
+
     override suspend fun getEvents(): List<CampusEvent> {
         delay(350)
-        return MockData.events.map { it.copy(rsvp = states[it.id] ?: RsvpState.None) }
+        return MockData.events.map(::withState)
     }
+
+    override suspend fun getEvent(id: String): EventDetails? {
+        delay(250)
+        val base = MockData.eventInfo[id] ?: return null
+        return base.copy(event = withState(base.event))
+    }
+
     override suspend fun setRsvp(eventId: String, state: RsvpState) { states[eventId] = state }
 }
 
