@@ -2,7 +2,10 @@ package com.univibe.app.features.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.univibe.app.app.AppContainer
 import com.univibe.app.data.model.FeedFilter
+import com.univibe.app.data.settings.BlockedUser
+import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.FeedRepository
@@ -26,15 +29,27 @@ data class HomeUiState(
     val publishError: String? = null,
     /** Increments after each successful post so the composer can clear itself. */
     val postedCount: Int = 0,
-)
+    val blocked: Set<String> = emptySet(),
+    val menuPost: Post? = null,
+    val notice: String? = null,
+) {
+    val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
+    val visibleStories: List<Student> get() = stories.filter { it.id !in blocked }
+}
 
 class HomeViewModel(
     private val repository: FeedRepository = MockFeedRepository(),
+    private val settings: SettingsRepository = AppContainer.settingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        viewModelScope.launch {
+            settings.settings.collect { s -> _state.update { it.copy(blocked = s.blocked.map { b -> b.id }.toSet()) } }
+        }
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -72,6 +87,26 @@ class HomeViewModel(
 
     private fun updatePost(id: String, change: (Post) -> Post) =
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) change(it) else it }) }
+
+    fun openPostMenu(post: Post) = _state.update { it.copy(menuPost = post) }
+    fun closePostMenu() = _state.update { it.copy(menuPost = null) }
+    fun consumeNotice() = _state.update { it.copy(notice = null) }
+
+    fun blockAuthor() {
+        val author = _state.value.menuPost?.author ?: return
+        viewModelScope.launch {
+            settings.update { s ->
+                if (s.blocked.any { it.id == author.id }) s else s.copy(blocked = s.blocked + BlockedUser(author.id, author.name))
+            }
+        }
+        _state.update { it.copy(menuPost = null, notice = "${author.name} blocked. You can undo this in Settings.") }
+    }
+
+    fun reportPost(reason: String) {
+        val post = _state.value.menuPost ?: return
+        viewModelScope.launch { runCatching { repository.reportPost(post.id, reason) } }
+        _state.update { it.copy(menuPost = null, notice = "Thanks. We'll review this post.") }
+    }
 
     /** Client-side checks are convenience only; the backend must validate again. */
     fun publish(text: String, hasMedia: Boolean) {

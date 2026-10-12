@@ -156,4 +156,23 @@ class MockAuthRepositoryTest {
         r.handleSessionExpired()
         assertEquals(AuthState.SignedOut(SignedOutReason.SessionExpired), r.session.value)
     }
+
+    @Test fun changePasswordChecksCurrentAndPolicy() = runTest {
+        val r = repo(); r.registerAndVerify(); r.completeOnboarding(profile)
+        assertEquals(AuthError.InvalidCredentials, failure(r.changePassword("WrongPass1!", "NewPass2026!")))
+        assertTrue(failure(r.changePassword(pw, "weak")) is AuthError.Validation)
+        assertTrue(r.changePassword(pw, "NewPass2026!") is AuthResult.Success)
+        r.logOut()
+        assertEquals(AuthError.InvalidCredentials, failure(r.logIn(email, pw, false)))
+        assertTrue(r.logIn(email, "NewPass2026!", false) is AuthResult.Success)
+    }
+
+    @Test fun deleteAccountNeedsPasswordAndRemovesAccount() = runTest {
+        val r = repo(); r.registerAndVerify(); r.completeOnboarding(profile)
+        assertEquals(AuthError.InvalidCredentials, failure(r.deleteAccount("WrongPass1!")))
+        assertTrue(r.session.value is AuthState.Authenticated)
+        assertTrue(r.deleteAccount(pw) is AuthResult.Success)
+        assertEquals(AuthState.SignedOut(), r.session.value)
+        assertEquals(AuthError.InvalidCredentials, failure(r.logIn(email, pw, false)))
+    }
 }

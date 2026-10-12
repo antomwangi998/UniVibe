@@ -6,6 +6,19 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
+import com.univibe.app.ui.components.rememberBottomClearance
+import com.univibe.app.ui.components.VibeBottomSheet
+import com.univibe.app.ui.components.LocalFloatingBarVisible
+import com.univibe.app.ui.components.FloatingBarClearance
+import com.univibe.app.data.model.Post
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -94,10 +107,10 @@ fun HomeScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = 96.dp),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                item(key = "stories") { StoriesRow(state.stories) }
+                item(key = "stories") { StoriesRow(state.visibleStories) }
                 item(key = "composer") {
                     Composer(
                         fullName = state.me?.name ?: "Aisha Njoki",
@@ -119,26 +132,34 @@ fun HomeScreen(
                 when {
                     state.loading -> item(key = "loading") { LoadingSkeleton() }
                     state.error != null -> item(key = "error") { ErrorState(state.error!!, onRetry = viewModel::load) }
-                    state.posts.isEmpty() -> item(key = "empty") {
+                    state.visiblePosts.isEmpty() -> item(key = "empty") {
                         EmptyState(
                             icon = Icons.Outlined.DynamicFeed,
                             title = "Nothing here yet",
                             message = "Follow more students and communities to fill your feed.",
                         )
                     }
-                    else -> items(state.posts, key = { it.id }) { post ->
+                    else -> items(state.visiblePosts, key = { it.id }) { post ->
                         CampusPostCard(
                             post = post,
                             onLike = { viewModel.toggleLike(post.id) },
                             onComment = { /* TODO: comments sheet */ },
                             onSave = { viewModel.toggleSave(post.id) },
+                            onMore = { viewModel.openPostMenu(post) },
                         )
                     }
                 }
             }
         }
 
-        // Scrolls to the composer and focuses it. Lives inside the NavHost area, so it is above the floating bar.
+        // Scrolls to the composer and focuses it. Rides just above the floating bar and drops down when it hides.
+        val barVisible = LocalFloatingBarVisible.current
+        val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val fabBottom by animateDpAsState(
+            targetValue = if (barVisible) FloatingBarClearance + navInset + 8.dp else navInset + Spacing.md,
+            animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
+            label = "fabBottom",
+        )
         FloatingActionButton(
             onClick = {
                 scope.launch {
@@ -149,8 +170,59 @@ fun HomeScreen(
             shape = CircleShape,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.md),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = Spacing.md, bottom = fabBottom),
         ) { Icon(Icons.Outlined.Edit, contentDescription = "Write a post") }
+    }
+
+    val context = LocalContext.current
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeNotice()
+        }
+    }
+
+    state.menuPost?.let { post ->
+        PostActionsSheet(
+            post = post,
+            isOwn = post.author.id == state.me?.id,
+            onDismiss = viewModel::closePostMenu,
+            onBlock = viewModel::blockAuthor,
+            onReport = viewModel::reportPost,
+        )
+    }
+}
+
+private val ReportReasons = listOf("Spam", "Harassment or bullying", "Inappropriate content", "False information", "Something else")
+
+@Composable
+private fun PostActionsSheet(post: Post, isOwn: Boolean, onDismiss: () -> Unit, onBlock: () -> Unit, onReport: (String) -> Unit) {
+    var choosingReason by remember(post.id) { mutableStateOf(false) }
+    VibeBottomSheet(onDismiss = onDismiss) {
+        when {
+            isOwn -> Text("Editing and deleting your posts is coming soon.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = Spacing.md))
+            choosingReason -> {
+                Text("Why are you reporting this?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
+                ReportReasons.forEach { reason -> SheetOption(Icons.Outlined.Flag, reason) { onReport(reason) } }
+            }
+            else -> {
+                SheetOption(Icons.Outlined.Flag, "Report post") { choosingReason = true }
+                SheetOption(Icons.Outlined.Block, "Block ${post.author.name}", destructive = true, onClick = onBlock)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetOption(icon: ImageVector, label: String, destructive: Boolean = false, onClick: () -> Unit) {
+    val tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint)
+        Spacer(Modifier.width(Spacing.md))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = tint)
     }
 }
 

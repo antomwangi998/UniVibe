@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -78,7 +79,7 @@ fun ProfileScreen(onOpenSettings: () -> Unit, viewModel: ProfileViewModel = view
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             state.error != null || profile == null -> ErrorState(state.error ?: "Something went wrong.", viewModel::load)
             else -> LazyColumn(
-                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = Spacing.md),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 item { Header(profile) }

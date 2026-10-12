@@ -1,5 +1,6 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -100,7 +101,7 @@ fun DiscoverScreen(viewModel: DiscoverViewModel = viewModel()) {
                     )
                 } else {
                     Column(
-                        Modifier.fillMaxSize().padding(horizontal = Spacing.md),
+                        Modifier.fillMaxSize().padding(start = Spacing.md, end = Spacing.md, bottom = rememberBottomClearance()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {

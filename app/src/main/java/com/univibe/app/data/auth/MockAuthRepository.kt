@@ -231,6 +231,45 @@ class MockAuthRepository(
         return AuthResult.Success(Unit)
     }
 
+    // ---------------------------------------------------------------- account management
+    override suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit> {
+        ensureLoaded(); simulateLatency()
+        val email = activeEmail ?: return fail(AuthError.SessionExpired)
+        val account = accounts[email] ?: return fail(AuthError.SessionExpired)
+        AuthValidators.password(newPassword)?.let { return fail(AuthError.Validation(it)) }
+        retryAfter(failedLogins[email], LOGIN_WINDOW_MS, MAX_LOGIN_FAILURES)?.let { return fail(AuthError.RateLimited(it)) }
+        if (!passwordMatches(account, currentPassword)) {
+            failedLogins.getOrPut(email) { mutableListOf() }.add(clock.nowMs())
+            return fail(AuthError.InvalidCredentials)
+        }
+        if (currentPassword == newPassword) return fail(AuthError.Validation("Choose a password you haven't used here."))
+        val salt = ByteArray(16).also { random.nextBytes(it) }
+        accounts[email] = account.copy(salt = enc64(salt), hash = enc64(hashPassword(newPassword, salt)))
+        persistAccounts()
+        failedLogins.remove(email)
+        return AuthResult.Success(Unit)
+    }
+
+    override suspend fun deleteAccount(password: String): AuthResult<Unit> {
+        ensureLoaded(); simulateLatency()
+        val email = activeEmail ?: return fail(AuthError.SessionExpired)
+        val account = accounts[email] ?: return fail(AuthError.SessionExpired)
+        retryAfter(failedLogins[email], LOGIN_WINDOW_MS, MAX_LOGIN_FAILURES)?.let { return fail(AuthError.RateLimited(it)) }
+        if (!passwordMatches(account, password)) {
+            failedLogins.getOrPut(email) { mutableListOf() }.add(clock.nowMs())
+            return fail(AuthError.InvalidCredentials)
+        }
+        accounts.remove(email)
+        persistAccounts()
+        store.remove(SESSION_KEY)
+        activeEmail = null
+        _session.value = AuthState.SignedOut()
+        return AuthResult.Success(Unit)
+    }
+
+    private suspend fun passwordMatches(account: Account, password: String): Boolean =
+        MessageDigest.isEqual(hashPassword(password, dec64(account.salt)), dec64(account.hash))
+
     // ---------------------------------------------------------------- onboarding
     override suspend fun completeOnboarding(profile: OnboardingProfile): AuthResult<Unit> {
         ensureLoaded(); simulateLatency()

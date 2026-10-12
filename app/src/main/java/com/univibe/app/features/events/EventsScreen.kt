@@ -1,5 +1,6 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -94,7 +95,7 @@ fun EventsScreen(viewModel: EventsViewModel = viewModel()) {
                 onAction = { viewModel.setTab(EventsTab.Upcoming) },
             )
             else -> LazyColumn(
-                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.md, bottom = Spacing.md),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 items(state.visible, key = { it.id }) { event ->

@@ -93,6 +93,8 @@ class MockFeedRepository : FeedRepository {
         if (saved) this.saved += postId else this.saved -= postId
     }
 
+    override suspend fun reportPost(postId: String, reason: String) = Unit // mock: nothing is sent
+
     override suspend fun createPost(text: String, hasMedia: Boolean): Post {
         delay(250)
         val post = Post("p${System.nanoTime()}", MockData.aisha, "now", text.trim(), 0, 0, mediaAccent = if (hasMedia) 0 else null)

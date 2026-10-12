@@ -32,6 +32,7 @@ fun VibeTopBar(
     modifier: Modifier = Modifier,
     navigationIcon: (@Composable () -> Unit)? = null,
     titleContent: (@Composable () -> Unit)? = null,
+    compactTitle: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -51,7 +52,7 @@ fun VibeTopBar(
         } else {
             Text(
                 text = title,
-                style = MaterialTheme.typography.headlineMedium,
+                style = if (compactTitle) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

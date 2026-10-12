@@ -18,6 +18,8 @@ interface FeedRepository {
     suspend fun getStories(): List<Student>
     suspend fun setLiked(postId: String, liked: Boolean)
     suspend fun setSaved(postId: String, saved: Boolean)
+    /** Sends a report to moderators. */
+    suspend fun reportPost(postId: String, reason: String)
     /** Server must validate length/content; returns the stored post. */
     suspend fun createPost(text: String, hasMedia: Boolean): Post
 }

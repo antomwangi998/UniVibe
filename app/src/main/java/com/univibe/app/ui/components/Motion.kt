@@ -1,15 +1,15 @@
 package com.univibe.app.ui.components
 
+import android.content.Context
 import android.provider.Settings
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.compositionLocalOf
 
-/** True when the user has turned system animations off (Developer options / accessibility). */
+/** True when animations should be minimal (system animations off, or the in-app "Reduce motion" setting). */
+val LocalReduceMotion = compositionLocalOf { false }
+
 @Composable
-fun rememberReducedMotion(): Boolean {
-    val context = LocalContext.current
-    return remember {
-        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-    }
-}
+fun rememberReducedMotion(): Boolean = LocalReduceMotion.current
+
+fun systemAnimationsOff(context: Context): Boolean =
+    Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f

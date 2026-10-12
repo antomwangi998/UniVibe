@@ -61,3 +61,12 @@ authentication**). In debug builds the verification/reset code is shown in a lab
 email is sent. See `docs/AUTH_BACKEND.md` for the endpoints a real backend needs.
 Unit tests: validators, repository state transitions, login view model.
 Not done: real backend, deep links, Google/other sign-in, student-ID document verification, UI tests.
+
+## Settings, deep links, floating bar (update 5)
+- Full Settings tree: Account (change password, delete account), Privacy & safety (visibility, who can message,
+  read receipts, blocked students, safety tips), Notifications, Accessibility (text size, reduce motion), Help & support
+  (FAQ, report a problem by email, guidelines, about). Choices persist with DataStore; text size and reduce-motion apply app-wide.
+- Post menu: Report / Block feeds the blocked list (mock moderation; no server).
+- Deep links: see docs/DEEP_LINKS.md.
+- The bottom bar now hovers over edge-to-edge content and hides while scrolling content up, returning when scrolling back.
+- Placeholders to replace: support email in HelpScreens.kt, Terms/Privacy text, guideline wording.

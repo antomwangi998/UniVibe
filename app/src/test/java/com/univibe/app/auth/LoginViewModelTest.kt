@@ -24,7 +24,7 @@ import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
-private class FakeAuthRepository : AuthRepository {
+internal class FakeAuthRepository : AuthRepository {
     override val session: StateFlow<AuthState> = MutableStateFlow(AuthState.SignedOut())
     var logInCalls = 0
     var logInResult: AuthResult<Unit> = AuthResult.Success(Unit)
@@ -44,6 +44,8 @@ private class FakeAuthRepository : AuthRepository {
     override suspend fun requestPasswordReset(email: String): AuthResult<Unit> = AuthResult.Success(Unit)
     override suspend fun resetPassword(email: String, code: String, newPassword: String): AuthResult<Unit> = AuthResult.Success(Unit)
     override suspend fun completeOnboarding(profile: OnboardingProfile): AuthResult<Unit> = AuthResult.Success(Unit)
+    override suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit> = AuthResult.Success(Unit)
+    override suspend fun deleteAccount(password: String): AuthResult<Unit> = AuthResult.Success(Unit)
     override suspend fun handleSessionExpired() = Unit
     override suspend fun logOut() = Unit
 }

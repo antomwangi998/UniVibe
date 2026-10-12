@@ -6,27 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import com.univibe.app.ui.components.ConfirmDialog
 import androidx.compose.material.icons.outlined.Accessibility
 import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Notifications
@@ -38,15 +26,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.prefs.ThemeMode
+import com.univibe.app.navigation.SettingsRoutes
+import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.VibeCard
-import com.univibe.app.ui.components.VibeIconButton
-import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
@@ -54,64 +47,48 @@ fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
     onBack: () -> Unit,
+    onNavigate: (String) -> Unit,
     onLogOut: () -> Unit,
+    viewModel: SettingsViewModel = viewModel(),
 ) {
+    val user by viewModel.user.collectAsStateWithLifecycle()
     var confirmLogOut by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        VibeTopBar(
-            title = "Settings",
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-        )
-        LazyColumn(
-            modifier = Modifier.navigationBarsPadding(),
-            contentPadding = PaddingValues(Spacing.md),
-            verticalArrangement = Arrangement.spacedBy(Spacing.md),
-        ) {
-            item {
-                VibeCard {
-                    Text("Appearance", style = MaterialTheme.typography.titleMedium)
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = Spacing.sm),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        ThemeOption("System", Icons.Outlined.SettingsBrightness, themeMode == ThemeMode.SYSTEM, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.SYSTEM) }
-                        ThemeOption("Light", Icons.Outlined.LightMode, themeMode == ThemeMode.LIGHT, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.LIGHT) }
-                        ThemeOption("Dark", Icons.Outlined.DarkMode, themeMode == ThemeMode.DARK, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.DARK) }
-                    }
+
+    SettingsPage("Settings", onBack) {
+        item {
+            VibeCard {
+                Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = Spacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    ThemeOption("System", Icons.Outlined.SettingsBrightness, themeMode == ThemeMode.SYSTEM, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.SYSTEM) }
+                    ThemeOption("Light", Icons.Outlined.LightMode, themeMode == ThemeMode.LIGHT, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.LIGHT) }
+                    ThemeOption("Dark", Icons.Outlined.DarkMode, themeMode == ThemeMode.DARK, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.DARK) }
                 }
-            }
-            item {
-                VibeCard(contentPadding = PaddingValues(vertical = Spacing.xs)) {
-                    // Rows are placeholders until their screens are built (see README checklist).
-                    SettingsRow(Icons.Outlined.AccountCircle, "Account")
-                    SettingsRow(Icons.Outlined.Shield, "Privacy & safety")
-                    SettingsRow(Icons.Outlined.Notifications, "Notifications")
-                    SettingsRow(Icons.Outlined.Accessibility, "Accessibility")
-                    SettingsRow(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support")
-                }
-            }
-            item {
-                VibeCard(onClick = { confirmLogOut = true }, contentPadding = PaddingValues(vertical = Spacing.xs)) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.width(Spacing.md))
-                        Text("Log out", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-            item {
-                Text(
-                    "UniVibe 0.1.0 · Preview build with sample data",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = Spacing.sm),
-                )
             }
         }
+        item {
+            SettingsGroup {
+                SettingsNavRow(Icons.Outlined.AccountCircle, "Account", { onNavigate(SettingsRoutes.ACCOUNT) }, subtitle = user?.email)
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Shield, "Privacy & safety", { onNavigate(SettingsRoutes.PRIVACY) })
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Notifications, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
+                RowDivider()
+                SettingsNavRow(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support", { onNavigate(SettingsRoutes.HELP) })
+            }
+        }
+        item {
+            SettingsGroup {
+                SettingsNavRow(Icons.AutoMirrored.Outlined.Logout, "Log out", { confirmLogOut = true }, destructive = true, showChevron = false)
+            }
+        }
+        item { SettingsNote("UniVibe 0.1.0 · Preview build with sample data") }
     }
+
     if (confirmLogOut) {
         ConfirmDialog(
             title = "Log out?",
@@ -140,18 +117,5 @@ private fun ThemeOption(label: String, icon: ImageVector, selected: Boolean, mod
             Spacer(Modifier.height(Spacing.xs))
             Text(label, style = MaterialTheme.typography.labelLarge)
         }
-    }
-}
-
-@Composable
-private fun SettingsRow(icon: ImageVector, title: String) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.md),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(Spacing.md))
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -95,7 +96,7 @@ fun ChatsScreen(viewModel: ChatsViewModel = viewModel()) {
                 else "Try a different name, word or filter.",
             )
             else -> LazyColumn(
-                contentPadding = PaddingValues(horizontal = Spacing.md, vertical = Spacing.sm),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.sm, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 if (state.pinned.isNotEmpty()) {

@@ -4,6 +4,8 @@ import android.app.Application
 import com.univibe.app.BuildConfig
 import com.univibe.app.data.auth.KeystoreSecureStore
 import com.univibe.app.data.auth.MockAuthRepository
+import com.univibe.app.data.settings.DataStoreSettingsRepository
+import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.domain.auth.AuthRepository
 
 class UniVibeApplication : Application() {
@@ -18,6 +20,8 @@ object AppContainer {
     private lateinit var app: Application
 
     fun init(application: Application) { app = application }
+
+    val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
 
     val authRepository: AuthRepository by lazy {
         if (BuildConfig.API_BASE_URL.isBlank()) {

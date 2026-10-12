@@ -1,0 +1,35 @@
+# Deep links
+
+Scheme: `univibe://<route>`. Every screen in the signed-in app has one.
+If the app is closed or the user is signed out, the link is kept and opened after sign-in.
+Links only navigate; they never perform actions (delete, block, etc.).
+
+| Link | Screen |
+|---|---|
+| `univibe://home` `discover` `chats` `events` `profile` | Main tabs |
+| `univibe://settings` | Settings |
+| `univibe://settings/account` | Account |
+| `univibe://settings/account/password` | Change password |
+| `univibe://settings/account/delete` | Delete account |
+| `univibe://settings/privacy` | Privacy & safety |
+| `univibe://settings/privacy/blocked` | Blocked students |
+| `univibe://settings/privacy/safety` | Safety tips |
+| `univibe://settings/notifications` | Notifications |
+| `univibe://settings/accessibility` | Accessibility |
+| `univibe://settings/help` | Help & support |
+| `univibe://settings/help/faq` | FAQ |
+| `univibe://settings/help/report` | Report a problem |
+| `univibe://settings/help/guidelines` | Community guidelines |
+| `univibe://settings/help/about` | About |
+
+## Try it from Termux (app installed)
+```
+am start -a android.intent.action.VIEW -d "univibe://settings/privacy"
+```
+or `termux-open-url "univibe://events"`.
+
+## Later
+- Web links (`https://yourdomain/...`) need Android App Links: a hosted `/.well-known/assetlinks.json`
+  and `android:autoVerify="true"`. Add them once you own a domain.
+- Email verification / password-reset links can reuse the same mechanism (see docs/AUTH_BACKEND.md).
+- Routes with arguments (e.g. `univibe://events/{id}`) arrive with the event details and chat screens.

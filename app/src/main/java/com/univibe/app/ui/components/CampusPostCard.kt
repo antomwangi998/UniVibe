@@ -61,6 +61,7 @@ fun CampusPostCard(
     onComment: () -> Unit,
     modifier: Modifier = Modifier,
     onSave: () -> Unit = {},
+    onMore: () -> Unit = {},
 ) {
     VibeCard(modifier = modifier, elevation = 2.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -80,7 +81,7 @@ fun CampusPostCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = { /* TODO: report / block / mute sheet */ }) {
+            IconButton(onClick = onMore) {
                 Icon(Icons.Outlined.MoreHoriz, contentDescription = "More options")
             }
         }
