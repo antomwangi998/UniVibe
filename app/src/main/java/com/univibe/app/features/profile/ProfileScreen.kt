@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -58,6 +57,7 @@ import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.StudentAvatar
+import com.univibe.app.ui.components.VerifiedBadge
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibeIconButton
@@ -229,19 +229,19 @@ private fun Header(profile: MyProfile, actions: ProfileActions) {
                 Box {
                     Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
                         Box(contentAlignment = Alignment.Center) {
+                            // No online dot on your own profile: it would collide with the verified badge.
                             StudentAvatar(
                                 profile.student.name, size = 104.dp, accent = profile.student.accent,
-                                online = profile.student.online, imagePath = profile.avatarPath,
+                                online = false, imagePath = profile.avatarPath,
                             )
                         }
                     }
                     if (profile.student.verified) {
-                        Surface(
-                            shape = CircleShape, color = colors.background,
-                            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 4.dp).size(30.dp),
-                        ) {
-                            Icon(Icons.Filled.Verified, contentDescription = "Verified student", tint = colors.primary, modifier = Modifier.padding(3.dp))
-                        }
+                        // Centre sits on the avatar ring at 45 degrees (58dp radius * 0.707 = 41dp from centre).
+                        VerifiedBadge(
+                            size = 30.dp,
+                            modifier = Modifier.align(Alignment.TopStart).offset(x = 84.dp, y = 84.dp),
+                        )
                     }
                 }
             }
