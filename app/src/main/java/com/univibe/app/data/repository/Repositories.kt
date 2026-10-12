@@ -15,6 +15,7 @@ import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
+import com.univibe.app.data.model.StudentProfile
 
 /**
  * Repository contracts. UI and ViewModels depend only on these interfaces so a real
@@ -59,6 +60,8 @@ interface ProfileRepository {
     suspend fun addPhoto(path: String)
     suspend fun removePhoto(path: String)
     suspend fun getStudent(id: String): Student?
+    /** Null when the id is unknown (ids from deep links are untrusted). */
+    suspend fun getStudentProfile(id: String): StudentProfile?
     suspend fun getFollowers(): List<FollowEntry>
     suspend fun getFollowing(): List<FollowEntry>
     suspend fun setFollowing(studentId: String, following: Boolean)

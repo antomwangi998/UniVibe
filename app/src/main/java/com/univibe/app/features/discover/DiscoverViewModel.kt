@@ -2,9 +2,9 @@ package com.univibe.app.features.discover
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.univibe.app.app.AppContainer
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.DiscoverRepository
-import com.univibe.app.data.repository.MockDiscoverRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,7 +35,7 @@ data class DiscoverUiState(
 }
 
 class DiscoverViewModel(
-    private val repository: DiscoverRepository = MockDiscoverRepository(),
+    private val repository: DiscoverRepository = AppContainer.discoverRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(DiscoverUiState())
     val state: StateFlow<DiscoverUiState> = _state.asStateFlow()
@@ -50,6 +50,16 @@ class DiscoverViewModel(
                 _state.update { it.copy(loading = false, remaining = deck, total = deck.size) }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "We couldn't load students right now.") }
+            }
+        }
+    }
+
+    /** Quiet reload when returning from a full profile, where you may have decided. */
+    fun refresh() {
+        if (_state.value.loading) return
+        viewModelScope.launch {
+            runCatching { repository.getCandidates() }.onSuccess { deck ->
+                _state.update { it.copy(remaining = deck, total = maxOf(it.total, deck.size)) }
             }
         }
     }
