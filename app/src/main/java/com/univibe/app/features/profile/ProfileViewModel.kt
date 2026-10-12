@@ -2,8 +2,11 @@ package com.univibe.app.features.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.univibe.app.app.AppContainer
+import com.univibe.app.data.model.Community
+import com.univibe.app.data.model.CommunityRole
 import com.univibe.app.data.model.MyProfile
-import com.univibe.app.data.repository.MockProfileRepository
+import com.univibe.app.data.repository.CommunityRepository
 import com.univibe.app.data.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,41 +23,31 @@ data class ProfileUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val profile: MyProfile? = null,
-    val interests: List<String> = emptyList(),
-    val editingInterests: Boolean = false,
-    val discoverable: Boolean = true,
-    val showOnline: Boolean = true,
-    val allowMessages: Boolean = true,
+    val groups: List<Community> = emptyList(),
 )
 
 class ProfileViewModel(
-    private val repository: ProfileRepository = MockProfileRepository(),
+    private val repository: ProfileRepository = AppContainer.profileRepository,
+    private val communities: CommunityRepository = AppContainer.communityRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfileUiState())
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 
     init { load() }
 
-    fun load() {
+    fun refresh() = load(silent = true)
+
+    fun load(silent: Boolean = false) {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            if (!silent) _state.update { it.copy(loading = true, error = null) }
             try {
                 val profile = repository.getMyProfile()
-                _state.update { it.copy(loading = false, profile = profile, interests = profile.student.interests) }
+                val groups = communities.getCommunities().filter { it.role != CommunityRole.None }
+                _state.update { it.copy(loading = false, profile = profile, groups = groups) }
             } catch (e: Exception) {
+                if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your profile.") }
             }
         }
     }
-
-    fun toggleEditInterests() = _state.update { it.copy(editingInterests = !it.editingInterests) }
-
-    fun toggleInterest(name: String) = _state.update { s ->
-        s.copy(interests = if (name in s.interests) s.interests - name else s.interests + name)
-    }
-
-    // Local-only for now; real privacy settings must be enforced server-side.
-    fun setDiscoverable(value: Boolean) = _state.update { it.copy(discoverable = value) }
-    fun setShowOnline(value: Boolean) = _state.update { it.copy(showOnline = value) }
-    fun setAllowMessages(value: Boolean) = _state.update { it.copy(allowMessages = value) }
 }

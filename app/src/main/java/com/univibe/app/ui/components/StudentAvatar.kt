@@ -25,6 +25,7 @@ fun StudentAvatar(
     size: Dp = 48.dp,
     accent: Int = 0,
     online: Boolean = false,
+    imagePath: String? = null,
 ) {
     val initials = name.split(" ").filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }
     Box(modifier.size(size)) {
@@ -32,7 +33,11 @@ fun StudentAvatar(
             Modifier.size(size).clip(CircleShape).background(accentSolid(accent)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(initials, color = Color.White, fontSize = (size.value * 0.36f).sp, style = MaterialTheme.typography.titleMedium)
+            if (imagePath != null) {
+                PhotoImage(imagePath, contentDescription = "$name profile photo")
+            } else {
+                Text(initials, color = Color.White, fontSize = (size.value * 0.36f).sp, style = MaterialTheme.typography.titleMedium)
+            }
         }
         if (online) {
             Surface(

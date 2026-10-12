@@ -6,6 +6,10 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
+import com.univibe.app.ui.components.PhotoImage
+import com.univibe.app.data.media.PhotoStore
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.Lifecycle
 import com.univibe.app.ui.components.rememberBottomClearance
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.LocalFloatingBarVisible
@@ -94,12 +98,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     onOpenEvents: () -> Unit = {},
+    onOpenComments: (String) -> Unit = {},
+    onOpenStudent: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val composerFocus = remember { FocusRequester() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
@@ -119,7 +126,7 @@ fun HomeScreen(
                         postedCount = state.postedCount,
                         focusRequester = composerFocus,
                         onOpenEvents = onOpenEvents,
-                        onPost = viewModel::publish,
+                        onPost = { text, media, path -> viewModel.publish(text, media, path) },
                     )
                 }
                 item(key = "filters") {
@@ -143,7 +150,8 @@ fun HomeScreen(
                         CampusPostCard(
                             post = post,
                             onLike = { viewModel.toggleLike(post.id) },
-                            onComment = { /* TODO: comments sheet */ },
+                            onComment = { onOpenComments(post.id) },
+                            onAuthorClick = { onOpenStudent(post.author.id) },
                             onSave = { viewModel.toggleSave(post.id) },
                             onMore = { viewModel.openPostMenu(post) },
                         )
@@ -237,11 +245,13 @@ private fun Composer(
     postedCount: Int,
     focusRequester: FocusRequester,
     onOpenEvents: () -> Unit,
-    onPost: (text: String, hasMedia: Boolean) -> Unit,
+    onPost: (text: String, hasMedia: Boolean, imagePath: String?) -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var text by rememberSaveable { mutableStateOf("") }
     var attached by rememberSaveable { mutableStateOf<String?>(null) }
+    var attachedPath by rememberSaveable { mutableStateOf<String?>(null) }
     var seenPosts by rememberSaveable { mutableStateOf(postedCount) }
 
     // Clear the draft after a successful post.
@@ -249,16 +259,23 @@ private fun Composer(
         if (postedCount != seenPosts) {
             text = ""
             attached = null
+            attachedPath = null
             seenPosts = postedCount
         }
     }
 
     // System photo picker: no storage permission needed.
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) attached = "Photo"
+        if (uri != null) scope.launch {
+            val path = PhotoStore.import(context, uri, "post")
+            if (path != null) {
+                PhotoStore.delete(attachedPath)
+                attached = "Photo"; attachedPath = path
+            } else Toast.makeText(context, "Couldn't use that image.", Toast.LENGTH_SHORT).show()
+        }
     }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) attached = "Video"
+        if (uri != null) { PhotoStore.delete(attachedPath); attachedPath = null; attached = "Video" }
     }
 
     val tooLong = text.length > MAX_POST_LENGTH
@@ -291,10 +308,16 @@ private fun Composer(
                     Icon(if (kind == "Photo") Icons.Outlined.Image else Icons.Outlined.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("$kind attached", style = MaterialTheme.typography.labelMedium)
-                    IconButton(onClick = { attached = null }, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { PhotoStore.delete(attachedPath); attachedPath = null; attached = null }, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Outlined.Close, contentDescription = "Remove $kind", modifier = Modifier.size(18.dp))
                     }
                 }
+            }
+        }
+
+        attachedPath?.let { path ->
+            Box(Modifier.padding(top = Spacing.sm).size(96.dp).clip(RoundedCornerShape(16.dp))) {
+                PhotoImage(path, contentDescription = "Selected photo preview")
             }
         }
 
@@ -302,7 +325,7 @@ private fun Composer(
             Row(Modifier.fillMaxWidth().padding(top = Spacing.sm), horizontalArrangement = Arrangement.End) {
                 VibeButton(
                     text = "Post",
-                    onClick = { onPost(text, attached != null) },
+                    onClick = { onPost(text, attached != null, attachedPath) },
                     enabled = !tooLong,
                     loading = publishing,
                     compact = true,

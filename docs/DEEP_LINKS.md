@@ -21,6 +21,15 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://settings/help/report` | Report a problem |
 | `univibe://settings/help/guidelines` | Community guidelines |
 | `univibe://settings/help/about` | About |
+| `univibe://chats/{chatId}` | A conversation (e.g. `univibe://chats/c1`) |
+| `univibe://post/{postId}/comments` | Comments on a post |
+| `univibe://student/{studentId}` | Another student's profile |
+| `univibe://communities` | Communities list |
+| `univibe://communities/{communityId}` | Community details (e.g. `univibe://communities/tech`) |
+| `univibe://profile/edit` | Edit profile |
+| `univibe://profile/photos` | Your photos |
+| `univibe://profile/saved` | Saved posts |
+| `univibe://profile/followers` `univibe://profile/following` | Follower lists |
 
 ## Try it from Termux (app installed)
 ```
@@ -32,4 +41,5 @@ or `termux-open-url "univibe://events"`.
 - Web links (`https://yourdomain/...`) need Android App Links: a hosted `/.well-known/assetlinks.json`
   and `android:autoVerify="true"`. Add them once you own a domain.
 - Email verification / password-reset links can reuse the same mechanism (see docs/AUTH_BACKEND.md).
-- Routes with arguments (e.g. `univibe://events/{id}`) arrive with the event details and chat screens.
+- Ids in links are untrusted input: screens look them up and show a "not found" state for unknown ids.
+- Event details (`univibe://events/{id}`) will be added with the event details screen.

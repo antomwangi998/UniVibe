@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.repository.ChatRepository
-import com.univibe.app.data.repository.MockChatRepository
+import com.univibe.app.app.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,24 +37,27 @@ data class ChatsUiState(
 }
 
 class ChatsViewModel(
-    private val repository: ChatRepository = MockChatRepository(),
+    private val repository: ChatRepository = AppContainer.chatRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ChatsUiState())
     val state: StateFlow<ChatsUiState> = _state.asStateFlow()
 
     init { load() }
 
-    fun load() {
+    fun load(silent: Boolean = false) {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            if (!silent) _state.update { it.copy(loading = true, error = null) }
             try {
                 val chats = repository.getChats()
                 _state.update { it.copy(loading = false, all = chats) }
             } catch (e: Exception) {
+                if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your messages.") }
             }
         }
     }
+
+    fun refresh() = load(silent = true)
 
     fun setQuery(query: String) = _state.update { it.copy(query = query) }
     fun setFilter(filter: ChatFilter) = _state.update { it.copy(filter = filter) }

@@ -70,3 +70,13 @@ Not done: real backend, deep links, Google/other sign-in, student-ID document ve
 - Deep links: see docs/DEEP_LINKS.md.
 - The bottom bar now hovers over edge-to-edge content and hides while scrolling content up, returning when scrolling back.
 - Placeholders to replace: support email in HelpScreens.kt, Terms/Privacy text, guideline wording.
+
+## Update 6 — comments, chat, profile screens, communities
+- Comments screen per post (add, like, delete own, report others).
+- Chat conversation: bubbles, photo messages, typing indicator, read receipts (honours the privacy setting), copy/delete, new chats from a student's profile.
+  Replies are **mock** (a fake auto-reply) so you can see the UI work.
+- Profile: Edit profile (discard-changes guard), Photos grid + viewer, Saved posts, Followers/Following, other students' profiles (follow, message, block, report).
+- Communities: list with search/categories, details, join/leave, mute, rules, moderator queue (mock).
+- Picked photos are copied into app storage, downscaled and re-encoded (strips location data). Coil displays them.
+- Mock data for these features is shared in one in-memory store: it resets when the app restarts, except settings and your profile edits/photos (DataStore + files).
+Not done: real uploads/backend, video, group chat creation, post/comment threads with replies, event details.

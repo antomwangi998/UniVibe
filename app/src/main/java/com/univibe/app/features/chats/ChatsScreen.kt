@@ -2,6 +2,8 @@ package com.univibe.app.features.chats
 
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.AnimatedVisibility
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.Lifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,8 +57,9 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun ChatsScreen(viewModel: ChatsViewModel = viewModel()) {
+fun ChatsScreen(onOpenChat: (String) -> Unit = {}, viewModel: ChatsViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Chats")
@@ -102,13 +105,13 @@ fun ChatsScreen(viewModel: ChatsViewModel = viewModel()) {
                 if (state.pinned.isNotEmpty()) {
                     item(key = "hdr-pinned") { SectionLabel("Pinned") }
                     items(state.pinned, key = { it.id }) { chat ->
-                        SwipeableChatRow(chat, { viewModel.toggleMute(chat.id) }, { viewModel.archive(chat.id) })
+                        SwipeableChatRow(chat, { onOpenChat(chat.id) }, { viewModel.toggleMute(chat.id) }, { viewModel.archive(chat.id) })
                     }
                 }
                 if (state.others.isNotEmpty()) {
                     item(key = "hdr-all") { SectionLabel("All chats") }
                     items(state.others, key = { it.id }) { chat ->
-                        SwipeableChatRow(chat, { viewModel.toggleMute(chat.id) }, { viewModel.archive(chat.id) })
+                        SwipeableChatRow(chat, { onOpenChat(chat.id) }, { viewModel.toggleMute(chat.id) }, { viewModel.archive(chat.id) })
                     }
                 }
             }
@@ -129,7 +132,7 @@ private fun SectionLabel(text: String) {
 /** Swipe right to mute/unmute (snaps back), swipe left to archive. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeableChatRow(chat: Chat, onMute: () -> Unit, onArchive: () -> Unit) {
+private fun SwipeableChatRow(chat: Chat, onOpen: () -> Unit, onMute: () -> Unit, onArchive: () -> Unit) {
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
@@ -161,7 +164,7 @@ private fun SwipeableChatRow(chat: Chat, onMute: () -> Unit, onArchive: () -> Un
             }
         },
     ) {
-        Surface(color = MaterialTheme.colorScheme.background) { ChatRow(chat) }
+        Surface(color = MaterialTheme.colorScheme.background, onClick = onOpen) { ChatRow(chat) }
     }
 }
 
@@ -207,7 +210,7 @@ private fun ChatRow(chat: Chat) {
                 }
             }
             Text(
-                chat.lastMessage,
+                chat.lastMessage.ifBlank { "Say hello" },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,

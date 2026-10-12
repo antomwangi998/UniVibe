@@ -6,6 +6,20 @@ import com.univibe.app.data.auth.KeystoreSecureStore
 import com.univibe.app.data.auth.MockAuthRepository
 import com.univibe.app.data.settings.DataStoreSettingsRepository
 import com.univibe.app.data.settings.SettingsRepository
+import com.univibe.app.data.profile.DataStoreProfileLocalStore
+import com.univibe.app.data.repository.ChatRepository
+import com.univibe.app.data.repository.CommentRepository
+import com.univibe.app.data.repository.CommunityRepository
+import com.univibe.app.data.repository.FeedRepository
+import com.univibe.app.data.repository.MessageRepository
+import com.univibe.app.data.repository.MockChatRepository
+import com.univibe.app.data.repository.MockCommentRepository
+import com.univibe.app.data.repository.MockCommunityRepository
+import com.univibe.app.data.repository.MockFeedRepository
+import com.univibe.app.data.repository.MockMessageRepository
+import com.univibe.app.data.repository.MockProfileRepository
+import com.univibe.app.data.repository.MockStore
+import com.univibe.app.data.repository.ProfileRepository
 import com.univibe.app.domain.auth.AuthRepository
 
 class UniVibeApplication : Application() {
@@ -20,6 +34,15 @@ object AppContainer {
     private lateinit var app: Application
 
     fun init(application: Application) { app = application }
+
+    // MOCK data layer: one shared in-memory store so screens stay consistent with each other.
+    private val mockStore by lazy { MockStore() }
+    val feedRepository: FeedRepository by lazy { MockFeedRepository(mockStore) }
+    val commentRepository: CommentRepository by lazy { MockCommentRepository(mockStore) }
+    val chatRepository: ChatRepository by lazy { MockChatRepository(mockStore) }
+    val messageRepository: MessageRepository by lazy { MockMessageRepository(mockStore) }
+    val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
+    val profileRepository: ProfileRepository by lazy { MockProfileRepository(mockStore, DataStoreProfileLocalStore(app)) }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
 

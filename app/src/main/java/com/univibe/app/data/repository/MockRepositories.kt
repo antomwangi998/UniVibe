@@ -1,6 +1,26 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.Comment
+import com.univibe.app.data.model.Community
+import com.univibe.app.data.model.CommunityRole
+import com.univibe.app.data.model.FollowEntry
+import com.univibe.app.data.model.Message
+import com.univibe.app.data.model.MessageStatus
+import com.univibe.app.data.model.ProfileUpdate
+import com.univibe.app.data.model.ReportItem
+import com.univibe.app.core.formatClock
+import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.profile.InMemoryProfileLocalStore
+import com.univibe.app.data.profile.ProfileLocalStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.GroupSummary
@@ -57,6 +77,9 @@ object MockData {
         CampusEvent("e6", "Career Fair", "APR", "02", "Tue, 2 Apr · 9:00 AM", "Sports Complex", 150, 80, "Academic", 4, isPast = true),
     )
 
+    val allStudents = listOf(aisha, brian, grace, kevin, amina, tech)
+    const val ME_ID = "s1"
+
     val me = MyProfile(
         student = aisha,
         bio = "Lover of good music, weekend adventures and great conversations.",
@@ -69,36 +92,124 @@ object MockData {
     )
 }
 
-class MockFeedRepository : FeedRepository {
-    private val posts = MockData.posts.toMutableList()
-    private val liked = mutableSetOf<String>()
-    private val saved = mutableSetOf<String>()
 
+/** Shared in-memory state so every mock repository sees the same posts, chats, comments, etc. */
+class MockStore {
+    val posts = MockData.posts.toMutableList()
+    val liked = mutableSetOf<String>()
+    val saved = mutableSetOf<String>()
+    val following = mutableSetOf("s2", "s3", "s6")
+
+    val chats = MockData.chats.toMutableList()
+    val archived = mutableSetOf<String>()
+    val mutedChats = mutableSetOf<String>()
+    private val messageFlows = mutableMapOf<String, MutableStateFlow<List<Message>>>()
+    private val typingFlows = mutableMapOf<String, MutableStateFlow<Boolean>>()
+
+    private val commentLists = mutableMapOf<String, MutableList<Comment>>()
+    private val likedComments = mutableSetOf<String>()
+
+    val communities = mutableListOf(
+        Community("tech", "Tech Club", "Talks, hack nights and projects for anyone curious about technology.", 842, "Academic", 5,
+            CommunityRole.Moderator, rules = listOf("Be respectful", "No spam or ads", "Credit your sources"), moderators = listOf("Aisha Njoki", "Brian Otieno")),
+        Community("photo", "Photography Club", "Photo walks, editing tips and monthly exhibitions.", 612, "Arts", 2,
+            CommunityRole.Member, rules = listOf("Post your own work", "Ask before photographing people"), moderators = listOf("Grace Wanjiku")),
+        Community("debate", "Debate Club", "Weekly debates and public-speaking practice.", 290, "Academic", 4,
+            CommunityRole.Member, rules = listOf("Argue the idea, not the person", "Stay on topic"), moderators = listOf("Amina Hassan")),
+        Community("music", "Music Society", "Open mics, band meet-ups and campus gigs.", 560, "Arts", 0,
+            rules = listOf("Keep it friendly", "Share events in the Events tab"), moderators = listOf("Kevin Mutua")),
+        Community("startup", "Entrepreneurship Hub", "Pitch nights and founder stories from campus and beyond.", 445, "Business", 3,
+            rules = listOf("No pyramid schemes", "Give honest feedback"), moderators = listOf("Grace Wanjiku")),
+        Community("football", "Football Club", "Training sessions and inter-faculty matches.", 380, "Sports", 1,
+            rules = listOf("Respect the referee", "Everyone plays"), moderators = listOf("Brian Otieno")),
+    )
+    val reports = mutableMapOf(
+        "tech" to mutableListOf(
+            ReportItem("r1", "Selling cheap laptops, message me for prices!!!", "Unknown Seller", "Spam"),
+            ReportItem("r2", "That talk was a waste of everyone's time.", "Anonymous", "Harassment or bullying"),
+        ),
+    )
+
+    fun commentsFor(postId: String): MutableList<Comment> = commentLists.getOrPut(postId) {
+        when (postId) {
+            "p1" -> mutableListOf(
+                Comment("cm1", "p1", MockData.brian, "Loved the demo section. Will there be slides?", "1h", 6),
+                Comment("cm2", "p1", MockData.grace, "Wish I had come! Next one for sure.", "45m", 3),
+            )
+            "p2" -> mutableListOf(Comment("cm3", "p2", MockData.amina, "Stunning colours. Which lens?", "3h", 12))
+            "p3" -> mutableListOf(Comment("cm4", "p3", MockData.kevin, "Count me in. What time?", "5h", 1))
+            else -> mutableListOf()
+        }
+    }
+
+    fun isCommentLiked(id: String) = id in likedComments
+    fun setCommentLiked(id: String, liked: Boolean) { if (liked) likedComments += id else likedComments -= id }
+
+    fun adjustCommentCount(postId: String, delta: Int) {
+        val i = posts.indexOfFirst { it.id == postId }
+        if (i >= 0) posts[i] = posts[i].copy(commentCount = (posts[i].commentCount + delta).coerceAtLeast(0))
+    }
+
+    fun messageFlow(chatId: String): MutableStateFlow<List<Message>> = messageFlows.getOrPut(chatId) {
+        val chat = chats.firstOrNull { it.id == chatId }
+        val now = System.currentTimeMillis()
+        MutableStateFlow(
+            if (chat == null || chat.lastMessage.isBlank()) emptyList() else listOf(
+                Message("${chatId}-1", chatId, "other", chat.title.substringBefore(' '), "Hey! Are we still meeting?", now - 3_600_000, false),
+                Message("${chatId}-2", chatId, MockData.ME_ID, "You", "Yes, 3pm works for me.", now - 3_500_000, true, MessageStatus.Seen),
+                Message("${chatId}-3", chatId, "other", chat.title.substringBefore(' '), chat.lastMessage, now - 1_800_000, false),
+            ),
+        )
+    }
+
+    fun typingFlow(chatId: String): MutableStateFlow<Boolean> = typingFlows.getOrPut(chatId) { MutableStateFlow(false) }
+
+    fun appendMessage(message: Message) {
+        messageFlow(message.chatId).update { it + message }
+        val i = chats.indexOfFirst { it.id == message.chatId }
+        if (i >= 0) {
+            val preview = if (message.imagePath != null && message.text.isBlank()) "Photo" else message.text
+            chats[i] = chats[i].copy(
+                lastMessage = if (message.isMine) "You: $preview" else preview,
+                timeLabel = formatClock(message.timeMillis),
+                unread = if (message.isMine) 0 else chats[i].unread,
+            )
+        }
+    }
+}
+
+class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepository {
     override suspend fun getCurrentUser(): Student = MockData.aisha
 
     override suspend fun getPosts(filter: FeedFilter): List<Post> {
         delay(450)
-        val base = if (filter == FeedFilter.Following) posts.filter { it.fromFollowing } else posts.toList()
-        return base.map { it.copy(likedByMe = it.id in liked, savedByMe = it.id in saved) }
+        val base = if (filter == FeedFilter.Following) store.posts.filter { it.fromFollowing } else store.posts.toList()
+        return base.map { it.copy(likedByMe = it.id in store.liked, savedByMe = it.id in store.saved) }
     }
 
     override suspend fun getStories(): List<Student> =
         listOf(MockData.brian, MockData.grace, MockData.tech, MockData.kevin, MockData.amina)
 
     override suspend fun setLiked(postId: String, liked: Boolean) {
-        if (liked) this.liked += postId else this.liked -= postId
+        if (liked) store.liked += postId else store.liked -= postId
     }
 
     override suspend fun setSaved(postId: String, saved: Boolean) {
-        if (saved) this.saved += postId else this.saved -= postId
+        if (saved) store.saved += postId else store.saved -= postId
     }
+
+    override suspend fun getSavedPosts(): List<Post> =
+        store.posts.filter { it.id in store.saved }.map { it.copy(likedByMe = it.id in store.liked, savedByMe = true) }
 
     override suspend fun reportPost(postId: String, reason: String) = Unit // mock: nothing is sent
 
-    override suspend fun createPost(text: String, hasMedia: Boolean): Post {
+    override suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String?): Post {
         delay(250)
-        val post = Post("p${System.nanoTime()}", MockData.aisha, "now", text.trim(), 0, 0, mediaAccent = if (hasMedia) 0 else null)
-        posts.add(0, post)
+        val post = Post(
+            "p${System.nanoTime()}", MockData.aisha, "now", text.trim(), 0, 0,
+            mediaAccent = if (hasMedia && imagePath == null) 0 else null, imagePath = imagePath,
+        )
+        store.posts.add(0, post)
         return post
     }
 }
@@ -117,18 +228,113 @@ class MockDiscoverRepository : DiscoverRepository {
     override suspend fun recordDecision(studentId: String, liked: Boolean) = Unit
 }
 
-class MockChatRepository : ChatRepository {
-    private val muted = mutableSetOf<String>()
-    private val archived = mutableSetOf<String>()
-
+class MockChatRepository(private val store: MockStore = MockStore()) : ChatRepository {
     override suspend fun getChats(): List<Chat> {
         delay(300)
-        return MockData.chats.filter { it.id !in archived }.map { it.copy(muted = it.id in muted) }
+        return store.chats.filter { it.id !in store.archived }.map { it.copy(muted = it.id in store.mutedChats) }
     }
+    override suspend fun getChat(chatId: String): Chat? =
+        store.chats.firstOrNull { it.id == chatId }?.let { it.copy(muted = it.id in store.mutedChats) }
     override suspend fun setMuted(chatId: String, muted: Boolean) {
-        if (muted) this.muted += chatId else this.muted -= chatId
+        if (muted) store.mutedChats += chatId else store.mutedChats -= chatId
     }
-    override suspend fun archive(chatId: String) { archived += chatId }
+    override suspend fun archive(chatId: String) { store.archived += chatId }
+}
+
+class MockMessageRepository(
+    private val store: MockStore = MockStore(),
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val autoReply: Boolean = true,
+) : MessageRepository {
+    private val replies = listOf("Sounds good!", "Haha, same here.", "Let me check and get back to you.", "See you there!", "Thanks for letting me know.")
+
+    override fun messages(chatId: String): Flow<List<Message>> = store.messageFlow(chatId)
+    override fun typing(chatId: String): Flow<Boolean> = store.typingFlow(chatId)
+
+    override suspend fun send(chatId: String, text: String, imagePath: String?) {
+        val clean = text.trim()
+        if (clean.isEmpty() && imagePath == null) return
+        store.appendMessage(Message("m${System.nanoTime()}", chatId, MockData.ME_ID, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sent, imagePath))
+        if (!autoReply) return
+        // MOCK: a fake reply so the conversation feels alive. A real backend replaces all of this.
+        scope.launch {
+            kotlinx.coroutines.delay(900)
+            store.typingFlow(chatId).value = true
+            kotlinx.coroutines.delay(1800)
+            store.typingFlow(chatId).value = false
+            store.messageFlow(chatId).update { list -> list.map { if (it.isMine) it.copy(status = MessageStatus.Seen) else it } }
+            val chat = store.chats.firstOrNull { it.id == chatId }
+            val sender = if (chat?.isGroup == true) "Kevin" else chat?.title?.substringBefore(' ') ?: "Student"
+            store.appendMessage(Message("m${System.nanoTime()}", chatId, "other", sender, replies[(clean.length) % replies.size], System.currentTimeMillis(), false))
+        }
+    }
+
+    override suspend fun deleteMessage(chatId: String, messageId: String) {
+        store.messageFlow(chatId).update { list -> list.filterNot { it.id == messageId && it.isMine } }
+    }
+
+    override suspend fun markRead(chatId: String) {
+        val i = store.chats.indexOfFirst { it.id == chatId }
+        if (i >= 0) store.chats[i] = store.chats[i].copy(unread = 0)
+    }
+
+    override suspend fun openChatWith(student: Student): String {
+        store.chats.firstOrNull { !it.isGroup && it.title == student.name }?.let { store.archived -= it.id; return it.id }
+        val id = "c_${student.id}"
+        if (store.chats.none { it.id == id }) store.chats.add(0, Chat(id, student.name, "", "", online = student.online))
+        store.archived -= id
+        return id
+    }
+}
+
+class MockCommentRepository(private val store: MockStore = MockStore()) : CommentRepository {
+    override suspend fun getComments(postId: String): List<Comment> {
+        delay(300)
+        return store.commentsFor(postId).map { it.copy(likedByMe = store.isCommentLiked(it.id)) }
+    }
+
+    override suspend fun addComment(postId: String, text: String): Comment {
+        delay(200)
+        val comment = Comment("cm${System.nanoTime()}", postId, MockData.aisha, text.trim(), "now", 0, isMine = true)
+        store.commentsFor(postId).add(comment)
+        store.adjustCommentCount(postId, +1)
+        return comment
+    }
+
+    override suspend fun setLiked(commentId: String, liked: Boolean) = store.setCommentLiked(commentId, liked)
+
+    override suspend fun deleteComment(commentId: String) {
+        store.posts.forEach { post ->
+            val list = store.commentsFor(post.id)
+            if (list.removeAll { it.id == commentId && it.isMine }) store.adjustCommentCount(post.id, -1)
+        }
+    }
+
+    override suspend fun reportComment(commentId: String, reason: String) = Unit // mock
+}
+
+class MockCommunityRepository(private val store: MockStore = MockStore()) : CommunityRepository {
+    override suspend fun getCommunities(): List<Community> { delay(300); return store.communities.toList() }
+    override suspend fun getCommunity(id: String): Community? = store.communities.firstOrNull { it.id == id }
+
+    override suspend fun setMembership(id: String, join: Boolean) {
+        val i = store.communities.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val c = store.communities[i]
+        if (join && c.role == CommunityRole.None) store.communities[i] = c.copy(role = CommunityRole.Member, members = c.members + 1)
+        if (!join && c.role != CommunityRole.None) store.communities[i] = c.copy(role = CommunityRole.None, members = c.members - 1, muted = false)
+    }
+
+    override suspend fun setMuted(id: String, muted: Boolean) {
+        val i = store.communities.indexOfFirst { it.id == id }
+        if (i >= 0) store.communities[i] = store.communities[i].copy(muted = muted)
+    }
+
+    override suspend fun getReports(id: String): List<ReportItem> = store.reports[id].orEmpty().toList()
+
+    override suspend fun resolveReport(communityId: String, reportId: String, removePost: Boolean) {
+        store.reports[communityId]?.removeAll { it.id == reportId }
+    }
 }
 
 class MockEventRepository : EventRepository {
@@ -140,6 +346,55 @@ class MockEventRepository : EventRepository {
     override suspend fun setRsvp(eventId: String, state: RsvpState) { states[eventId] = state }
 }
 
-class MockProfileRepository : ProfileRepository {
-    override suspend fun getMyProfile(): MyProfile = MockData.me
+class MockProfileRepository(
+    private val store: MockStore = MockStore(),
+    private val local: ProfileLocalStore = InMemoryProfileLocalStore(),
+) : ProfileRepository {
+    override suspend fun getMyProfile(): MyProfile {
+        val base = MockData.me
+        val e = local.edits.first()
+        val student = base.student.copy(
+            name = e.name ?: base.student.name,
+            course = e.course ?: base.student.course,
+            year = e.year ?: base.student.year,
+            interests = e.interests ?: base.student.interests,
+        )
+        return base.copy(
+            student = student, bio = e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos,
+            posts = base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" },
+            savedPosts = store.saved.size,
+            following = store.following.size,
+        )
+    }
+
+    override suspend fun updateProfile(update: ProfileUpdate) {
+        val old = local.edits.first()
+        local.update {
+            it.copy(
+                name = update.name.trim(), bio = update.bio.trim(), course = update.course.trim(), year = update.year,
+                interests = update.interests, avatarPath = update.avatarPath, coverPath = update.coverPath,
+            )
+        }
+        if (old.avatarPath != update.avatarPath) PhotoStore.delete(old.avatarPath)
+        if (old.coverPath != update.coverPath) PhotoStore.delete(old.coverPath)
+    }
+
+    override suspend fun addPhoto(path: String) { local.update { it.copy(photos = listOf(path) + it.photos) } }
+
+    override suspend fun removePhoto(path: String) {
+        local.update { it.copy(photos = it.photos - path) }
+        PhotoStore.delete(path)
+    }
+
+    override suspend fun getStudent(id: String): Student? = MockData.allStudents.firstOrNull { it.id == id }
+
+    override suspend fun getFollowers(): List<FollowEntry> =
+        listOf(MockData.kevin, MockData.amina, MockData.grace, MockData.brian).map { FollowEntry(it, it.id in store.following) }
+
+    override suspend fun getFollowing(): List<FollowEntry> =
+        MockData.allStudents.filter { it.id != MockData.ME_ID && it.id in store.following }.map { FollowEntry(it, true) }
+
+    override suspend fun setFollowing(studentId: String, following: Boolean) {
+        if (following) store.following += studentId else store.following -= studentId
+    }
 }

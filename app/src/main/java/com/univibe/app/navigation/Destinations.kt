@@ -26,6 +26,25 @@ object SettingsRoutes {
     const val ABOUT = "settings/help/about"
 }
 
+/** Routes with arguments. Each is also a deep link: `univibe://<route>`. */
+object AppRoutes {
+    const val CHAT = "chats/{chatId}"
+    const val COMMENTS = "post/{postId}/comments"
+    const val STUDENT = "student/{studentId}"
+    const val COMMUNITIES = "communities"
+    const val COMMUNITY = "communities/{communityId}"
+    const val EDIT_PROFILE = "profile/edit"
+    const val PHOTOS = "profile/photos"
+    const val SAVED = "profile/saved"
+    const val FOLLOWERS = "profile/followers"
+    const val FOLLOWING = "profile/following"
+
+    fun chat(id: String) = "chats/$id"
+    fun comments(postId: String) = "post/$postId/comments"
+    fun student(id: String) = "student/$id"
+    fun community(id: String) = "communities/$id"
+}
+
 enum class TopLevelDestination(
     val route: String,
     val label: String,

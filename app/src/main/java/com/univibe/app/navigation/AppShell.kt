@@ -41,7 +41,22 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
+import com.univibe.app.features.chats.ConversationScreen
+import com.univibe.app.features.comments.CommentsScreen
+import com.univibe.app.features.communities.CommunitiesScreen
+import com.univibe.app.features.communities.CommunityDetailScreen
+import com.univibe.app.features.profile.EditProfileScreen
+import com.univibe.app.features.profile.FollowKind
+import com.univibe.app.features.profile.FollowListScreen
+import com.univibe.app.features.profile.PhotosScreen
+import com.univibe.app.features.profile.ProfileActions
+import com.univibe.app.features.profile.SavedPostsScreen
+import com.univibe.app.features.profile.StudentProfileScreen
 import com.univibe.app.data.prefs.ThemeMode
 import com.univibe.app.features.chats.ChatsScreen
 import com.univibe.app.features.discover.DiscoverScreen
@@ -133,11 +148,55 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     popEnterTransition = { fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f) },
                     popExitTransition = { fadeOut(tween(90)) },
                 ) {
-                    tab(TopLevelDestination.Home.route) { HomeScreen(onOpenEvents = { selectTab(TopLevelDestination.Events.route) }) }
+                    tab(TopLevelDestination.Home.route) {
+                        HomeScreen(
+                            onOpenEvents = { selectTab(TopLevelDestination.Events.route) },
+                            onOpenComments = { open(AppRoutes.comments(it)) },
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                        )
+                    }
                     tab(TopLevelDestination.Discover.route) { DiscoverScreen() }
-                    tab(TopLevelDestination.Chats.route) { ChatsScreen() }
+                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen() }
-                    tab(TopLevelDestination.Profile.route) { ProfileScreen(onOpenSettings = { open(SettingsRoutes.ROOT) }) }
+                    tab(TopLevelDestination.Profile.route) {
+                        ProfileScreen(
+                            ProfileActions(
+                                onOpenSettings = { open(SettingsRoutes.ROOT) },
+                                onEditProfile = { open(AppRoutes.EDIT_PROFILE) },
+                                onOpenPhotos = { open(AppRoutes.PHOTOS) },
+                                onOpenSaved = { open(AppRoutes.SAVED) },
+                                onOpenFollowers = { open(AppRoutes.FOLLOWERS) },
+                                onOpenFollowing = { open(AppRoutes.FOLLOWING) },
+                                onOpenCommunities = { open(AppRoutes.COMMUNITIES) },
+                                onOpenCommunity = { open(AppRoutes.community(it)) },
+                                onOpenPrivacy = { open(SettingsRoutes.PRIVACY) },
+                            ),
+                        )
+                    }
+
+                    subScreen(AppRoutes.CHAT, stringArgs("chatId")) { entry ->
+                        ConversationScreen(chatId = entry.arg("chatId"), onBack = back)
+                    }
+                    subScreen(AppRoutes.COMMENTS, stringArgs("postId")) { entry ->
+                        CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
+                    }
+                    subScreen(AppRoutes.STUDENT, stringArgs("studentId")) { entry ->
+                        StudentProfileScreen(
+                            studentId = entry.arg("studentId"), onBack = back,
+                            onOpenChat = { open(AppRoutes.chat(it)) }, onEditProfile = { open(AppRoutes.EDIT_PROFILE) },
+                        )
+                    }
+                    subScreen(AppRoutes.EDIT_PROFILE) { EditProfileScreen(onBack = back) }
+                    subScreen(AppRoutes.PHOTOS) { PhotosScreen(onBack = back) }
+                    subScreen(AppRoutes.SAVED) {
+                        SavedPostsScreen(onBack = back, onOpenComments = { open(AppRoutes.comments(it)) }, onOpenStudent = { open(AppRoutes.student(it)) })
+                    }
+                    subScreen(AppRoutes.FOLLOWERS) { FollowListScreen(FollowKind.Followers, back) { open(AppRoutes.student(it)) } }
+                    subScreen(AppRoutes.FOLLOWING) { FollowListScreen(FollowKind.Following, back) { open(AppRoutes.student(it)) } }
+                    subScreen(AppRoutes.COMMUNITIES) { CommunitiesScreen(onBack = back, onOpenCommunity = { open(AppRoutes.community(it)) }) }
+                    subScreen(AppRoutes.COMMUNITY, stringArgs("communityId")) { entry ->
+                        CommunityDetailScreen(communityId = entry.arg("communityId"), onBack = back)
+                    }
 
                     subScreen(SettingsRoutes.ROOT) {
                         SettingsScreen(themeMode, onThemeModeChange, onBack = back, onNavigate = open, onLogOut = onLogOut)
@@ -184,11 +243,22 @@ private fun NavGraphBuilder.tab(route: String, content: @Composable () -> Unit) 
     composable(route, deepLinks = listOf(navDeepLink { uriPattern = "$DEEP_LINK_SCHEME$route" })) { content() }
 }
 
-private fun NavGraphBuilder.subScreen(route: String, content: @Composable () -> Unit) {
+private fun stringArgs(vararg names: String): List<NamedNavArgument> =
+    names.map { navArgument(it) { type = NavType.StringType } }
+
+/** Reads a string route argument; deep links are untrusted input, so it is length-limited. */
+private fun NavBackStackEntry.arg(name: String): String = arguments?.getString(name).orEmpty().take(64)
+
+private fun NavGraphBuilder.subScreen(
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable (NavBackStackEntry) -> Unit,
+) {
     composable(
         route = route,
+        arguments = arguments,
         deepLinks = listOf(navDeepLink { uriPattern = "$DEEP_LINK_SCHEME$route" }),
         enterTransition = { slideInHorizontally(tween(280)) { it / 5 } + fadeIn(tween(240)) },
         popExitTransition = { slideOutHorizontally(tween(240)) { it / 5 } + fadeOut(tween(200)) },
-    ) { content() }
+    ) { entry -> content(entry) }
 }

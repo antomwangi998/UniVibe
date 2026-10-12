@@ -62,9 +62,14 @@ fun CampusPostCard(
     modifier: Modifier = Modifier,
     onSave: () -> Unit = {},
     onMore: () -> Unit = {},
+    onAuthorClick: () -> Unit = {},
 ) {
     VibeCard(modifier = modifier, elevation = 2.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onAuthorClick),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             StudentAvatar(post.author.name, size = 44.dp, accent = post.author.accent)
             Spacer(Modifier.width(Spacing.sm + 4.dp))
             Column(Modifier.weight(1f)) {
@@ -81,13 +86,19 @@ fun CampusPostCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            }
             IconButton(onClick = onMore) {
                 Icon(Icons.Outlined.MoreHoriz, contentDescription = "More options")
             }
         }
         Spacer(Modifier.size(Spacing.sm))
         if (post.text.isNotBlank()) Text(post.text, style = MaterialTheme.typography.bodyLarge)
-        if (post.mediaAccent != null) {
+        if (post.imagePath != null) {
+            Spacer(Modifier.size(Spacing.sm + 4.dp))
+            Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(RoundedCornerShape(16.dp))) {
+                PhotoImage(post.imagePath, contentDescription = "Photo attached to ${post.author.name}'s post")
+            }
+        } else if (post.mediaAccent != null) {
             Spacer(Modifier.size(Spacing.sm + 4.dp))
             Box(
                 Modifier
