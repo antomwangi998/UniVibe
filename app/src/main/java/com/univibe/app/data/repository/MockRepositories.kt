@@ -3,6 +3,11 @@ package com.univibe.app.data.repository
 import com.univibe.app.data.model.AgendaItem
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventDetails
+import com.univibe.app.data.model.GroupInfo
+import com.univibe.app.data.model.GroupMember
+import com.univibe.app.data.model.GroupRole
+import com.univibe.app.data.model.Reaction
+import com.univibe.app.data.model.ReplyRef
 import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.CommunityRole
@@ -155,6 +160,34 @@ class MockStore {
     private val messageFlows = mutableMapOf<String, MutableStateFlow<List<Message>>>()
     private val typingFlows = mutableMapOf<String, MutableStateFlow<Boolean>>()
 
+    val groups = mutableMapOf<String, GroupInfo>()
+
+    /** Mock-only seed. A real backend stores groups and enforces every rule itself. */
+    fun group(chatId: String): GroupInfo? {
+        groups[chatId]?.let { return it }
+        val chat = chats.firstOrNull { it.id == chatId && it.isGroup } ?: return null
+        val me = GroupMember(MockData.aisha, GroupRole.Member, isMe = true)
+        fun m(s: Student, r: GroupRole = GroupRole.Member) = GroupMember(s, r)
+        val info = when (chatId) {
+            "c2" -> GroupInfo(chatId, chat.title, "Exam prep, shared notes and late-night snack runs.", null, "Kevin Mutua", "Created 3 Sep 2026",
+                listOf(m(MockData.kevin, GroupRole.Owner), me.copy(role = GroupRole.Admin), m(MockData.brian), m(MockData.grace), m(MockData.amina)))
+            "c4" -> GroupInfo(chatId, chat.title, "Critiques, events and good coffee for designers.", null, "Grace Wanjiku", "Created 12 Aug 2026",
+                listOf(m(MockData.grace, GroupRole.Owner), m(MockData.amina, GroupRole.Admin), me, m(MockData.brian)),
+                onlyAdminsCanAddMembers = false)
+            "c6" -> GroupInfo(chatId, chat.title, "Planning team for campus events.", null, "Aisha Njoki", "Created 28 Jul 2026",
+                listOf(me.copy(role = GroupRole.Owner), m(MockData.kevin, GroupRole.Admin), m(MockData.grace), m(MockData.brian), m(MockData.amina)))
+            else -> GroupInfo(chatId, chat.title, "Announcements and links for the Tech Creators.", null, "Brian Otieno", "Created 1 Jul 2026",
+                listOf(m(MockData.brian, GroupRole.Owner), m(MockData.kevin), me), onlyAdminsCanMessage = true)
+        }
+        groups[chatId] = info
+        return info
+    }
+
+    fun renameChat(chatId: String, name: String) {
+        val i = chats.indexOfFirst { it.id == chatId }
+        if (i >= 0) chats[i] = chats[i].copy(title = name)
+    }
+
     private val commentLists = mutableMapOf<String, MutableList<Comment>>()
     private val likedComments = mutableSetOf<String>()
 
@@ -184,6 +217,8 @@ class MockStore {
             "p1" -> mutableListOf(
                 Comment("cm1", "p1", MockData.brian, "Loved the demo section. Will there be slides?", "1h", 6),
                 Comment("cm2", "p1", MockData.grace, "Wish I had come! Next one for sure.", "45m", 3),
+                Comment("cm5", "p1", MockData.tech, "${MockData.brian.handle} Yes, slides go out tomorrow.", "30m", 2, parentId = "cm1", replyToHandle = MockData.brian.handle),
+                Comment("cm6", "p1", MockData.brian, "${MockData.tech.handle} Thanks, appreciated!", "20m", 0, parentId = "cm1", replyToHandle = MockData.tech.handle),
             )
             "p2" -> mutableListOf(Comment("cm3", "p2", MockData.amina, "Stunning colours. Which lens?", "3h", 12))
             "p3" -> mutableListOf(Comment("cm4", "p3", MockData.kevin, "Count me in. What time?", "5h", 1))
@@ -204,11 +239,18 @@ class MockStore {
         val now = System.currentTimeMillis()
         MutableStateFlow(
             if (chat == null || chat.lastMessage.isBlank()) emptyList() else listOf(
-                Message("${chatId}-1", chatId, "other", chat.title.substringBefore(' '), "Hey! Are we still meeting?", now - 3_600_000, false),
+                Message("${chatId}-1", chatId, firstSender(chat).first, firstSender(chat).second, "Hey! Are we still meeting?", now - 3_600_000, false),
                 Message("${chatId}-2", chatId, MockData.ME_ID, "You", "Yes, 3pm works for me.", now - 3_500_000, true, MessageStatus.Seen),
-                Message("${chatId}-3", chatId, "other", chat.title.substringBefore(' '), chat.lastMessage, now - 1_800_000, false),
+                Message("${chatId}-3", chatId, firstSender(chat).first, firstSender(chat).second, chat.lastMessage, now - 1_800_000, false),
             ),
         )
+    }
+
+    /** Sender id and display name for seeded incoming messages: a real member in groups, the other person in 1:1s. */
+    private fun firstSender(chat: Chat): Pair<String, String> {
+        val other = group(chat.id)?.members?.firstOrNull { !it.isMe && it.role != GroupRole.Member }?.student
+            ?: group(chat.id)?.members?.firstOrNull { !it.isMe }?.student
+        return if (other != null) other.id to other.name else "other" to chat.title.substringBefore(' ')
     }
 
     fun typingFlow(chatId: String): MutableStateFlow<Boolean> = typingFlows.getOrPut(chatId) { MutableStateFlow(false) }
@@ -347,10 +389,13 @@ class MockMessageRepository(
     override fun messages(chatId: String): Flow<List<Message>> = store.messageFlow(chatId)
     override fun typing(chatId: String): Flow<Boolean> = store.typingFlow(chatId)
 
-    override suspend fun send(chatId: String, text: String, imagePath: String?) {
+    override suspend fun send(chatId: String, text: String, imagePath: String?, replyTo: ReplyRef?) {
         val clean = text.trim()
         if (clean.isEmpty() && imagePath == null) return
-        store.appendMessage(Message("m${System.nanoTime()}", chatId, MockData.ME_ID, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sent, imagePath))
+        // Mirrors server rules: group posting permissions, and replies must point at a real message in this chat.
+        store.group(chatId)?.let { check(it.canMessage) { "Only admins can send messages in this group." } }
+        if (replyTo != null) require(store.messageFlow(chatId).value.any { it.id == replyTo.messageId }) { "Message not found" }
+        store.appendMessage(Message("m${System.nanoTime()}", chatId, MockData.ME_ID, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sent, imagePath, replyTo))
         if (!autoReply) return
         // MOCK: a fake reply so the conversation feels alive. A real backend replaces all of this.
         scope.launch {
@@ -360,13 +405,34 @@ class MockMessageRepository(
             store.typingFlow(chatId).value = false
             store.messageFlow(chatId).update { list -> list.map { if (it.isMine) it.copy(status = MessageStatus.Seen) else it } }
             val chat = store.chats.firstOrNull { it.id == chatId }
-            val sender = if (chat?.isGroup == true) "Kevin" else chat?.title?.substringBefore(' ') ?: "Student"
-            store.appendMessage(Message("m${System.nanoTime()}", chatId, "other", sender, replies[(clean.length) % replies.size], System.currentTimeMillis(), false))
+            val member = store.group(chatId)?.members?.filter { !it.isMe }?.let { it.getOrNull(clean.length % it.size.coerceAtLeast(1)) }?.student
+            val senderId = member?.id ?: "other"
+            val sender = member?.name ?: chat?.title?.substringBefore(' ') ?: "Student"
+            store.appendMessage(Message("m${System.nanoTime()}", chatId, senderId, sender, replies[(clean.length) % replies.size], System.currentTimeMillis(), false))
         }
     }
 
     override suspend fun deleteMessage(chatId: String, messageId: String) {
         store.messageFlow(chatId).update { list -> list.filterNot { it.id == messageId && it.isMine } }
+    }
+
+    override suspend fun react(chatId: String, messageId: String, reaction: Reaction?) {
+        store.messageFlow(chatId).update { list ->
+            list.map { m ->
+                if (m.id != messageId) m else {
+                    val counts = m.reactions.toMutableMap()
+                    m.myReaction?.let { old -> val left = (counts[old] ?: 1) - 1; if (left <= 0) counts.remove(old) else counts[old] = left }
+                    if (reaction != null) counts[reaction] = (counts[reaction] ?: 0) + 1
+                    m.copy(reactions = counts, myReaction = reaction)
+                }
+            }
+        }
+    }
+
+    override suspend fun clearChat(chatId: String) {
+        store.messageFlow(chatId).value = emptyList()
+        val i = store.chats.indexOfFirst { it.id == chatId }
+        if (i >= 0) store.chats[i] = store.chats[i].copy(lastMessage = "", unread = 0)
     }
 
     override suspend fun markRead(chatId: String) {
@@ -386,12 +452,21 @@ class MockMessageRepository(
 class MockCommentRepository(private val store: MockStore = MockStore()) : CommentRepository {
     override suspend fun getComments(postId: String): List<Comment> {
         delay(300)
-        return store.commentsFor(postId).map { it.copy(likedByMe = store.isCommentLiked(it.id)) }
+        val postAuthor = store.posts.firstOrNull { it.id == postId }?.author?.id
+        return store.commentsFor(postId).map { it.copy(likedByMe = store.isCommentLiked(it.id), isPostAuthor = it.author.id == postAuthor) }
     }
 
-    override suspend fun addComment(postId: String, text: String): Comment {
+    override suspend fun addComment(postId: String, text: String, replyToId: String?): Comment {
         delay(200)
-        val comment = Comment("cm${System.nanoTime()}", postId, MockData.aisha, text.trim(), "now", 0, isMine = true)
+        val clean = text.trim()
+        require(clean.isNotEmpty() && clean.length <= 280) { "Invalid comment" }
+        val list = store.commentsFor(postId)
+        val target = replyToId?.let { id -> list.firstOrNull { it.id == id } ?: throw IllegalArgumentException("Comment not found") }
+        val comment = Comment(
+            "cm${System.nanoTime()}", postId, MockData.aisha, clean, "now", 0, isMine = true,
+            parentId = target?.let { it.parentId ?: it.id }, replyToHandle = target?.author?.handle,
+            isPostAuthor = store.posts.firstOrNull { it.id == postId }?.author?.id == MockData.aisha.id,
+        )
         store.commentsFor(postId).add(comment)
         store.adjustCommentCount(postId, +1)
         return comment
@@ -402,7 +477,11 @@ class MockCommentRepository(private val store: MockStore = MockStore()) : Commen
     override suspend fun deleteComment(commentId: String) {
         store.posts.forEach { post ->
             val list = store.commentsFor(post.id)
-            if (list.removeAll { it.id == commentId && it.isMine }) store.adjustCommentCount(post.id, -1)
+            if (list.none { it.id == commentId && it.isMine }) return@forEach
+            // Deleting a top-level comment removes its replies too.
+            val removed = list.count { it.id == commentId || it.parentId == commentId }
+            list.removeAll { it.id == commentId || it.parentId == commentId }
+            store.adjustCommentCount(post.id, -removed)
         }
     }
 
@@ -532,4 +611,89 @@ class MockProfileRepository(
     override suspend fun setFollowing(studentId: String, following: Boolean) {
         if (following) store.following += studentId else store.following -= studentId
     }
+}
+
+class MockGroupRepository(private val store: MockStore = MockStore()) : GroupRepository {
+    private fun need(chatId: String): GroupInfo = store.group(chatId) ?: throw IllegalArgumentException("Unknown group")
+
+    private fun save(info: GroupInfo) { store.groups[info.chatId] = info }
+
+    override suspend fun getGroup(chatId: String): GroupInfo? {
+        delay(250)
+        val g = store.group(chatId) ?: return null
+        if (g.members.none { it.isMe }) return null
+        return g.copy(muted = chatId in store.mutedChats)
+    }
+
+    override suspend fun updateInfo(chatId: String, name: String, description: String) {
+        val g = need(chatId)
+        check(g.canEditInfo) { "Only admins can edit this group." }
+        val n = name.trim()
+        require(n.length in 1..40) { "Name must be 1 to 40 characters" }
+        require(description.trim().length <= 200) { "Description is too long" }
+        save(g.copy(name = n, description = description.trim()))
+        store.renameChat(chatId, n)
+    }
+
+    override suspend fun setPhoto(chatId: String, path: String?) {
+        val g = need(chatId)
+        check(g.canEditInfo) { "Only admins can edit this group." }
+        if (g.photoPath != path) PhotoStore.delete(g.photoPath)
+        save(g.copy(photoPath = path))
+    }
+
+    override suspend fun getAddable(chatId: String): List<Student> {
+        val g = need(chatId)
+        check(g.canAddMembers) { "Only admins can add members." }
+        // Community accounts (like Tech Club) are not people and can't join chats.
+        return MockData.allStudents.filter { s -> s.id != MockData.tech.id && g.members.none { it.student.id == s.id } }
+    }
+
+    override suspend fun addMembers(chatId: String, studentIds: List<String>) {
+        val g = need(chatId)
+        check(g.canAddMembers) { "Only admins can add members." }
+        val toAdd = studentIds.distinct().mapNotNull { id -> MockData.allStudents.firstOrNull { it.id == id && it.id != MockData.tech.id } }
+            .filter { s -> g.members.none { it.student.id == s.id } }
+        require(g.members.size + toAdd.size <= 256) { "Groups can have up to 256 members" }
+        save(g.copy(members = g.members + toAdd.map { GroupMember(it, GroupRole.Member) }))
+    }
+
+    override suspend fun removeMember(chatId: String, studentId: String) {
+        val g = need(chatId)
+        check(g.iAmAdmin) { "Only admins can remove members." }
+        val target = g.members.firstOrNull { it.student.id == studentId } ?: return
+        check(!target.isMe) { "Use Leave group to remove yourself." }
+        check(target.role != GroupRole.Owner) { "The owner can't be removed." }
+        check(target.role != GroupRole.Admin || g.myRole == GroupRole.Owner) { "Only the owner can remove an admin." }
+        save(g.copy(members = g.members - target))
+    }
+
+    override suspend fun setRole(chatId: String, studentId: String, role: GroupRole) {
+        val g = need(chatId)
+        check(g.myRole == GroupRole.Owner) { "Only the owner can change admins." }
+        require(role != GroupRole.Owner) { "Ownership can't be assigned here." }
+        val target = g.members.firstOrNull { it.student.id == studentId } ?: return
+        check(!target.isMe && target.role != GroupRole.Owner) { "You can't change that role." }
+        save(g.copy(members = g.members.map { if (it == target) it.copy(role = role) else it }))
+    }
+
+    override suspend fun setPermissions(chatId: String, onlyAdminsCanMessage: Boolean, onlyAdminsCanEditInfo: Boolean, onlyAdminsCanAddMembers: Boolean) {
+        val g = need(chatId)
+        check(g.iAmAdmin) { "Only admins can change these settings." }
+        save(g.copy(onlyAdminsCanMessage = onlyAdminsCanMessage, onlyAdminsCanEditInfo = onlyAdminsCanEditInfo, onlyAdminsCanAddMembers = onlyAdminsCanAddMembers))
+    }
+
+    override suspend fun leave(chatId: String) {
+        val g = need(chatId)
+        var members = g.members.filterNot { it.isMe }
+        if (g.myRole == GroupRole.Owner && members.isNotEmpty()) {
+            // Ownership passes to the longest-standing admin, otherwise the first member.
+            val heir = members.firstOrNull { it.role == GroupRole.Admin } ?: members.first()
+            members = members.map { if (it == heir) it.copy(role = GroupRole.Owner) else it }
+        }
+        save(g.copy(members = members))
+        store.archived += chatId
+    }
+
+    override suspend fun report(chatId: String, reason: String) = Unit // mock: nothing is sent
 }

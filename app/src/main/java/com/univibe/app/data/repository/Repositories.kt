@@ -2,6 +2,10 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventDetails
+import com.univibe.app.data.model.GroupInfo
+import com.univibe.app.data.model.GroupRole
+import com.univibe.app.data.model.Reaction
+import com.univibe.app.data.model.ReplyRef
 import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.FollowEntry
@@ -86,7 +90,8 @@ interface ProfileRepository {
 
 interface CommentRepository {
     suspend fun getComments(postId: String): List<Comment>
-    suspend fun addComment(postId: String, text: String): Comment
+    /** [replyToId] makes it a reply; the server attaches it to the thread's top-level comment and validates the id. */
+    suspend fun addComment(postId: String, text: String, replyToId: String? = null): Comment
     suspend fun setLiked(commentId: String, liked: Boolean)
     suspend fun deleteComment(commentId: String)
     suspend fun reportComment(commentId: String, reason: String)
@@ -95,11 +100,32 @@ interface CommentRepository {
 interface MessageRepository {
     fun messages(chatId: String): Flow<List<Message>>
     fun typing(chatId: String): Flow<Boolean>
-    suspend fun send(chatId: String, text: String, imagePath: String? = null)
+    /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
+    suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
     suspend fun deleteMessage(chatId: String, messageId: String)
+    /** One reaction per person per message; null removes yours. */
+    suspend fun react(chatId: String, messageId: String, reaction: Reaction?)
+    /** Clears the conversation for you only. */
+    suspend fun clearChat(chatId: String)
     suspend fun markRead(chatId: String)
     /** Returns the id of the existing or newly created 1:1 chat. */
     suspend fun openChatWith(student: Student): String
+}
+
+interface GroupRepository {
+    /** Null when the id is unknown or is not a group you belong to. */
+    suspend fun getGroup(chatId: String): GroupInfo?
+    suspend fun updateInfo(chatId: String, name: String, description: String)
+    suspend fun setPhoto(chatId: String, path: String?)
+    /** Students you could add (not already members). */
+    suspend fun getAddable(chatId: String): List<com.univibe.app.data.model.Student>
+    suspend fun addMembers(chatId: String, studentIds: List<String>)
+    suspend fun removeMember(chatId: String, studentId: String)
+    suspend fun setRole(chatId: String, studentId: String, role: GroupRole)
+    suspend fun setPermissions(chatId: String, onlyAdminsCanMessage: Boolean, onlyAdminsCanEditInfo: Boolean, onlyAdminsCanAddMembers: Boolean)
+    /** If you are the owner, ownership passes to someone else first. */
+    suspend fun leave(chatId: String)
+    suspend fun report(chatId: String, reason: String)
 }
 
 interface CommunityRepository {

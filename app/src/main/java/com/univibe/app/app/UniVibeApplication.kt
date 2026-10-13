@@ -13,7 +13,9 @@ import com.univibe.app.data.repository.CommunityRepository
 import com.univibe.app.data.repository.DiscoverRepository
 import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.repository.MockDiscoverRepository
+import com.univibe.app.data.repository.GroupRepository
 import com.univibe.app.data.repository.MockEventRepository
+import com.univibe.app.data.repository.MockGroupRepository
 import com.univibe.app.data.repository.MockNotificationRepository
 import com.univibe.app.data.repository.NotificationRepository
 import com.univibe.app.data.repository.FeedRepository
@@ -45,6 +47,7 @@ object AppContainer {
     private val mockStore by lazy { MockStore() }
     val feedRepository: FeedRepository by lazy { MockFeedRepository(mockStore) }
     val commentRepository: CommentRepository by lazy { MockCommentRepository(mockStore) }
+    val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
     val chatRepository: ChatRepository by lazy { MockChatRepository(mockStore) }
     val messageRepository: MessageRepository by lazy { MockMessageRepository(mockStore) }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }

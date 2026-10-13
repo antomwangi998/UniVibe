@@ -49,6 +49,7 @@ import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.univibe.app.features.chats.ConversationScreen
+import com.univibe.app.features.chats.GroupInfoScreen
 import com.univibe.app.data.model.NotificationTarget
 import com.univibe.app.features.notifications.NotificationCenterScreen
 import com.univibe.app.features.post.CreatePostScreen
@@ -189,7 +190,18 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
 
                     subScreen(AppRoutes.CHAT, stringArgs("chatId")) { entry ->
-                        ConversationScreen(chatId = entry.arg("chatId"), onBack = back)
+                        ConversationScreen(
+                            chatId = entry.arg("chatId"), onBack = back,
+                            onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
+                        )
+                    }
+                    subScreen(AppRoutes.GROUP_INFO, stringArgs("chatId")) { entry ->
+                        GroupInfoScreen(
+                            chatId = entry.arg("chatId"), onBack = back,
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                            onOpenChat = { open(AppRoutes.chat(it)) },
+                            onLeft = { selectTab(TopLevelDestination.Chats.route) },
+                        )
                     }
                     subScreen(AppRoutes.COMMENTS, stringArgs("postId")) { entry ->
                         CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })

@@ -26,6 +26,7 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://student/{studentId}` | Another student's full profile (opened from Discover cards; links on to chat, communities and post comments) |
 | `univibe://settings/privacy/discover` | Discover profile (card photo, preview, visibility) |
 | `univibe://notifications` | Notifications list |
+| `univibe://chats/{chatId}/info` | Group info (only works for groups you belong to) |
 | `univibe://post/new` | Create post (opens an empty composer; a link never posts anything) |
 | `univibe://events/{eventId}` | Event details (e.g. `univibe://events/e1`) |
 | `univibe://communities` | Communities list |
