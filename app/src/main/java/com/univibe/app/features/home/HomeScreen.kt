@@ -100,6 +100,7 @@ fun HomeScreen(
     onOpenEvents: () -> Unit = {},
     onOpenComments: (String) -> Unit = {},
     onOpenStudent: (String) -> Unit = {},
+    onCreatePost: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -160,7 +161,7 @@ fun HomeScreen(
             }
         }
 
-        // Scrolls to the composer and focuses it. Rides just above the floating bar and drops down when it hides.
+        // Opens the full create-post screen. Rides just above the floating bar and drops down when it hides.
         val barVisible = LocalFloatingBarVisible.current
         val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val fabBottom by animateDpAsState(
@@ -169,12 +170,7 @@ fun HomeScreen(
             label = "fabBottom",
         )
         FloatingActionButton(
-            onClick = {
-                scope.launch {
-                    listState.animateScrollToItem(0)
-                    composerFocus.requestFocus()
-                }
-            },
+            onClick = onCreatePost,
             shape = CircleShape,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,

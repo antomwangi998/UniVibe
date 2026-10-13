@@ -24,6 +24,7 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://chats/{chatId}` | A conversation (e.g. `univibe://chats/c1`) |
 | `univibe://post/{postId}/comments` | Comments on a post |
 | `univibe://student/{studentId}` | Another student's full profile (opened from Discover cards; links on to chat, communities and post comments) |
+| `univibe://post/new` | Create post (opens an empty composer; a link never posts anything) |
 | `univibe://events/{eventId}` | Event details (e.g. `univibe://events/e1`) |
 | `univibe://communities` | Communities list |
 | `univibe://communities/{communityId}` | Community details (e.g. `univibe://communities/tech`) |

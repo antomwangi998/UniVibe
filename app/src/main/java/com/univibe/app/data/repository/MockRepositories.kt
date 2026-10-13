@@ -27,6 +27,7 @@ import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.GroupSummary
 import com.univibe.app.data.model.MyProfile
+import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
@@ -245,6 +246,21 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         store.posts.filter { it.id in store.saved }.map { it.copy(likedByMe = it.id in store.liked, savedByMe = true) }
 
     override suspend fun reportPost(postId: String, reason: String) = Unit // mock: nothing is sent
+
+    override suspend fun publishPost(post: NewPost): Post {
+        delay(400)
+        // Mirrors the checks a real server must make.
+        val text = post.text.trim()
+        require(text.isNotEmpty() || post.imagePaths.isNotEmpty()) { "Empty post" }
+        require(text.length <= 280) { "Post too long" }
+        require(post.imagePaths.size <= 4) { "Too many photos" }
+        val created = Post(
+            "p${System.nanoTime()}", MockData.aisha, "now", text, 0, 0,
+            imagePath = post.imagePaths.firstOrNull(), imagePaths = post.imagePaths, audience = post.audience,
+        )
+        store.posts.add(0, created)
+        return created
+    }
 
     override suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String?): Post {
         delay(250)

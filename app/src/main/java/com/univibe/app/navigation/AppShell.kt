@@ -47,6 +47,7 @@ import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.univibe.app.features.chats.ConversationScreen
+import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
@@ -155,6 +156,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenEvents = { selectTab(TopLevelDestination.Events.route) },
                             onOpenComments = { open(AppRoutes.comments(it)) },
                             onOpenStudent = { open(AppRoutes.student(it)) },
+                            onCreatePost = { open(AppRoutes.CREATE_POST) },
                         )
                     }
                     tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }) }
@@ -182,6 +184,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(AppRoutes.COMMENTS, stringArgs("postId")) { entry ->
                         CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
                     }
+                    subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
                     subScreen(AppRoutes.EVENT, stringArgs("eventId")) { entry ->
                         EventDetailsScreen(eventId = entry.arg("eventId"), onBack = back)
                     }

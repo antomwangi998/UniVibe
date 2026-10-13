@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.MyProfile
+import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
@@ -31,6 +32,11 @@ interface FeedRepository {
     suspend fun reportPost(postId: String, reason: String)
     /** Server must validate length/content; returns the stored post. */
     suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String? = null): Post
+    /**
+     * Creates a post with attached photos and an audience. The server must validate text length, photo count/size/type
+     * and that the author may post to the chosen community; client checks are convenience only.
+     */
+    suspend fun publishPost(post: NewPost): Post
     suspend fun getSavedPosts(): List<Post>
 }
 

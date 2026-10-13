@@ -20,6 +20,16 @@ data class Student(
 
 enum class FeedFilter { Campus, Following }
 
+/** Who may see a post. The server enforces this; the client only offers the choices. */
+sealed interface PostAudience {
+    data object Campus : PostAudience
+    data object Followers : PostAudience
+    data class Community(val id: String, val name: String) : PostAudience
+}
+
+/** What the create-post screen sends. Photos are already private, re-encoded local files. */
+data class NewPost(val text: String, val imagePaths: List<String>, val audience: PostAudience)
+
 data class Post(
     val id: String,
     val author: Student,
@@ -35,6 +45,9 @@ data class Post(
     /** Local file of an attached photo (app storage). */
     val imagePath: String? = null,
     val fromFollowing: Boolean = false,
+    /** All attached photos in order; [imagePath] is the first one, kept for older screens. */
+    val imagePaths: List<String> = emptyList(),
+    val audience: PostAudience = PostAudience.Campus,
 )
 
 data class Chat(
