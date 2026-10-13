@@ -16,6 +16,8 @@ data class Student(
     /** Interests shared with the signed-in student (computed by the data layer). */
     val shared: List<String> = emptyList(),
     val sameCourse: Boolean = false,
+    /** Photo shown on the Discover card; null falls back to a gradient with initials. */
+    val photoPath: String? = null,
 )
 
 enum class FeedFilter { Campus, Following }
@@ -149,6 +151,8 @@ data class MyProfile(
     val avatarPath: String? = null,
     val coverPath: String? = null,
     val photos: List<String> = emptyList(),
+    /** Photo for your Discover card. Only shown to others while you are discoverable. */
+    val discoverPhotoPath: String? = null,
 )
 
 data class Comment(

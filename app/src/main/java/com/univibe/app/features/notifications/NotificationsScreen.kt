@@ -63,7 +63,7 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun NotificationsScreen(
+fun NotificationCenterScreen(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTarget: (NotificationTarget) -> Unit,

@@ -49,6 +49,9 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
                 else Modifier,
             ),
     ) {
+        student.photoPath?.let { path ->
+            PhotoImage(path, contentDescription = "${student.name}'s photo", modifier = Modifier.fillMaxSize())
+        }
         if (onClick != null) {
             Surface(
                 modifier = Modifier.align(Alignment.TopEnd).padding(Spacing.md),
@@ -60,7 +63,7 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
                 }
             }
         }
-        Text(
+        if (student.photoPath == null) Text(
             text = student.name.split(" ").take(2).joinToString("") { it.first().uppercase() },
             color = Color.White.copy(alpha = 0.35f),
             fontSize = 120.sp,

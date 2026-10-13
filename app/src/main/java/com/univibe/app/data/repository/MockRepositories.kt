@@ -473,7 +473,7 @@ class MockProfileRepository(
             interests = e.interests ?: base.student.interests,
         )
         return base.copy(
-            student = student, bio = e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos,
+            student = student, bio = e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
             posts = base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" },
             savedPosts = store.saved.size,
             following = store.following.size,
@@ -493,6 +493,12 @@ class MockProfileRepository(
     }
 
     override suspend fun addPhoto(path: String) { local.update { it.copy(photos = listOf(path) + it.photos) } }
+
+    override suspend fun setDiscoverPhoto(path: String?) {
+        val old = local.edits.first().discoverPhotoPath
+        local.update { it.copy(discoverPhotoPath = path) }
+        if (old != path) PhotoStore.delete(old)
+    }
 
     override suspend fun removePhoto(path: String) {
         local.update { it.copy(photos = it.photos - path) }

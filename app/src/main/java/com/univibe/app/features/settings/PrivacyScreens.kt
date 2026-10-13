@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.PeopleOutline
@@ -30,6 +31,7 @@ fun PrivacyScreen(
     onBack: () -> Unit,
     onBlocked: () -> Unit,
     onSafety: () -> Unit,
+    onDiscoverProfile: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(),
 ) {
     val s by viewModel.settings.collectAsStateWithLifecycle()
@@ -39,6 +41,8 @@ fun PrivacyScreen(
                 SettingsSectionTitle("Visibility")
                 SettingsSwitchRow("Show me in Discover", s.discoverable, { v -> viewModel.update { it.copy(discoverable = v) } },
                     subtitle = "Other students can find your profile.", icon = Icons.Outlined.Visibility)
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Image, "Discover profile", onDiscoverProfile, subtitle = "Choose your card photo and preview it.")
                 RowDivider()
                 SettingsSwitchRow("Show online status", s.showOnline, { v -> viewModel.update { it.copy(showOnline = v) } },
                     subtitle = "Let others see when you're active.", icon = Icons.Outlined.Sensors)

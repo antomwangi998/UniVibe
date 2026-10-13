@@ -17,6 +17,7 @@ object SettingsRoutes {
     const val PRIVACY = "settings/privacy"
     const val BLOCKED = "settings/privacy/blocked"
     const val SAFETY = "settings/privacy/safety"
+    const val DISCOVER_PROFILE = "settings/privacy/discover"
     const val NOTIFICATIONS = "settings/notifications"
     const val ACCESSIBILITY = "settings/accessibility"
     const val HELP = "settings/help"

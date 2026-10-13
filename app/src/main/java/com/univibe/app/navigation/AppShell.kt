@@ -50,7 +50,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.univibe.app.features.chats.ConversationScreen
 import com.univibe.app.data.model.NotificationTarget
-import com.univibe.app.features.notifications.NotificationsScreen
+import com.univibe.app.features.notifications.NotificationCenterScreen
 import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
@@ -80,6 +80,7 @@ import com.univibe.app.features.settings.FaqScreen
 import com.univibe.app.features.settings.GuidelinesScreen
 import com.univibe.app.features.settings.HelpScreen
 import com.univibe.app.features.settings.NotificationsScreen
+import com.univibe.app.features.settings.DiscoverProfileScreen
 import com.univibe.app.features.settings.PrivacyScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
@@ -194,7 +195,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
                     }
                     subScreen(AppRoutes.NOTIFICATIONS) {
-                        NotificationsScreen(
+                        NotificationCenterScreen(
                             onBack = back,
                             onOpenSettings = { open(SettingsRoutes.NOTIFICATIONS) },
                             onOpenTarget = { target ->
@@ -241,8 +242,12 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(SettingsRoutes.PASSWORD) { ChangePasswordScreen(onBack = back) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY) {
-                        PrivacyScreen(onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) })
+                        PrivacyScreen(
+                            onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) },
+                            onDiscoverProfile = { open(SettingsRoutes.DISCOVER_PROFILE) },
+                        )
                     }
+                    subScreen(SettingsRoutes.DISCOVER_PROFILE) { DiscoverProfileScreen(onBack = back) }
                     subScreen(SettingsRoutes.BLOCKED) { BlockedUsersScreen(onBack = back) }
                     subScreen(SettingsRoutes.SAFETY) { SafetyScreen(onBack = back) }
                     subScreen(SettingsRoutes.NOTIFICATIONS) { NotificationsScreen(onBack = back) }

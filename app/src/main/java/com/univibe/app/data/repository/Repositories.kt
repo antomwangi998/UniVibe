@@ -74,6 +74,8 @@ interface ProfileRepository {
     suspend fun updateProfile(update: ProfileUpdate)
     suspend fun addPhoto(path: String)
     suspend fun removePhoto(path: String)
+    /** Sets (or clears, with null) the photo on your Discover card. The server must moderate it before others see it. */
+    suspend fun setDiscoverPhoto(path: String?)
     suspend fun getStudent(id: String): Student?
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getStudentProfile(id: String): StudentProfile?
