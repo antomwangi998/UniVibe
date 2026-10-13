@@ -30,6 +30,7 @@ object SettingsRoutes {
 /** Routes with arguments. Each is also a deep link: `univibe://<route>`. */
 object AppRoutes {
     const val CHAT = "chats/{chatId}"
+    const val GROUP_INFO = "chats/{chatId}/info"
     const val COMMENTS = "post/{postId}/comments"
     const val EVENT = "events/{eventId}"
     const val CREATE_POST = "post/new"
@@ -44,6 +45,7 @@ object AppRoutes {
     const val FOLLOWING = "profile/following"
 
     fun chat(id: String) = "chats/$id"
+    fun groupInfo(chatId: String) = "chats/$chatId/info"
     fun comments(postId: String) = "post/$postId/comments"
     fun event(id: String) = "events/$id"
     fun student(id: String) = "student/$id"

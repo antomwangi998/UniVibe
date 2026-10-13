@@ -164,6 +164,12 @@ data class Comment(
     val likeCount: Int,
     val likedByMe: Boolean = false,
     val isMine: Boolean = false,
+    /** Set on replies. Replies always hang under the top-level comment of their thread. */
+    val parentId: String? = null,
+    /** Handle of the person this reply answers, shown as a highlighted mention. */
+    val replyToHandle: String? = null,
+    /** True when the commenter wrote the post (computed by the server). */
+    val isPostAuthor: Boolean = false,
 )
 
 enum class MessageStatus { Sending, Sent, Seen }
@@ -178,7 +184,41 @@ data class Message(
     val isMine: Boolean,
     val status: MessageStatus = MessageStatus.Sent,
     val imagePath: String? = null,
+    val replyTo: ReplyRef? = null,
+    /** How many people used each reaction. */
+    val reactions: Map<Reaction, Int> = emptyMap(),
+    val myReaction: Reaction? = null,
 )
+
+enum class Reaction { Heart, Like, Laugh, Fire, Sad }
+
+/** A quote of the message being answered. [preview] is already shortened ("Photo" for image-only messages). */
+data class ReplyRef(val messageId: String, val senderName: String, val preview: String)
+
+enum class GroupRole { Member, Admin, Owner }
+
+data class GroupMember(val student: Student, val role: GroupRole, val isMe: Boolean = false)
+
+/** Everything the group info screen shows. Permission flags are enforced by the server; the UI only mirrors them. */
+data class GroupInfo(
+    val chatId: String,
+    val name: String,
+    val description: String,
+    val photoPath: String?,
+    val createdBy: String,
+    val createdLabel: String,
+    val members: List<GroupMember>,
+    val onlyAdminsCanMessage: Boolean = false,
+    val onlyAdminsCanEditInfo: Boolean = true,
+    val onlyAdminsCanAddMembers: Boolean = true,
+    val muted: Boolean = false,
+) {
+    val myRole: GroupRole get() = members.firstOrNull { it.isMe }?.role ?: GroupRole.Member
+    val iAmAdmin: Boolean get() = myRole != GroupRole.Member
+    val canMessage: Boolean get() = !onlyAdminsCanMessage || iAmAdmin
+    val canEditInfo: Boolean get() = !onlyAdminsCanEditInfo || iAmAdmin
+    val canAddMembers: Boolean get() = !onlyAdminsCanAddMembers || iAmAdmin
+}
 
 enum class CommunityRole { None, Member, Moderator }
 
