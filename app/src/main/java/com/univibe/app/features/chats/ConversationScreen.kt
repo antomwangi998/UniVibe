@@ -232,8 +232,12 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         )
                     }
                 }
-                AnimatedVisibility(showJump, Modifier.align(Alignment.BottomEnd).padding(Spacing.md)) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp) {
+                // Plain `if`: AnimatedVisibility is ambiguous here (Box inside a Column), and the fade isn't needed.
+                if (showJump) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.md),
+                        shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp,
+                    ) {
                         IconButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
                             Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Scroll to latest message")
                         }
