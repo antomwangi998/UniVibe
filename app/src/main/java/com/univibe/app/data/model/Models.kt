@@ -91,6 +91,30 @@ data class StudentProfile(
     val communityIds: List<String> = emptyList(),
 )
 
+enum class NotificationType { Like, Comment, Follow, Connection, Event, Community, Message, System }
+
+/** Where tapping a notification goes. Ids are untrusted; destination screens handle "not found". */
+sealed interface NotificationTarget {
+    data class Post(val id: String) : NotificationTarget
+    data class Student(val id: String) : NotificationTarget
+    data class Event(val id: String) : NotificationTarget
+    data class Community(val id: String) : NotificationTarget
+    data class Chat(val id: String) : NotificationTarget
+    data object None : NotificationTarget
+}
+
+/** [title] is the actor or sender (bold), [body] the rest of the sentence. [actor] is null for system items. */
+data class AppNotification(
+    val id: String,
+    val type: NotificationType,
+    val title: String,
+    val body: String,
+    val timeAgo: String,
+    val read: Boolean,
+    val target: NotificationTarget = NotificationTarget.None,
+    val actor: Student? = null,
+)
+
 data class AgendaItem(val time: String, val title: String)
 
 /** Everything the event details screen shows. [capacity] == null means unlimited places. */

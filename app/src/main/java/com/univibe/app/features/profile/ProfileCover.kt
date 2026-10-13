@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -116,6 +118,24 @@ fun CoverIconButton(
     Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.28f), modifier = modifier) {
         IconButton(onClick = onClick) {
             Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/** Bell for the cover's leading slot, with a dot when something is unread. */
+@Composable
+fun CoverBellButton(unread: Int, onClick: () -> Unit) {
+    Box {
+        CoverIconButton(
+            Icons.Outlined.Notifications,
+            if (unread > 0) "Notifications, $unread unread" else "Notifications",
+            onClick,
+        )
+        if (unread > 0) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(10.dp)
+                    .background(MaterialTheme.colorScheme.error, CircleShape),
+            )
         }
     }
 }

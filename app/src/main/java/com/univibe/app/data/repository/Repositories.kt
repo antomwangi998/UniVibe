@@ -11,6 +11,7 @@ import com.univibe.app.data.model.ReportItem
 import kotlinx.coroutines.flow.Flow
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
+import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
@@ -38,6 +39,14 @@ interface FeedRepository {
      */
     suspend fun publishPost(post: NewPost): Post
     suspend fun getSavedPosts(): List<Post>
+}
+
+interface NotificationRepository {
+    /** Live unread count for badges. A real backend would push this (or poll cheaply). */
+    val unreadCount: kotlinx.coroutines.flow.StateFlow<Int>
+    suspend fun getNotifications(): List<AppNotification>
+    suspend fun markRead(id: String)
+    suspend fun markAllRead()
 }
 
 interface DiscoverRepository {

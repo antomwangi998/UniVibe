@@ -85,6 +85,7 @@ import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
+import com.univibe.app.ui.components.NotificationBell
 import com.univibe.app.ui.components.StoryRing
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.UniVibeLockup
@@ -101,6 +102,8 @@ fun HomeScreen(
     onOpenComments: (String) -> Unit = {},
     onOpenStudent: (String) -> Unit = {},
     onCreatePost: () -> Unit = {},
+    unreadNotifications: Int = 0,
+    onOpenNotifications: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -111,7 +114,11 @@ fun HomeScreen(
 
     Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
-            VibeTopBar(title = "UniVibe", titleContent = { UniVibeLockup() })
+            VibeTopBar(
+                title = "UniVibe",
+                titleContent = { UniVibeLockup() },
+                actions = { NotificationBell(unreadNotifications, onOpenNotifications) },
+            )
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
