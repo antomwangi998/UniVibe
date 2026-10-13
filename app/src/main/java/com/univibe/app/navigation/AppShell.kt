@@ -24,6 +24,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.univibe.app.app.AppContainer
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -47,6 +49,9 @@ import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.univibe.app.features.chats.ConversationScreen
+import com.univibe.app.data.model.NotificationTarget
+import com.univibe.app.features.notifications.NotificationCenterScreen
+import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
@@ -75,6 +80,7 @@ import com.univibe.app.features.settings.FaqScreen
 import com.univibe.app.features.settings.GuidelinesScreen
 import com.univibe.app.features.settings.HelpScreen
 import com.univibe.app.features.settings.NotificationsScreen
+import com.univibe.app.features.settings.DiscoverProfileScreen
 import com.univibe.app.features.settings.PrivacyScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
@@ -136,6 +142,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     }
     val open: (String) -> Unit = { route -> navController.navigate(route) { launchSingleTop = true } }
     val back: () -> Unit = { navController.popBackStack() }
+    val unreadNotifications by AppContainer.notificationRepository.unreadCount.collectAsStateWithLifecycle()
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
@@ -155,6 +162,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenEvents = { selectTab(TopLevelDestination.Events.route) },
                             onOpenComments = { open(AppRoutes.comments(it)) },
                             onOpenStudent = { open(AppRoutes.student(it)) },
+                            onCreatePost = { open(AppRoutes.CREATE_POST) },
+                            unreadNotifications = unreadNotifications,
+                            onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
                         )
                     }
                     tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }) }
@@ -172,6 +182,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 onOpenCommunities = { open(AppRoutes.COMMUNITIES) },
                                 onOpenCommunity = { open(AppRoutes.community(it)) },
                                 onOpenPrivacy = { open(SettingsRoutes.PRIVACY) },
+                                unreadNotifications = unreadNotifications,
+                                onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
                             ),
                         )
                     }
@@ -182,6 +194,23 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(AppRoutes.COMMENTS, stringArgs("postId")) { entry ->
                         CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
                     }
+                    subScreen(AppRoutes.NOTIFICATIONS) {
+                        NotificationCenterScreen(
+                            onBack = back,
+                            onOpenSettings = { open(SettingsRoutes.NOTIFICATIONS) },
+                            onOpenTarget = { target ->
+                                when (target) {
+                                    is NotificationTarget.Post -> open(AppRoutes.comments(target.id))
+                                    is NotificationTarget.Student -> open(AppRoutes.student(target.id))
+                                    is NotificationTarget.Event -> open(AppRoutes.event(target.id))
+                                    is NotificationTarget.Community -> open(AppRoutes.community(target.id))
+                                    is NotificationTarget.Chat -> open(AppRoutes.chat(target.id))
+                                    NotificationTarget.None -> Unit
+                                }
+                            },
+                        )
+                    }
+                    subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
                     subScreen(AppRoutes.EVENT, stringArgs("eventId")) { entry ->
                         EventDetailsScreen(eventId = entry.arg("eventId"), onBack = back)
                     }
@@ -213,8 +242,12 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(SettingsRoutes.PASSWORD) { ChangePasswordScreen(onBack = back) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY) {
-                        PrivacyScreen(onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) })
+                        PrivacyScreen(
+                            onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) },
+                            onDiscoverProfile = { open(SettingsRoutes.DISCOVER_PROFILE) },
+                        )
                     }
+                    subScreen(SettingsRoutes.DISCOVER_PROFILE) { DiscoverProfileScreen(onBack = back) }
                     subScreen(SettingsRoutes.BLOCKED) { BlockedUsersScreen(onBack = back) }
                     subScreen(SettingsRoutes.SAFETY) { SafetyScreen(onBack = back) }
                     subScreen(SettingsRoutes.NOTIFICATIONS) { NotificationsScreen(onBack = back) }

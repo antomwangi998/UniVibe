@@ -22,6 +22,7 @@ data class ProfileEdits(
     val avatarPath: String? = null,
     val coverPath: String? = null,
     val photos: List<String> = emptyList(),
+    val discoverPhotoPath: String? = null,
 )
 
 interface ProfileLocalStore {
@@ -47,6 +48,7 @@ class DataStoreProfileLocalStore(private val context: Context) : ProfileLocalSto
         val avatar = stringPreferencesKey("avatar")
         val cover = stringPreferencesKey("cover")
         val photos = stringPreferencesKey("photos")
+        val discoverPhoto = stringPreferencesKey("discover_photo")
     }
 
     override val edits: Flow<ProfileEdits> = context.profileStore.data
@@ -61,6 +63,7 @@ class DataStoreProfileLocalStore(private val context: Context) : ProfileLocalSto
             put(K.interests, e.interests?.joinToString("\u001F"))
             put(K.avatar, e.avatarPath); put(K.cover, e.coverPath)
             put(K.photos, e.photos.joinToString("\n"))
+            put(K.discoverPhoto, e.discoverPhotoPath)
         }
     }
 
@@ -69,5 +72,6 @@ class DataStoreProfileLocalStore(private val context: Context) : ProfileLocalSto
         interests = this[K.interests]?.split('\u001F')?.filter { it.isNotEmpty() },
         avatarPath = this[K.avatar], coverPath = this[K.cover],
         photos = this[K.photos].orEmpty().split('\n').filter { it.isNotEmpty() },
+        discoverPhotoPath = this[K.discoverPhoto],
     )
 }

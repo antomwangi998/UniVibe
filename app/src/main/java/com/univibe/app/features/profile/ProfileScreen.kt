@@ -76,6 +76,8 @@ class ProfileActions(
     val onOpenCommunities: () -> Unit = {},
     val onOpenCommunity: (String) -> Unit = {},
     val onOpenPrivacy: () -> Unit = {},
+    val unreadNotifications: Int = 0,
+    val onOpenNotifications: () -> Unit = {},
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -224,6 +226,7 @@ private fun Header(profile: MyProfile, actions: ProfileActions) {
             accent = profile.student.accent + 1,
             coverPath = profile.coverPath,
             modifier = Modifier.fullBleed(Spacing.md),
+            leading = { CoverBellButton(actions.unreadNotifications, actions.onOpenNotifications) },
             actions = { CoverIconButton(Icons.Outlined.Settings, "Settings", actions.onOpenSettings) },
             avatar = {
                 Box {
