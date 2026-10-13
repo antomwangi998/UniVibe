@@ -20,13 +20,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.GroupSummary
+import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.MyProfile
+import com.univibe.app.data.model.NotificationTarget
+import com.univibe.app.data.model.NotificationType
+import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
@@ -246,6 +252,21 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
 
     override suspend fun reportPost(postId: String, reason: String) = Unit // mock: nothing is sent
 
+    override suspend fun publishPost(post: NewPost): Post {
+        delay(400)
+        // Mirrors the checks a real server must make.
+        val text = post.text.trim()
+        require(text.isNotEmpty() || post.imagePaths.isNotEmpty()) { "Empty post" }
+        require(text.length <= 280) { "Post too long" }
+        require(post.imagePaths.size <= 4) { "Too many photos" }
+        val created = Post(
+            "p${System.nanoTime()}", MockData.aisha, "now", text, 0, 0,
+            imagePath = post.imagePaths.firstOrNull(), imagePaths = post.imagePaths, audience = post.audience,
+        )
+        store.posts.add(0, created)
+        return created
+    }
+
     override suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String?): Post {
         delay(250)
         val post = Post(
@@ -254,6 +275,35 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         )
         store.posts.add(0, post)
         return post
+    }
+}
+
+/** Mock-only notifications. A real backend creates these from server-side events and checks blocks itself. */
+class MockNotificationRepository : NotificationRepository {
+    private val items = mutableListOf(
+        AppNotification("n1", NotificationType.Like, "Brian Otieno", "liked your post", "2m", false, NotificationTarget.Post("p1"), MockData.brian),
+        AppNotification("n2", NotificationType.Comment, "Grace Wanjiku", "commented on your post", "15m", false, NotificationTarget.Post("p2"), MockData.grace),
+        AppNotification("n3", NotificationType.Follow, "Kevin Mutua", "started following you", "1h", false, NotificationTarget.Student("s4"), MockData.kevin),
+        AppNotification("n4", NotificationType.Event, "Campus Night", "starts tomorrow at 7:00 PM", "3h", false, NotificationTarget.Event("e1")),
+        AppNotification("n5", NotificationType.Connection, "Amina Hassan", "also wants to connect with you", "5h", true, NotificationTarget.Student("s5"), MockData.amina),
+        AppNotification("n6", NotificationType.Community, "Tech Club", "invited you to join", "8h", true, NotificationTarget.Community("tech")),
+        AppNotification("n7", NotificationType.Message, "Grace Wanjiku", "sent you a message", "1d", true, NotificationTarget.Chat("c1"), MockData.grace),
+        AppNotification("n8", NotificationType.System, "Welcome to UniVibe", "Add a photo and your interests so classmates can find you.", "2d", true),
+    )
+    private val _unread = MutableStateFlow(items.count { !it.read })
+    override val unreadCount: StateFlow<Int> = _unread.asStateFlow()
+
+    override suspend fun getNotifications(): List<AppNotification> { delay(300); return items.toList() }
+
+    override suspend fun markRead(id: String) {
+        val i = items.indexOfFirst { it.id == id }
+        if (i >= 0) items[i] = items[i].copy(read = true)
+        _unread.value = items.count { !it.read }
+    }
+
+    override suspend fun markAllRead() {
+        items.replaceAll { it.copy(read = true) }
+        _unread.value = 0
     }
 }
 
@@ -423,7 +473,7 @@ class MockProfileRepository(
             interests = e.interests ?: base.student.interests,
         )
         return base.copy(
-            student = student, bio = e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos,
+            student = student, bio = e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
             posts = base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" },
             savedPosts = store.saved.size,
             following = store.following.size,
@@ -443,6 +493,12 @@ class MockProfileRepository(
     }
 
     override suspend fun addPhoto(path: String) { local.update { it.copy(photos = listOf(path) + it.photos) } }
+
+    override suspend fun setDiscoverPhoto(path: String?) {
+        val old = local.edits.first().discoverPhotoPath
+        local.update { it.copy(discoverPhotoPath = path) }
+        if (old != path) PhotoStore.delete(old)
+    }
 
     override suspend fun removePhoto(path: String) {
         local.update { it.copy(photos = it.photos - path) }

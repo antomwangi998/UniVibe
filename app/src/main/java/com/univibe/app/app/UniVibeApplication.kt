@@ -14,6 +14,8 @@ import com.univibe.app.data.repository.DiscoverRepository
 import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.repository.MockDiscoverRepository
 import com.univibe.app.data.repository.MockEventRepository
+import com.univibe.app.data.repository.MockNotificationRepository
+import com.univibe.app.data.repository.NotificationRepository
 import com.univibe.app.data.repository.FeedRepository
 import com.univibe.app.data.repository.MessageRepository
 import com.univibe.app.data.repository.MockChatRepository
@@ -49,6 +51,7 @@ object AppContainer {
     /** One shared instance so RSVPs made on the details screen show up in the list. */
     /** One shared instance so a decision made on a full profile also updates the Discover deck. */
     val discoverRepository: DiscoverRepository by lazy { MockDiscoverRepository() }
+    val notificationRepository: NotificationRepository by lazy { MockNotificationRepository() }
     val eventRepository: EventRepository by lazy { MockEventRepository() }
     val profileRepository: ProfileRepository by lazy { MockProfileRepository(mockStore, DataStoreProfileLocalStore(app)) }
 

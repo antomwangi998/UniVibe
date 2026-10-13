@@ -11,7 +11,9 @@ import com.univibe.app.data.model.ReportItem
 import kotlinx.coroutines.flow.Flow
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.FeedFilter
+import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.MyProfile
+import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
@@ -31,7 +33,20 @@ interface FeedRepository {
     suspend fun reportPost(postId: String, reason: String)
     /** Server must validate length/content; returns the stored post. */
     suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String? = null): Post
+    /**
+     * Creates a post with attached photos and an audience. The server must validate text length, photo count/size/type
+     * and that the author may post to the chosen community; client checks are convenience only.
+     */
+    suspend fun publishPost(post: NewPost): Post
     suspend fun getSavedPosts(): List<Post>
+}
+
+interface NotificationRepository {
+    /** Live unread count for badges. A real backend would push this (or poll cheaply). */
+    val unreadCount: kotlinx.coroutines.flow.StateFlow<Int>
+    suspend fun getNotifications(): List<AppNotification>
+    suspend fun markRead(id: String)
+    suspend fun markAllRead()
 }
 
 interface DiscoverRepository {
@@ -59,6 +74,8 @@ interface ProfileRepository {
     suspend fun updateProfile(update: ProfileUpdate)
     suspend fun addPhoto(path: String)
     suspend fun removePhoto(path: String)
+    /** Sets (or clears, with null) the photo on your Discover card. The server must moderate it before others see it. */
+    suspend fun setDiscoverPhoto(path: String?)
     suspend fun getStudent(id: String): Student?
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getStudentProfile(id: String): StudentProfile?

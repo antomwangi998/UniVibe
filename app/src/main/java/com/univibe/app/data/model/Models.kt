@@ -16,9 +16,21 @@ data class Student(
     /** Interests shared with the signed-in student (computed by the data layer). */
     val shared: List<String> = emptyList(),
     val sameCourse: Boolean = false,
+    /** Photo shown on the Discover card; null falls back to a gradient with initials. */
+    val photoPath: String? = null,
 )
 
 enum class FeedFilter { Campus, Following }
+
+/** Who may see a post. The server enforces this; the client only offers the choices. */
+sealed interface PostAudience {
+    data object Campus : PostAudience
+    data object Followers : PostAudience
+    data class Community(val id: String, val name: String) : PostAudience
+}
+
+/** What the create-post screen sends. Photos are already private, re-encoded local files. */
+data class NewPost(val text: String, val imagePaths: List<String>, val audience: PostAudience)
 
 data class Post(
     val id: String,
@@ -35,6 +47,9 @@ data class Post(
     /** Local file of an attached photo (app storage). */
     val imagePath: String? = null,
     val fromFollowing: Boolean = false,
+    /** All attached photos in order; [imagePath] is the first one, kept for older screens. */
+    val imagePaths: List<String> = emptyList(),
+    val audience: PostAudience = PostAudience.Campus,
 )
 
 data class Chat(
@@ -78,6 +93,30 @@ data class StudentProfile(
     val communityIds: List<String> = emptyList(),
 )
 
+enum class NotificationType { Like, Comment, Follow, Connection, Event, Community, Message, System }
+
+/** Where tapping a notification goes. Ids are untrusted; destination screens handle "not found". */
+sealed interface NotificationTarget {
+    data class Post(val id: String) : NotificationTarget
+    data class Student(val id: String) : NotificationTarget
+    data class Event(val id: String) : NotificationTarget
+    data class Community(val id: String) : NotificationTarget
+    data class Chat(val id: String) : NotificationTarget
+    data object None : NotificationTarget
+}
+
+/** [title] is the actor or sender (bold), [body] the rest of the sentence. [actor] is null for system items. */
+data class AppNotification(
+    val id: String,
+    val type: NotificationType,
+    val title: String,
+    val body: String,
+    val timeAgo: String,
+    val read: Boolean,
+    val target: NotificationTarget = NotificationTarget.None,
+    val actor: Student? = null,
+)
+
 data class AgendaItem(val time: String, val title: String)
 
 /** Everything the event details screen shows. [capacity] == null means unlimited places. */
@@ -112,6 +151,8 @@ data class MyProfile(
     val avatarPath: String? = null,
     val coverPath: String? = null,
     val photos: List<String> = emptyList(),
+    /** Photo for your Discover card. Only shown to others while you are discoverable. */
+    val discoverPhotoPath: String? = null,
 )
 
 data class Comment(

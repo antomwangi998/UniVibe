@@ -85,6 +85,7 @@ import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
+import com.univibe.app.ui.components.NotificationBell
 import com.univibe.app.ui.components.StoryRing
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.UniVibeLockup
@@ -100,6 +101,9 @@ fun HomeScreen(
     onOpenEvents: () -> Unit = {},
     onOpenComments: (String) -> Unit = {},
     onOpenStudent: (String) -> Unit = {},
+    onCreatePost: () -> Unit = {},
+    unreadNotifications: Int = 0,
+    onOpenNotifications: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -110,7 +114,11 @@ fun HomeScreen(
 
     Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
-            VibeTopBar(title = "UniVibe", titleContent = { UniVibeLockup() })
+            VibeTopBar(
+                title = "UniVibe",
+                titleContent = { UniVibeLockup() },
+                actions = { NotificationBell(unreadNotifications, onOpenNotifications) },
+            )
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -160,7 +168,7 @@ fun HomeScreen(
             }
         }
 
-        // Scrolls to the composer and focuses it. Rides just above the floating bar and drops down when it hides.
+        // Opens the full create-post screen. Rides just above the floating bar and drops down when it hides.
         val barVisible = LocalFloatingBarVisible.current
         val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val fabBottom by animateDpAsState(
@@ -169,12 +177,7 @@ fun HomeScreen(
             label = "fabBottom",
         )
         FloatingActionButton(
-            onClick = {
-                scope.launch {
-                    listState.animateScrollToItem(0)
-                    composerFocus.requestFocus()
-                }
-            },
+            onClick = onCreatePost,
             shape = CircleShape,
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
