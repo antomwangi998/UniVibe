@@ -678,7 +678,7 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
         val cleanRules = validate(description, category, accent, rules)
         if (privacy == CommunityPrivacy.Public && c.privacy == CommunityPrivacy.Private) {
             val waiting = store.joinRequests[id].orEmpty().toList()
-            waiting.forEach { s -> store.membersOf(id) += CommunityMember(s, CommunityRole.Member) }
+            waiting.forEach { s -> if (store.membersOf(id).none { it.student.id == s.id }) store.membersOf(id) += CommunityMember(s, CommunityRole.Member) }
             store.joinRequests[id]?.clear()
             bump(id, waiting.size)
         }
