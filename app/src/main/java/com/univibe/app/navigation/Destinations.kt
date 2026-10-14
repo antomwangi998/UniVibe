@@ -39,6 +39,8 @@ object AppRoutes {
     const val STUDENT = "student/{studentId}"
     const val COMMUNITIES = "communities"
     const val COMMUNITY = "communities/{communityId}"
+    const val COMMUNITY_NEW = "community/new"
+    const val COMMUNITY_EDIT = "community/{communityId}/edit"
     const val EDIT_PROFILE = "profile/edit"
     const val PHOTOS = "profile/photos"
     const val SAVED = "profile/saved"
@@ -51,6 +53,7 @@ object AppRoutes {
     fun event(id: String) = "events/$id"
     fun student(id: String) = "student/$id"
     fun community(id: String) = "communities/$id"
+    fun communityEdit(id: String) = "community/$id/edit"
 }
 
 enum class TopLevelDestination(

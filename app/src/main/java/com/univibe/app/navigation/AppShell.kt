@@ -57,6 +57,8 @@ import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
+import com.univibe.app.features.communities.CommunityFormScreen
+import com.univibe.app.features.post.PostComposeHandoff
 import com.univibe.app.features.profile.EditProfileScreen
 import com.univibe.app.features.profile.FullProfileScreen
 import com.univibe.app.features.profile.FollowKind
@@ -254,9 +256,31 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
                     subScreen(AppRoutes.FOLLOWERS) { FollowListScreen(FollowKind.Followers, back) { open(AppRoutes.student(it)) } }
                     subScreen(AppRoutes.FOLLOWING) { FollowListScreen(FollowKind.Following, back) { open(AppRoutes.student(it)) } }
-                    subScreen(AppRoutes.COMMUNITIES) { CommunitiesScreen(onBack = back, onOpenCommunity = { open(AppRoutes.community(it)) }) }
+                    subScreen(AppRoutes.COMMUNITIES) { CommunitiesScreen(onBack = back, onOpenCommunity = { open(AppRoutes.community(it)) }, onCreate = { open(AppRoutes.COMMUNITY_NEW) }) }
                     subScreen(AppRoutes.COMMUNITY, stringArgs("communityId")) { entry ->
-                        CommunityDetailScreen(communityId = entry.arg("communityId"), onBack = back)
+                        val communityId = entry.arg("communityId")
+                        CommunityDetailScreen(
+                            communityId = communityId, onBack = back,
+                            onEdit = { open(AppRoutes.communityEdit(communityId)) },
+                            onPost = { PostComposeHandoff.communityId = communityId; open(AppRoutes.CREATE_POST) },
+                            onOpenComments = { open(AppRoutes.comments(it)) },
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                        )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_NEW) {
+                        CommunityFormScreen(
+                            editId = null, onBack = back,
+                            // Replace the form with the new community so Back returns to the list.
+                            onDone = { id ->
+                                navController.navigate(AppRoutes.community(id)) {
+                                    popUpTo(AppRoutes.COMMUNITY_NEW) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_EDIT, stringArgs("communityId")) { entry ->
+                        CommunityFormScreen(editId = entry.arg("communityId"), onBack = back, onDone = { back() })
                     }
 
                     subScreen(SettingsRoutes.ROOT) {
