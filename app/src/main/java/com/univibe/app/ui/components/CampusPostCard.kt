@@ -67,6 +67,9 @@ fun CampusPostCard(
     onSave: () -> Unit = {},
     onMore: () -> Unit = {},
     onAuthorClick: () -> Unit = {},
+    onShare: () -> Unit = {},
+    /** Null makes any poll read-only (results shown, no voting). */
+    onVote: ((Int) -> Unit)? = null,
 ) {
     VibeCard(modifier = modifier, elevation = 2.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -90,7 +93,7 @@ fun CampusPostCard(
                     is PostAudience.Community -> " · ${a.name}"
                 }
                 Text(
-                    "${post.author.handle} · ${post.timeAgo}$audience",
+                    "${post.author.handle} · ${post.timeAgo}${if (post.edited) " · edited" else ""}$audience",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -102,7 +105,14 @@ fun CampusPostCard(
         }
         Spacer(Modifier.size(Spacing.sm))
         if (post.text.isNotBlank()) Text(post.text, style = MaterialTheme.typography.bodyLarge)
-        if (post.imagePaths.size > 1) {
+        if (post.poll != null) {
+            Spacer(Modifier.size(Spacing.sm + 4.dp))
+            PostPoll(post.poll, onVote)
+        }
+        if (post.videoPath != null) {
+            Spacer(Modifier.size(Spacing.sm + 4.dp))
+            PostVideo(post.videoPath, post.author.name)
+        } else if (post.imagePaths.size > 1) {
             Spacer(Modifier.size(Spacing.sm + 4.dp))
             PostImageGrid(post.imagePaths, post.author.name)
         } else if (post.imagePath != null) {
@@ -136,7 +146,7 @@ fun CampusPostCard(
                 icon = { Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(22.dp)) },
                 count = post.shareCount,
                 description = "Share, ${post.shareCount}",
-                onClick = { /* TODO: share sheet */ },
+                onClick = onShare,
             )
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onSave) {

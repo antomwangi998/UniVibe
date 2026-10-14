@@ -8,6 +8,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.media.VideoStore
+import com.univibe.app.data.model.PostLimits
+import com.univibe.app.ui.components.ConfirmDialog
+import com.univibe.app.ui.components.sharePost
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
 import com.univibe.app.ui.components.rememberBottomClearance
@@ -110,6 +116,7 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val composerFocus = remember { FocusRequester() }
+    val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Box(Modifier.fillMaxSize().imePadding()) {
@@ -134,7 +141,7 @@ fun HomeScreen(
                         postedCount = state.postedCount,
                         focusRequester = composerFocus,
                         onOpenEvents = onOpenEvents,
-                        onPost = { text, media, path -> viewModel.publish(text, media, path) },
+                        onPost = { text, media, imagePath, videoPath, poll -> viewModel.publish(text, media, imagePath, videoPath, poll) },
                     )
                 }
                 item(key = "filters") {
@@ -162,6 +169,11 @@ fun HomeScreen(
                             onAuthorClick = { onOpenStudent(post.author.id) },
                             onSave = { viewModel.toggleSave(post.id) },
                             onMore = { viewModel.openPostMenu(post) },
+                            onShare = {
+                                if (sharePost(context, post)) viewModel.noteShared(post.id)
+                                else viewModel.explain("Only campus-wide posts can be shared outside UniVibe.")
+                            },
+                            onVote = { index -> viewModel.vote(post.id, index) },
                         )
                     }
                 }
@@ -185,7 +197,6 @@ fun HomeScreen(
         ) { Icon(Icons.Outlined.Edit, contentDescription = "Write a post") }
     }
 
-    val context = LocalContext.current
     LaunchedEffect(state.notice) {
         state.notice?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
@@ -200,6 +211,21 @@ fun HomeScreen(
             onDismiss = viewModel::closePostMenu,
             onBlock = viewModel::blockAuthor,
             onReport = viewModel::reportPost,
+            onEdit = viewModel::startEdit,
+            onDelete = viewModel::askDelete,
+        )
+    }
+    state.editingPost?.let { post ->
+        EditPostSheet(post, state.savingEdit, onDismiss = viewModel::cancelEdit, onSave = viewModel::saveEdit)
+    }
+    state.deletingPost?.let {
+        ConfirmDialog(
+            title = "Delete this post?",
+            message = "It will be removed for everyone, along with its comments. This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = viewModel::confirmDelete,
+            onDismiss = viewModel::cancelDelete,
+            destructive = true,
         )
     }
 }
@@ -207,11 +233,22 @@ fun HomeScreen(
 private val ReportReasons = listOf("Spam", "Harassment or bullying", "Inappropriate content", "False information", "Something else")
 
 @Composable
-private fun PostActionsSheet(post: Post, isOwn: Boolean, onDismiss: () -> Unit, onBlock: () -> Unit, onReport: (String) -> Unit) {
+private fun PostActionsSheet(
+    post: Post,
+    isOwn: Boolean,
+    onDismiss: () -> Unit,
+    onBlock: () -> Unit,
+    onReport: (String) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     var choosingReason by remember(post.id) { mutableStateOf(false) }
     VibeBottomSheet(onDismiss = onDismiss) {
         when {
-            isOwn -> Text("Editing and deleting your posts is coming soon.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = Spacing.md))
+            isOwn -> {
+                SheetOption(Icons.Outlined.Edit, "Edit post", onClick = onEdit)
+                SheetOption(Icons.Outlined.Delete, "Delete post", destructive = true, onClick = onDelete)
+            }
             choosingReason -> {
                 Text("Why are you reporting this?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
                 ReportReasons.forEach { reason -> SheetOption(Icons.Outlined.Flag, reason) { onReport(reason) } }
@@ -248,14 +285,24 @@ private fun Composer(
     postedCount: Int,
     focusRequester: FocusRequester,
     onOpenEvents: () -> Unit,
-    onPost: (text: String, hasMedia: Boolean, imagePath: String?) -> Unit,
+    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var text by rememberSaveable { mutableStateOf("") }
     var attached by rememberSaveable { mutableStateOf<String?>(null) }
     var attachedPath by rememberSaveable { mutableStateOf<String?>(null) }
+    // Poll options are kept as one newline-joined string so the draft survives rotation.
+    var pollDraft by rememberSaveable { mutableStateOf("") }
+    var buildingPoll by remember { mutableStateOf(false) }
     var seenPosts by rememberSaveable { mutableStateOf(postedCount) }
+    val pollOptions = if (pollDraft.isEmpty()) emptyList() else pollDraft.split("\n")
+
+    fun discardAttachment() {
+        if (attached == "Video") VideoStore.delete(attachedPath) else PhotoStore.delete(attachedPath)
+        attachedPath = null
+        attached = null
+    }
 
     // Clear the draft after a successful post.
     LaunchedEffect(postedCount) {
@@ -263,6 +310,7 @@ private fun Composer(
             text = ""
             attached = null
             attachedPath = null
+            pollDraft = ""
             seenPosts = postedCount
         }
     }
@@ -272,17 +320,26 @@ private fun Composer(
         if (uri != null) scope.launch {
             val path = PhotoStore.import(context, uri, "post")
             if (path != null) {
-                PhotoStore.delete(attachedPath)
+                discardAttachment()
+                pollDraft = ""
                 attached = "Photo"; attachedPath = path
             } else Toast.makeText(context, "Couldn't use that image.", Toast.LENGTH_SHORT).show()
         }
     }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) { PhotoStore.delete(attachedPath); attachedPath = null; attached = "Video" }
+        if (uri != null) scope.launch {
+            val path = VideoStore.import(context, uri, "post")
+            if (path != null) {
+                discardAttachment()
+                pollDraft = ""
+                attached = "Video"; attachedPath = path
+            } else Toast.makeText(context, "Couldn't use that video. Videos can be up to 50 MB.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     val tooLong = text.length > MAX_POST_LENGTH
-    val hasContent = text.isNotBlank() || attached != null
+    val hasContent = text.isNotBlank() || attached != null || pollOptions.isNotEmpty()
+    val needsQuestion = pollOptions.isNotEmpty() && text.isBlank()
     val firstName = fullName.substringBefore(' ')
 
     VibeCard {
@@ -296,7 +353,7 @@ private fun Composer(
                 placeholder = "What's on your mind, $firstName?",
                 singleLine = false,
                 isError = tooLong || error != null,
-                supportingText = error ?: if (text.isNotEmpty()) "${text.length}/$MAX_POST_LENGTH" else null,
+                supportingText = error ?: if (needsQuestion) "Add a question for your poll" else if (text.isNotEmpty()) "${text.length}/$MAX_POST_LENGTH" else null,
             )
         }
 
@@ -311,14 +368,14 @@ private fun Composer(
                     Icon(if (kind == "Photo") Icons.Outlined.Image else Icons.Outlined.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("$kind attached", style = MaterialTheme.typography.labelMedium)
-                    IconButton(onClick = { PhotoStore.delete(attachedPath); attachedPath = null; attached = null }, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { discardAttachment() }, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Outlined.Close, contentDescription = "Remove $kind", modifier = Modifier.size(18.dp))
                     }
                 }
             }
         }
 
-        attachedPath?.let { path ->
+        attachedPath?.takeIf { attached == "Photo" }?.let { path ->
             Box(Modifier.padding(top = Spacing.sm).size(96.dp).clip(RoundedCornerShape(16.dp))) {
                 PhotoImage(path, contentDescription = "Selected photo preview")
             }
@@ -328,8 +385,10 @@ private fun Composer(
             Row(Modifier.fillMaxWidth().padding(top = Spacing.sm), horizontalArrangement = Arrangement.End) {
                 VibeButton(
                     text = "Post",
-                    onClick = { onPost(text, attached != null, attachedPath) },
-                    enabled = !tooLong,
+                    onClick = {
+                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions)
+                    },
+                    enabled = !tooLong && !needsQuestion,
                     loading = publishing,
                     compact = true,
                 )
@@ -347,9 +406,81 @@ private fun Composer(
                 videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
             }
             ComposerAction(Icons.Outlined.Event, "Event", onOpenEvents)
-            ComposerAction(Icons.Outlined.Poll, "Poll") {
-                Toast.makeText(context, "Polls are coming soon", Toast.LENGTH_SHORT).show()
+            ComposerAction(Icons.Outlined.Poll, "Poll") { buildingPoll = true }
+        }
+    }
+
+    if (buildingPoll) {
+        PollBuilderSheet(
+            initial = pollOptions,
+            onDismiss = { buildingPoll = false },
+            onDone = { options ->
+                if (attached != null) discardAttachment()
+                pollDraft = options.joinToString("\n")
+                buildingPoll = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun PollBuilderSheet(initial: List<String>, onDismiss: () -> Unit, onDone: (List<String>) -> Unit) {
+    val options = remember { mutableStateListOf<String>().apply { addAll(if (initial.size >= PostLimits.MIN_POLL_OPTIONS) initial else listOf("", "")) } }
+    val trimmed = options.map { it.trim() }
+    val duplicate = trimmed.map { it.lowercase() }.toSet().size != trimmed.size
+    val valid = trimmed.all { it.isNotEmpty() } && !duplicate
+    VibeBottomSheet(onDismiss = onDismiss) {
+        Text("Create a poll", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
+        options.forEachIndexed { index, value ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = Spacing.sm)) {
+                VibeTextField(
+                    value = value,
+                    onValueChange = { options[index] = it.take(PostLimits.MAX_POLL_OPTION_LENGTH) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = "Option ${index + 1}",
+                    singleLine = true,
+                )
+                if (options.size > PostLimits.MIN_POLL_OPTIONS) {
+                    IconButton(onClick = { options.removeAt(index) }) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Remove option ${index + 1}")
+                    }
+                }
             }
+        }
+        if (duplicate && trimmed.all { it.isNotEmpty() }) {
+            Text("Options must be different.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        if (options.size < PostLimits.MAX_POLL_OPTIONS) {
+            ComposerAction(Icons.Outlined.Add, "Add option") { options.add("") }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = Spacing.md, bottom = Spacing.md), horizontalArrangement = Arrangement.End) {
+            VibeButton(text = "Add poll", onClick = { onDone(trimmed) }, enabled = valid)
+        }
+    }
+}
+
+@Composable
+private fun EditPostSheet(post: Post, saving: Boolean, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember(post.id) { mutableStateOf(post.text) }
+    val tooLong = text.length > MAX_POST_LENGTH
+    VibeBottomSheet(onDismiss = onDismiss) {
+        Text("Edit post", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
+        VibeTextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = "What's on your mind?",
+            singleLine = false,
+            isError = tooLong,
+            supportingText = "${text.length}/$MAX_POST_LENGTH",
+        )
+        Row(Modifier.fillMaxWidth().padding(top = Spacing.md, bottom = Spacing.md), horizontalArrangement = Arrangement.End) {
+            VibeButton(
+                text = "Save",
+                onClick = { onSave(text) },
+                enabled = !tooLong && (text.isNotBlank() || post.hasAttachment),
+                loading = saving,
+            )
         }
     }
 }

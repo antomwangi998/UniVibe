@@ -70,6 +70,7 @@ import com.univibe.app.core.keyedViewModel
 import com.univibe.app.features.settings.SettingsGroup
 import com.univibe.app.features.settings.SettingsPage
 import com.univibe.app.ui.components.CampusPostCard
+import com.univibe.app.ui.components.sharePost
 import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
@@ -166,6 +167,7 @@ fun SavedPostsScreen(
     viewModel: SavedPostsViewModel = viewModel(),
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
+    val shareContext = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Saved posts", compactTitle = true, navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) })
         when {
@@ -184,6 +186,10 @@ fun SavedPostsScreen(
                     CampusPostCard(
                         post, onLike = { viewModel.toggleLike(post.id) }, onComment = { onOpenComments(post.id) },
                         onSave = { viewModel.unsave(post.id) }, onAuthorClick = { onOpenStudent(post.author.id) },
+                        onShare = {
+                            if (sharePost(shareContext, post)) viewModel.noteShared(post.id)
+                            else Toast.makeText(shareContext, "Only campus-wide posts can be shared outside UniVibe.", Toast.LENGTH_SHORT).show()
+                        },
                     )
                 }
             }

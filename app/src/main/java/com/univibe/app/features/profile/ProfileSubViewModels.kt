@@ -176,6 +176,11 @@ class SavedPostsViewModel(
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(likedByMe = liked, likeCount = it.likeCount + if (liked) 1 else -1) else it }) }
         viewModelScope.launch { runCatching { repository.setLiked(id, liked) } }
     }
+
+    fun noteShared(id: String) {
+        _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(shareCount = it.shareCount + 1) else it }) }
+        viewModelScope.launch { runCatching { repository.recordShare(id) } }
+    }
 }
 
 // ------------------------------------------------------------------ followers / following
