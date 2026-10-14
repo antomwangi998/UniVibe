@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -46,16 +47,17 @@ import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeTextField
+import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun EventsScreen(onOpenEvent: (String) -> Unit = {}, viewModel: EventsViewModel = viewModel()) {
+fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit = {}, viewModel: EventsViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Events")
+        VibeTopBar("Events", actions = { VibeIconButton(Icons.Outlined.Add, "Create event", onCreateEvent) })
         VibeTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,
@@ -78,6 +80,13 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, viewModel: EventsViewModel 
             items(EventCategories, key = { it }) { c ->
                 InterestChip(c, selected = state.category == c, onClick = { viewModel.setCategory(c) })
             }
+        }
+        if (state.tab == EventsTab.Past) {
+            Text(
+                "Past events are removed 7 days after they end.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            )
         }
         when {
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)

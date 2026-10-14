@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventCategoryOptions
 import com.univibe.app.data.model.EventsTab
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.repository.EventRepository
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-val EventCategories = listOf("All", "Workshop", "Party", "Sports", "Academic")
+val EventCategories = listOf("All") + EventCategoryOptions
 
 data class EventsUiState(
     val loading: Boolean = true,
@@ -38,6 +39,7 @@ data class EventsUiState(
             }
             .filter { category == "All" || it.category == category }
             .filter { query.isBlank() || it.title.contains(query, true) || it.location.contains(query, true) }
+            .let { seq -> if (tab == EventsTab.Past) seq.sortedByDescending { it.startMillis } else seq }
             .toList()
 }
 

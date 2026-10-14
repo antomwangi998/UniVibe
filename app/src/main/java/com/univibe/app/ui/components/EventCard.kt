@@ -33,7 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.outlined.DeleteOutline
+import com.univibe.app.core.formatDate
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventStatus
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.ui.theme.Spacing
 
@@ -63,27 +66,35 @@ fun EventCard(
                     Text(event.day, style = MaterialTheme.typography.titleLarge)
                 }
             }
-            val (tagBg, tagFg) = when (event.category) {
+            val status = event.status()
+            val tagText = when (status) { EventStatus.Cancelled -> "Cancelled"; EventStatus.Live -> "Live now"; else -> event.category }
+            val (tagBg, tagFg) = when {
+                status == EventStatus.Cancelled -> colors.errorContainer to colors.onErrorContainer
+                status == EventStatus.Live -> colors.primary to colors.onPrimary
+                else -> when (event.category) {
                 "Party" -> colors.primaryContainer to colors.onPrimaryContainer
                 "Sports" -> colors.tertiaryContainer to colors.onTertiaryContainer
                 "Workshop" -> colors.secondaryContainer to colors.onSecondaryContainer
                 else -> colors.surfaceVariant to colors.onSurfaceVariant
+                }
             }
             Surface(
                 modifier = Modifier.align(Alignment.TopEnd).padding(Spacing.md),
                 shape = CircleShape, color = tagBg, contentColor = tagFg,
             ) {
-                Text(event.category, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                Text(tagText, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
             }
         }
         Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Text(event.title, style = MaterialTheme.typography.titleMedium)
             MetaRow(Icons.Outlined.Schedule, event.timeLabel)
             MetaRow(Icons.Outlined.Place, event.location)
+            if (event.isPast) MetaRow(Icons.Outlined.DeleteOutline, "Removed on ${formatDate(event.expiresAtMillis)}")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetaRow(Icons.Outlined.Groups, "${event.going} going · ${event.interested} interested", Modifier.weight(1f))
                 Spacer(Modifier.width(Spacing.sm))
                 when {
+                    event.cancelled -> Text("Cancelled", style = MaterialTheme.typography.labelLarge, color = colors.error)
                     event.isPast -> Text("Ended", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
                     event.rsvp == RsvpState.Going ->
                         VibeButton("Going", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.Check)

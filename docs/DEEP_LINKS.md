@@ -26,6 +26,8 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://student/{studentId}` | Another student's full profile (opened from Discover cards; links on to chat, communities and post comments) |
 | `univibe://settings/privacy/discover` | Discover profile (card photo, preview, visibility) |
 | `univibe://notifications` | Notifications list |
+| `univibe://event/new` | New event form (a link never creates anything) |
+| `univibe://event/{eventId}/edit` | Edit event (hosts of upcoming events only) |
 | `univibe://community/new` | New community form (a link never creates anything) |
 | `univibe://community/{communityId}/edit` | Edit community (owners only; others see "Not available") |
 | `univibe://group/new` | New group (opens the form; a link never creates anything) |

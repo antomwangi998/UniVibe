@@ -5,6 +5,8 @@ import com.univibe.app.data.model.CommunityMember
 import com.univibe.app.data.model.CommunityPrivacy
 import com.univibe.app.data.model.CommunityRole
 import com.univibe.app.data.model.EventDetails
+import com.univibe.app.data.model.NewEvent
+import com.univibe.app.data.model.Venue
 import com.univibe.app.data.model.GroupInfo
 import com.univibe.app.data.model.GroupRole
 import com.univibe.app.data.model.Reaction
@@ -74,6 +76,15 @@ interface EventRepository {
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getEvent(id: String): EventDetails?
     suspend fun setRsvp(eventId: String, state: RsvpState)
+    /** Returns the new event's id. Hosting for a community needs moderator or owner rights there. */
+    suspend fun createEvent(draft: NewEvent): String
+    /** Host only, and only before the event ends. The host and community can't change. */
+    suspend fun updateEvent(id: String, draft: NewEvent)
+    /** Host only. Keeps the event visible, marked cancelled, until it expires. The server must notify attendees. */
+    suspend fun cancelEvent(id: String)
+    /** Host only, and only while nobody else has RSVPed (otherwise cancel it so attendees are told). */
+    suspend fun deleteEvent(id: String)
+    suspend fun getVenues(): List<Venue>
 }
 
 interface ProfileRepository {

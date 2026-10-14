@@ -55,7 +55,7 @@ object AppContainer {
     /** One shared instance so a decision made on a full profile also updates the Discover deck. */
     val discoverRepository: DiscoverRepository by lazy { MockDiscoverRepository() }
     val notificationRepository: NotificationRepository by lazy { MockNotificationRepository() }
-    val eventRepository: EventRepository by lazy { MockEventRepository() }
+    val eventRepository: EventRepository by lazy { MockEventRepository(mockStore) }
     val profileRepository: ProfileRepository by lazy { MockProfileRepository(mockStore, DataStoreProfileLocalStore(app)) }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }

@@ -3,7 +3,12 @@ package com.univibe.app.data.repository
 import com.univibe.app.data.model.AgendaItem
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EDIT_WINDOW_MILLIS
+import com.univibe.app.data.model.EVENT_RETENTION_MILLIS
+import com.univibe.app.data.model.EventCategoryOptions
 import com.univibe.app.data.model.EventDetails
+import com.univibe.app.data.model.NewEvent
+import com.univibe.app.data.model.Venue
+import com.univibe.app.core.eventDateParts
 import com.univibe.app.data.model.GroupInfo
 import com.univibe.app.data.model.GroupMember
 import com.univibe.app.data.model.GroupRole
@@ -172,6 +177,20 @@ class MockStore {
 
     val groups = mutableMapOf<String, GroupInfo>()
 
+    /** Events with real times, seeded relative to now so the Past tab and auto-expiry can be seen. */
+    val events: MutableList<EventDetails> = run {
+        val hour = 3_600_000L
+        val base = System.currentTimeMillis().let { it - it % hour }
+        // id to (start offset in hours, duration in hours)
+        val offsets = mapOf("e1" to (50L to 4L), "e2" to (150L to 3L), "e3" to (270L to 3L), "e4" to (400L to 2L), "e5" to (-80L to 4L), "e6" to (-150L to 8L))
+        MockData.eventInfo.values.map { d ->
+            val (startH, durH) = offsets.getValue(d.event.id)
+            val start = base + startH * hour
+            d.copy(event = d.event.copy(startMillis = start, endMillis = start + durH * hour, hostName = d.host))
+        }.toMutableList()
+    }
+    val rsvps = mutableMapOf<String, RsvpState>()
+
     private val communityMembers = mutableMapOf<String, MutableList<CommunityMember>>()
     val joinRequests = mutableMapOf<String, MutableList<Student>>(
         "tech" to mutableListOf(MockData.amina, MockData.kevin),
@@ -198,6 +217,7 @@ class MockStore {
         communityMembers.remove(id)
         joinRequests.remove(id)
         reports.remove(id)
+        events.removeAll { it.event.hostCommunityId == id }
         posts.removeAll { (it.audience as? PostAudience.Community)?.id == id }
     }
     private val pinnedFlows = mutableMapOf<String, MutableStateFlow<String?>>()
@@ -723,30 +743,127 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
     }
 }
 
-class MockEventRepository : EventRepository {
-    private val states = mutableMapOf<String, RsvpState>()
-    /** Counts include your own RSVP so lists and details always agree after a reload. */
-    private fun withState(e: CampusEvent): CampusEvent {
-        val state = states[e.id] ?: RsvpState.None
+class MockEventRepository(private val store: MockStore = MockStore()) : EventRepository {
+    private val now get() = System.currentTimeMillis()
+
+    /** RSVP state, counts and the time-derived display fields. Counts include your own RSVP. */
+    private fun present(e: CampusEvent): CampusEvent {
+        val state = store.rsvps[e.id] ?: RsvpState.None
+        val (month, day, label) = eventDateParts(e.startMillis)
         return e.copy(
-            rsvp = state,
+            month = month, day = day, timeLabel = label, isPast = now >= e.endMillis, rsvp = state,
             going = e.going + if (state == RsvpState.Going) 1 else 0,
             interested = e.interested + if (state == RsvpState.Interested) 1 else 0,
         )
     }
 
+    /** Auto-expiry: an event is deleted [EVENT_RETENTION_MILLIS] after it ends, with its RSVPs. A real server does this with a TTL job. */
+    private fun purge() {
+        val t = now
+        store.events.removeAll { t > it.event.expiresAtMillis }
+        store.rsvps.keys.retainAll(store.events.map { it.event.id }.toSet())
+    }
+
+    private fun find(id: String): EventDetails? { purge(); return store.events.firstOrNull { it.event.id == id } }
+    private fun replace(d: EventDetails) { val i = store.events.indexOfFirst { it.event.id == d.event.id }; if (i >= 0) store.events[i] = d }
+
     override suspend fun getEvents(): List<CampusEvent> {
         delay(350)
-        return MockData.events.map(::withState)
+        purge()
+        return store.events.map { present(it.event) }.sortedBy { it.startMillis }
     }
 
     override suspend fun getEvent(id: String): EventDetails? {
         delay(250)
-        val base = MockData.eventInfo[id] ?: return null
-        return base.copy(event = withState(base.event))
+        return find(id)?.let { it.copy(event = present(it.event)) }
     }
 
-    override suspend fun setRsvp(eventId: String, state: RsvpState) { states[eventId] = state }
+    override suspend fun setRsvp(eventId: String, state: RsvpState) {
+        val d = find(eventId) ?: throw IllegalArgumentException("Event not found")
+        val e = present(d.event)
+        check(!e.cancelled) { "This event was cancelled." }
+        check(!e.isPast) { "This event has ended." }
+        if (state == RsvpState.Going && e.rsvp != RsvpState.Going) {
+            check(d.capacity == null || e.going < d.capacity) { "This event is full." }
+        }
+        store.rsvps[eventId] = state
+    }
+
+    private fun validate(draft: NewEvent, creating: Boolean, oldStart: Long = 0L) {
+        val t = now
+        require(draft.title.trim().length in 3..80) { "Title must be 3 to 80 characters" }
+        require(draft.description.trim().length <= 1000) { "Description is too long" }
+        require(draft.category in EventCategoryOptions) { "Pick a category" }
+        require(draft.venue.trim().length in 2..80) { "Venue must be 2 to 80 characters" }
+        require(draft.endMillis > draft.startMillis) { "The event must end after it starts" }
+        require(draft.endMillis - draft.startMillis <= 48 * 3_600_000L) { "Events can last up to 48 hours" }
+        if (creating || draft.startMillis != oldStart) require(draft.startMillis >= t + 5 * 60_000L) { "Start at least 5 minutes from now" }
+        require(draft.startMillis <= t + 365L * 24 * 3_600_000L) { "Events can be up to a year ahead" }
+        draft.capacity?.let { require(it in 1..5000) { "Places must be 1 to 5000" } }
+        require(draft.accent in 0..5) { "Invalid colour" }
+        require((draft.latitude == null) == (draft.longitude == null)) { "Invalid venue position" }
+        draft.latitude?.let { require(it in -90.0..90.0) { "Invalid venue position" } }
+        draft.longitude?.let { require(it in -180.0..180.0) { "Invalid venue position" } }
+    }
+
+    override suspend fun createEvent(draft: NewEvent): String {
+        delay(400)
+        purge()
+        validate(draft, creating = true)
+        val community = draft.hostCommunityId?.let { id ->
+            store.communities.firstOrNull { it.id == id }?.also { check(it.isStaff) { "Only moderators can host events for ${it.name}." } }
+                ?: throw IllegalArgumentException("Community not found")
+        }
+        check(store.events.count { it.event.mine && !it.event.cancelled && it.event.endMillis > now } < 5) { "You can have up to 5 upcoming events at a time." }
+        val id = "ev${System.nanoTime()}"
+        val host = community?.name ?: MockData.aisha.name
+        val event = CampusEvent(
+            id = id, title = draft.title.trim(), month = "", day = "", timeLabel = "", location = draft.venue.trim(),
+            going = 0, interested = 0, category = draft.category, accent = draft.accent,
+            startMillis = draft.startMillis, endMillis = draft.endMillis, hostName = host, hostCommunityId = community?.id, mine = true,
+        )
+        store.events.add(EventDetails(event, draft.description.trim(), host, community?.accent ?: draft.accent, emptyList(), draft.capacity, draft.latitude, draft.longitude))
+        store.rsvps[id] = RsvpState.Going // hosts are going
+        return id
+    }
+
+    override suspend fun updateEvent(id: String, draft: NewEvent) {
+        delay(300)
+        val d = find(id) ?: throw IllegalArgumentException("Event not found")
+        val e = present(d.event)
+        check(e.mine) { "Only the host can edit this event." }
+        check(!e.isPast && !e.cancelled) { "This event can't be edited any more." }
+        validate(draft, creating = false, oldStart = d.event.startMillis)
+        draft.capacity?.let { require(it >= e.going) { "Places can't be fewer than the ${e.going} already going" } }
+        replace(d.copy(
+            event = d.event.copy(
+                title = draft.title.trim(), location = draft.venue.trim(), category = draft.category, accent = draft.accent,
+                startMillis = draft.startMillis, endMillis = draft.endMillis,
+            ),
+            description = draft.description.trim(), capacity = draft.capacity, latitude = draft.latitude, longitude = draft.longitude,
+        ))
+    }
+
+    override suspend fun cancelEvent(id: String) {
+        val d = find(id) ?: throw IllegalArgumentException("Event not found")
+        check(d.event.mine) { "Only the host can cancel this event." }
+        check(now < d.event.endMillis && !d.event.cancelled) { "This event can't be cancelled." }
+        replace(d.copy(event = d.event.copy(cancelled = true)))
+    }
+
+    override suspend fun deleteEvent(id: String) {
+        val d = find(id) ?: throw IllegalArgumentException("Event not found")
+        check(d.event.mine) { "Only the host can delete this event." }
+        check(d.event.going + d.event.interested == 0) { "People have RSVPed. Cancel the event so they're told." }
+        store.events.removeAll { it.event.id == id }
+        store.rsvps.remove(id)
+    }
+
+    override suspend fun getVenues(): List<Venue> = listOf(
+        Venue("Student Center", -1.2796, 36.8170), Venue("Main Field", -1.2803, 36.8160), Venue("Tech Lab 3", -1.2789, 36.8174),
+        Venue("Auditorium", -1.2792, 36.8162), Venue("Main Hall", -1.2799, 36.8165), Venue("Sports Complex", -1.2810, 36.8180),
+        Venue("Library Lawn", -1.2786, 36.8168),
+    )
 }
 
 class MockProfileRepository(

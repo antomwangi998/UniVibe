@@ -81,6 +81,50 @@ data class CampusEvent(
     val accent: Int,
     val rsvp: RsvpState = RsvpState.None,
     val isPast: Boolean = false,
+    /** Real times (UTC millis). The display fields above are derived from them by the repository. */
+    val startMillis: Long = 0L,
+    val endMillis: Long = 0L,
+    val hostName: String = "",
+    /** Set when a community hosts the event. */
+    val hostCommunityId: String? = null,
+    val cancelled: Boolean = false,
+    /** You created it, so you can edit, cancel or delete it. */
+    val mine: Boolean = false,
+) {
+    /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
+    val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
+
+    fun status(now: Long = System.currentTimeMillis()): EventStatus = when {
+        cancelled -> EventStatus.Cancelled
+        now >= endMillis -> EventStatus.Ended
+        now >= startMillis -> EventStatus.Live
+        else -> EventStatus.Upcoming
+    }
+}
+
+enum class EventStatus { Upcoming, Live, Ended, Cancelled }
+
+/** Ended events stay visible under Past for a week (photos, memories, deep links), then are deleted with their RSVPs. */
+const val EVENT_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+val EventCategoryOptions = listOf("Workshop", "Party", "Sports", "Academic", "Social", "Career")
+
+/** A campus venue with a position for the map. A real backend serves the venue directory. */
+data class Venue(val name: String, val latitude: Double, val longitude: Double)
+
+/** What the create/edit screen sends. Times are UTC millis; the server must validate everything again. */
+data class NewEvent(
+    val title: String,
+    val description: String,
+    val category: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val venue: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val capacity: Int?,
+    val accent: Int,
+    val hostCommunityId: String?,
 )
 
 enum class EventsTab { Upcoming, MyEvents, Past }
