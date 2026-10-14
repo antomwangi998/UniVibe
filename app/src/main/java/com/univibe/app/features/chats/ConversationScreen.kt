@@ -34,6 +34,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,6 +57,10 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.LocalFireDepartment
@@ -61,6 +68,7 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SentimentDissatisfied
 import androidx.compose.material.icons.outlined.SentimentVerySatisfied
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -90,6 +98,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -106,6 +118,8 @@ import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.ui.components.ErrorState
+import com.univibe.app.ui.components.PhotoViewerDialog
+import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
@@ -138,7 +152,7 @@ private fun buildRows(messages: List<Message>): List<ChatRow> {
 }
 
 @Composable
-fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}) {
+fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}) {
     val viewModel = keyedViewModel("chat-$chatId") { ConversationViewModel(chatId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val pickPhoto = rememberPhotoPicker("chat") { viewModel.sendImage(it) }
@@ -151,21 +165,55 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
     LaunchedEffect(s.replyTo?.id) { if (s.replyTo != null) composerFocus.requestFocus() }
-    LaunchedEffect(s.highlightId) { if (s.highlightId != null) { delay(1400); viewModel.highlight(null) } }
+    // While searching, the current match stays highlighted; otherwise the flash fades after a moment.
+    LaunchedEffect(s.highlightId, s.searching) { if (s.highlightId != null && !s.searching) { delay(1400); viewModel.highlight(null) } }
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(s.searching) { if (s.searching) searchFocus.requestFocus() }
 
     val rows = remember(s.messages) { buildRows(s.messages) }
     val showJump by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
     val typingOffset = if (s.typing) 1 else 0
+    LaunchedEffect(s.jumpTo) {
+        val id = s.jumpTo ?: return@LaunchedEffect
+        val index = rows.indexOfFirst { it is ChatRow.Msg && it.message.id == id }
+        if (index >= 0) listState.animateScrollToItem(index + typingOffset)
+        viewModel.consumeJump()
+    }
 
     Column(Modifier.fillMaxSize().imePadding()) {
+        if (s.searching) {
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = Spacing.sm, vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                    VibeIconButton(Icons.Outlined.Close, "Close search", viewModel::closeSearch)
+                    VibeTextField(
+                        value = s.query, onValueChange = viewModel::setQuery,
+                        modifier = Modifier.weight(1f).padding(horizontal = Spacing.sm).focusRequester(searchFocus), placeholder = "Search in chat",
+                    )
+                    Text(
+                        if (s.query.isBlank()) "" else if (s.matches.isEmpty()) "No results" else "${s.searchIndex + 1} of ${s.matches.size}",
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    IconButton(onClick = { viewModel.stepSearch(+1) }, enabled = s.matches.isNotEmpty()) { Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Older match") }
+                    IconButton(onClick = { viewModel.stepSearch(-1) }, enabled = s.matches.isNotEmpty()) { Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Newer match") }
+                }
+            }
+        } else {
+        val headerAction: (() -> Unit)? = when {
+            chat?.isGroup == true -> onOpenGroupInfo
+            chat?.studentId != null -> ({ onOpenStudent(chat.studentId!!) })
+            else -> null
+        }
         VibeTopBar(
             title = s.title, compactTitle = true,
             navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-            actions = { if (chat?.isGroup == true) VibeIconButton(Icons.Outlined.Info, "Group info", onOpenGroupInfo) },
+            actions = {
+                VibeIconButton(Icons.Outlined.Search, "Search in chat", viewModel::openSearch)
+                if (chat?.isGroup == true) VibeIconButton(Icons.Outlined.Info, "Group info", onOpenGroupInfo)
+            },
             titleContent = if (chat == null) null else {
                 {
                     Row(
-                        Modifier.clickable(enabled = chat.isGroup, role = Role.Button, onClickLabel = "Open group info", onClick = onOpenGroupInfo),
+                        Modifier.clickable(enabled = headerAction != null, role = Role.Button, onClickLabel = if (chat.isGroup) "Open group info" else "Open profile") { headerAction?.invoke() },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (chat.isGroup) GroupAvatar(s.group?.photoPath, 40.dp)
@@ -187,6 +235,10 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                 }
             },
         )
+        }
+        s.pinned?.let { pinned ->
+            if (!s.searching) PinnedBar(pinned, canUnpin = s.canPin, onJump = { viewModel.jumpTo(pinned.id) }, onUnpin = { viewModel.pin(null) })
+        }
 
         when {
             s.loading -> Box(Modifier.weight(1f))
@@ -216,10 +268,8 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                     onDoubleTap = { viewModel.react(m, Reaction.Heart) },
                                     onReply = { viewModel.startReply(m) },
                                     onReaction = { viewModel.react(m, it) },
-                                    onJump = { id ->
-                                        val index = rows.indexOfFirst { it is ChatRow.Msg && it.message.id == id }
-                                        if (index >= 0) scope.launch { listState.animateScrollToItem(index + typingOffset); viewModel.highlight(id) }
-                                    },
+                                    onJump = viewModel::jumpTo,
+                                    onOpenPhoto = { viewModel.openViewer(it) },
                                 )
                             }
                         }
@@ -252,6 +302,23 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                     AnimatedVisibility(s.replyTo != null) {
                         s.replyTo?.let { ReplyBar(it, onCancel = viewModel::cancelReply) }
                     }
+                    AnimatedVisibility(s.editing != null) {
+                        s.editing?.let { EditBar(it, onCancel = viewModel::cancelEdit) }
+                    }
+                    if (s.canPost && s.mentionSuggestions.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.sm)) {
+                            s.mentionSuggestions.forEach { st ->
+                                Row(
+                                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Mention ${st.name}") { viewModel.pickMention(st) }.padding(horizontal = Spacing.sm),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent)
+                                    Text(st.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = Spacing.sm + 4.dp))
+                                    Text("  ${st.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
                     if (!s.canPost) {
                         Text(
                             "Only admins can send messages in this group.",
@@ -265,7 +332,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             }
                             VibeTextField(
                                 value = s.input, onValueChange = viewModel::onInput, modifier = Modifier.weight(1f).focusRequester(composerFocus),
-                                placeholder = if (s.replyTo != null) "Write a reply" else "Message", singleLine = false,
+                                placeholder = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }, singleLine = false,
                                 isError = s.input.length > MAX_MESSAGE,
                             )
                             Spacer(Modifier.width(Spacing.sm))
@@ -275,7 +342,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                 contentColor = if (s.canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                             ) {
                                 IconButton(onClick = viewModel::send, enabled = s.canSend, modifier = Modifier.size(52.dp)) {
-                                    Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = "Send message")
+                                    Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = if (s.editing != null) "Save edit" else "Send message")
                                 }
                             }
                         }
@@ -302,10 +369,93 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                 }
             }
             SheetRow(Icons.AutoMirrored.Outlined.Reply, "Reply", false) { viewModel.startReply(m) }
+            if (canEditMessage(m)) SheetRow(Icons.Outlined.Edit, "Edit", false) { viewModel.startEdit(m) }
+            SheetRow(Icons.AutoMirrored.Outlined.Send, "Forward", false) { viewModel.openForward(m) }
+            if (s.canPin) {
+                if (s.pinnedId == m.id) SheetRow(Icons.Outlined.PushPin, "Unpin message", false) { viewModel.pin(null) }
+                else SheetRow(Icons.Outlined.PushPin, "Pin message", false) { viewModel.pin(m) }
+            }
             if (m.text.isNotBlank()) {
                 SheetRow(Icons.Outlined.ContentCopy, "Copy text", false) { clipboard.setText(AnnotatedString(m.text)); viewModel.openMenu(null) }
             }
             if (m.isMine) SheetRow(Icons.Outlined.DeleteOutline, "Delete message", true, viewModel::deleteMessage)
+        }
+    }
+
+    if (s.forwarding != null) ForwardSheet(s, viewModel::toggleForward, viewModel::confirmForward, viewModel::closeForward)
+    s.viewerPath?.let { PhotoViewerDialog(it) { viewModel.openViewer(null) } }
+}
+
+@Composable
+private fun ForwardSheet(s: ConversationUiState, onToggle: (String) -> Unit, onSend: () -> Unit, onDismiss: () -> Unit) {
+    VibeBottomSheet(onDismiss = onDismiss) {
+        Text("Forward to", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm))
+        Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+            if (s.forwardTargets.isEmpty()) Text("No other chats yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Spacing.md))
+            s.forwardTargets.forEach { c ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(role = Role.Checkbox) { onToggle(c.id) }.padding(horizontal = Spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (c.isGroup) GroupAvatar(null, 40.dp) else StudentAvatar(c.title, size = 40.dp, accent = c.id.hashCode())
+                    Text(c.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(start = Spacing.md))
+                    Checkbox(checked = c.id in s.forwardSelected, onCheckedChange = null)
+                }
+            }
+        }
+        VibeButton(
+            if (s.forwardSelected.isEmpty()) "Select chats" else "Send to ${s.forwardSelected.size}", onSend,
+            Modifier.fillMaxWidth().padding(Spacing.md), enabled = s.forwardSelected.isNotEmpty(), loading = s.forwardBusy,
+        )
+    }
+}
+
+@Composable
+private fun PinnedBar(m: Message, canUnpin: Boolean, onJump: () -> Unit, onUnpin: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(color = colors.surfaceContainer) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Jump to pinned message", onClick = onJump).padding(start = Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.PushPin, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
+            Column(Modifier.weight(1f).padding(horizontal = Spacing.sm + 4.dp, vertical = 6.dp)) {
+                Text("Pinned message", style = MaterialTheme.typography.labelMedium, color = colors.primary)
+                Text(replyPreview(m), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (canUnpin) IconButton(onClick = onUnpin) { Icon(Icons.Outlined.Close, contentDescription = "Unpin message") }
+        }
+    }
+}
+
+@Composable
+private fun EditBar(m: Message, onCancel: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(start = Spacing.md, top = Spacing.sm, end = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
+        Column(Modifier.weight(1f).padding(start = Spacing.sm + 4.dp)) {
+            Text("Editing message", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            Text(replyPreview(m), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = "Cancel edit") }
+    }
+}
+
+private val MentionRegex = Regex("@[A-Za-z0-9._]+")
+
+@Composable
+private fun messageText(text: String, mine: Boolean): AnnotatedString {
+    val primary = MaterialTheme.colorScheme.primary
+    return remember(text, mine, primary) {
+        val style = if (mine) SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline) else SpanStyle(fontWeight = FontWeight.Bold, color = primary)
+        buildAnnotatedString {
+            var last = 0
+            for (m in MentionRegex.findAll(text)) {
+                append(text.substring(last, m.range.first))
+                withStyle(style) { append(m.value) }
+                last = m.range.last + 1
+            }
+            append(text.substring(last))
         }
     }
 }
@@ -381,6 +531,7 @@ private fun SwipeToReply(onReply: () -> Unit, content: @Composable () -> Unit) {
 private fun MessageItem(
     m: Message, isGroup: Boolean, showSender: Boolean, showAvatar: Boolean, showReceipts: Boolean, highlighted: Boolean,
     onLongPress: () -> Unit, onDoubleTap: () -> Unit, onReply: () -> Unit, onReaction: (Reaction) -> Unit, onJump: (String) -> Unit,
+    onOpenPhoto: (String) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val mine = m.isMine
@@ -430,13 +581,17 @@ private fun MessageItem(
                                 }
                             }
                         }
-                        m.imagePath?.let {
-                            Box(Modifier.size(width = 220.dp, height = 160.dp).clip(RoundedCornerShape(12.dp))) { PhotoImage(it, "Photo in chat") }
+                        if (m.forwarded) Text("Forwarded", style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f).padding(bottom = 2.dp))
+                        m.imagePath?.let { path ->
+                            Box(
+                                Modifier.size(width = 220.dp, height = 160.dp).clip(RoundedCornerShape(12.dp))
+                                    .clickable(role = Role.Button, onClickLabel = "View photo") { onOpenPhoto(path) },
+                            ) { PhotoImage(path, "Photo in chat") }
                             Spacer(Modifier.height(4.dp))
                         }
-                        if (m.text.isNotBlank()) Text(m.text, style = MaterialTheme.typography.bodyLarge)
+                        if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
                         Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                            Text(formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
+                            Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
                             if (mine) {
                                 Spacer(Modifier.width(4.dp))
                                 val seen = showReceipts && m.status == MessageStatus.Seen

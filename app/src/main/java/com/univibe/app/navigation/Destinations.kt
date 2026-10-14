@@ -31,6 +31,7 @@ object SettingsRoutes {
 object AppRoutes {
     const val CHAT = "chats/{chatId}"
     const val GROUP_INFO = "chats/{chatId}/info"
+    const val GROUP_NEW = "group/new"
     const val COMMENTS = "post/{postId}/comments"
     const val EVENT = "events/{eventId}"
     const val CREATE_POST = "post/new"

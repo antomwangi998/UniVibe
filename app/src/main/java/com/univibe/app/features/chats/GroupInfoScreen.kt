@@ -80,6 +80,7 @@ import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.PhotoImage
+import com.univibe.app.ui.components.PhotoViewerDialog
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeButton
@@ -105,6 +106,7 @@ fun GroupInfoScreen(
     val s by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var viewerPath by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
     LaunchedEffect(s.left) { if (s.left) onLeft() }
@@ -197,7 +199,7 @@ fun GroupInfoScreen(
                     } else {
                         Text("${s.photos.size} ${if (s.photos.size == 1) "photo" else "photos"}", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = Spacing.md))
-                        PhotoGrid(s.photos.take(6))
+                        PhotoGrid(s.photos.take(6), onOpen = { viewerPath = it })
                     }
                     Spacer(Modifier.size(Spacing.sm))
                 }
@@ -216,6 +218,8 @@ fun GroupInfoScreen(
             item { Spacer(Modifier.navigationBarsPadding()) }
         }
     }
+
+    viewerPath?.let { PhotoViewerDialog(it) { viewerPath = null } }
 
     if (s.editing) EditGroupSheet(group, onDismiss = { viewModel.edit(false) }, onSave = viewModel::saveInfo, onRemovePhoto = viewModel::removePhoto)
 
@@ -341,12 +345,12 @@ private fun MemberRow(m: GroupMember, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PhotoGrid(photos: List<String>) {
+private fun PhotoGrid(photos: List<String>, onOpen: (String) -> Unit) {
     Column(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         photos.chunked(3).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 row.forEachIndexed { i, path ->
-                    Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))) {
+                    Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = "View photo") { onOpen(path) }) {
                         PhotoImage(path, contentDescription = "Shared photo", modifier = Modifier.fillMaxSize())
                     }
                 }

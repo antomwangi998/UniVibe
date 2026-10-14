@@ -3,6 +3,8 @@ package com.univibe.app.features.chats
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.AnimatedVisibility
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.univibe.app.ui.components.VibeIconButton
+import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.lifecycle.Lifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -57,12 +59,12 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun ChatsScreen(onOpenChat: (String) -> Unit = {}, viewModel: ChatsViewModel = viewModel()) {
+fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, viewModel: ChatsViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Chats")
+        VibeTopBar("Chats", actions = { VibeIconButton(Icons.Outlined.GroupAdd, "New group", onNewGroup) })
         VibeTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,

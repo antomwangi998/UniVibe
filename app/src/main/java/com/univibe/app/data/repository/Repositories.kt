@@ -107,6 +107,13 @@ interface MessageRepository {
     suspend fun react(chatId: String, messageId: String, reaction: Reaction?)
     /** Clears the conversation for you only. */
     suspend fun clearChat(chatId: String)
+    /** Own text messages only, within [com.univibe.app.data.model.EDIT_WINDOW_MILLIS]. Marks the message as edited. */
+    suspend fun editMessage(chatId: String, messageId: String, text: String)
+    /** Sends a copy (marked forwarded) to 1 to 5 chats. All-or-nothing: fails if you can't post in one of them. */
+    suspend fun forward(fromChatId: String, messageId: String, toChatIds: List<String>)
+    fun pinnedMessageId(chatId: String): Flow<String?>
+    /** In groups only admins may pin. Pass null to unpin. */
+    suspend fun pin(chatId: String, messageId: String?)
     suspend fun markRead(chatId: String)
     /** Returns the id of the existing or newly created 1:1 chat. */
     suspend fun openChatWith(student: Student): String
@@ -126,6 +133,10 @@ interface GroupRepository {
     /** If you are the owner, ownership passes to someone else first. */
     suspend fun leave(chatId: String)
     suspend fun report(chatId: String, reason: String)
+    /** People you can add when creating a group. */
+    suspend fun getContacts(): List<com.univibe.app.data.model.Student>
+    /** Creates the group with you as owner and returns its chat id. */
+    suspend fun createGroup(name: String, description: String, photoPath: String?, memberIds: List<String>): String
 }
 
 interface CommunityRepository {

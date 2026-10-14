@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.AgendaItem
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EDIT_WINDOW_MILLIS
 import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.GroupInfo
 import com.univibe.app.data.model.GroupMember
@@ -73,11 +74,11 @@ object MockData {
     )
 
     val chats = listOf(
-        Chat("c1", "Grace Wanjiku", "See you at the library?", "9:41 AM", unread = 2, online = true, pinned = true),
+        Chat("c1", "Grace Wanjiku", "See you at the library?", "9:41 AM", unread = 2, online = true, pinned = true, studentId = "s3"),
         Chat("c2", "Study Buddies", "Kevin: Don't forget the...", "8:30 AM", unread = 5, isGroup = true, pinned = true),
-        Chat("c3", "Brian Otieno", "Thanks!", "Yesterday"),
+        Chat("c3", "Brian Otieno", "Thanks!", "Yesterday", studentId = "s2"),
         Chat("c4", "Design Club", "New event this Friday", "Mon", isGroup = true),
-        Chat("c5", "Kevin Mutua", "Let's catch up later", "Sun", online = true),
+        Chat("c5", "Kevin Mutua", "Let's catch up later", "Sun", online = true, studentId = "s4"),
         Chat("c6", "Events Team", "Meeting at 4pm", "Sun", isGroup = true),
         Chat("c7", "Tech Creators", "Alex: Check this out", "Sat", isGroup = true),
     )
@@ -161,6 +162,8 @@ class MockStore {
     private val typingFlows = mutableMapOf<String, MutableStateFlow<Boolean>>()
 
     val groups = mutableMapOf<String, GroupInfo>()
+    private val pinnedFlows = mutableMapOf<String, MutableStateFlow<String?>>()
+    fun pinnedFlow(chatId: String): MutableStateFlow<String?> = pinnedFlows.getOrPut(chatId) { MutableStateFlow(null) }
 
     /** Mock-only seed. A real backend stores groups and enforces every rule itself. */
     fun group(chatId: String): GroupInfo? {
@@ -429,6 +432,38 @@ class MockMessageRepository(
         }
     }
 
+    override suspend fun editMessage(chatId: String, messageId: String, text: String) {
+        val clean = text.trim()
+        require(clean.isNotEmpty() && clean.length <= 1000) { "Invalid message" }
+        val flow = store.messageFlow(chatId)
+        val m = flow.value.firstOrNull { it.id == messageId } ?: throw IllegalArgumentException("Message not found")
+        check(m.isMine) { "You can only edit your own messages." }
+        check(System.currentTimeMillis() - m.timeMillis <= EDIT_WINDOW_MILLIS) { "Messages can only be edited for 15 minutes." }
+        flow.update { list -> list.map { if (it.id == messageId) it.copy(text = clean, edited = true) else it } }
+    }
+
+    override suspend fun forward(fromChatId: String, messageId: String, toChatIds: List<String>) {
+        val m = store.messageFlow(fromChatId).value.firstOrNull { it.id == messageId } ?: throw IllegalArgumentException("Message not found")
+        val targets = toChatIds.distinct()
+        require(targets.size in 1..5) { "Pick 1 to 5 chats" }
+        // Check every target first so a refusal sends nothing.
+        targets.forEach { id ->
+            require(store.chats.any { it.id == id }) { "Chat not found" }
+            store.group(id)?.let { check(it.canMessage) { "You can't post in ${it.name}." } }
+        }
+        targets.forEach { id ->
+            store.appendMessage(Message("m${System.nanoTime()}", id, MockData.ME_ID, "You", m.text, System.currentTimeMillis(), true, MessageStatus.Sent, m.imagePath, forwarded = true))
+        }
+    }
+
+    override fun pinnedMessageId(chatId: String): Flow<String?> = store.pinnedFlow(chatId)
+
+    override suspend fun pin(chatId: String, messageId: String?) {
+        store.group(chatId)?.let { check(it.iAmAdmin) { "Only admins can pin messages." } }
+        if (messageId != null) require(store.messageFlow(chatId).value.any { it.id == messageId }) { "Message not found" }
+        store.pinnedFlow(chatId).value = messageId
+    }
+
     override suspend fun clearChat(chatId: String) {
         store.messageFlow(chatId).value = emptyList()
         val i = store.chats.indexOfFirst { it.id == chatId }
@@ -443,7 +478,7 @@ class MockMessageRepository(
     override suspend fun openChatWith(student: Student): String {
         store.chats.firstOrNull { !it.isGroup && it.title == student.name }?.let { store.archived -= it.id; return it.id }
         val id = "c_${student.id}"
-        if (store.chats.none { it.id == id }) store.chats.add(0, Chat(id, student.name, "", "", online = student.online))
+        if (store.chats.none { it.id == id }) store.chats.add(0, Chat(id, student.name, "", "", online = student.online, studentId = student.id))
         store.archived -= id
         return id
     }
@@ -696,4 +731,29 @@ class MockGroupRepository(private val store: MockStore = MockStore()) : GroupRep
     }
 
     override suspend fun report(chatId: String, reason: String) = Unit // mock: nothing is sent
+
+    override suspend fun getContacts(): List<Student> {
+        delay(250)
+        return MockData.allStudents.filter { it.id != MockData.tech.id && it.id != MockData.aisha.id }
+    }
+
+    override suspend fun createGroup(name: String, description: String, photoPath: String?, memberIds: List<String>): String {
+        delay(400)
+        val n = name.trim()
+        require(n.length in 1..40) { "Name must be 1 to 40 characters" }
+        require(description.trim().length <= 200) { "Description is too long" }
+        val members = memberIds.distinct().mapNotNull { id ->
+            MockData.allStudents.firstOrNull { it.id == id && it.id != MockData.tech.id && it.id != MockData.aisha.id }
+        }
+        require(members.isNotEmpty()) { "Add at least one person" }
+        require(members.size <= 255) { "Groups can have up to 256 members" }
+        val id = "g${System.nanoTime()}"
+        store.chats.add(0, Chat(id, n, "", "", isGroup = true))
+        store.groups[id] = GroupInfo(
+            chatId = id, name = n, description = description.trim(), photoPath = photoPath,
+            createdBy = "You", createdLabel = "Created today",
+            members = listOf(GroupMember(MockData.aisha, GroupRole.Owner, isMe = true)) + members.map { GroupMember(it, GroupRole.Member) },
+        )
+        return id
+    }
 }
