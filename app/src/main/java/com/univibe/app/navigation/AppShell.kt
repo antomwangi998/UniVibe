@@ -50,6 +50,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.univibe.app.features.chats.ConversationScreen
 import com.univibe.app.features.chats.GroupInfoScreen
+import com.univibe.app.features.chats.NewGroupScreen
 import com.univibe.app.data.model.NotificationTarget
 import com.univibe.app.features.notifications.NotificationCenterScreen
 import com.univibe.app.features.post.CreatePostScreen
@@ -169,7 +170,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         )
                     }
                     tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }) }
-                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }) }
+                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }) }
                     tab(TopLevelDestination.Profile.route) {
                         ProfileScreen(
@@ -193,6 +194,19 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         ConversationScreen(
                             chatId = entry.arg("chatId"), onBack = back,
                             onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                        )
+                    }
+                    subScreen(AppRoutes.GROUP_NEW) {
+                        NewGroupScreen(
+                            onBack = back,
+                            // Replace the creation screen with the new chat so Back returns to the inbox.
+                            onCreated = { id ->
+                                navController.navigate(AppRoutes.chat(id)) {
+                                    popUpTo(AppRoutes.GROUP_NEW) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
                         )
                     }
                     subScreen(AppRoutes.GROUP_INFO, stringArgs("chatId")) { entry ->

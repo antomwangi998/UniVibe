@@ -62,6 +62,8 @@ data class Chat(
     val online: Boolean = false,
     val pinned: Boolean = false,
     val muted: Boolean = false,
+    /** The other student in a 1:1 chat (null for groups); lets the header open their profile. */
+    val studentId: String? = null,
 )
 
 enum class RsvpState { None, Interested, Going }
@@ -188,7 +190,12 @@ data class Message(
     /** How many people used each reaction. */
     val reactions: Map<Reaction, Int> = emptyMap(),
     val myReaction: Reaction? = null,
+    val forwarded: Boolean = false,
+    val edited: Boolean = false,
 )
+
+/** Messages can be edited for 15 minutes after sending. The server enforces this too. */
+const val EDIT_WINDOW_MILLIS = 15 * 60_000L
 
 enum class Reaction { Heart, Like, Laugh, Fire, Sad }
 

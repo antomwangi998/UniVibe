@@ -23,3 +23,15 @@ The app mocks everything below. A real backend must enforce these rules itself; 
 - Return `isPostAuthor` per comment. "Top" sorting is by like count; ties by time.
 - Reports take a reason (`spam|harassment|hate|misinformation|other`) and go to a moderation queue.
 - Hide comments and messages from users the viewer has blocked.
+
+## Editing, forwarding, pinning
+- `PATCH /v1/chats/{id}/messages/{messageId}` edits text of your own message within 15 minutes of sending; mark it `edited` and keep an audit trail for moderators.
+- `POST /v1/chats/{id}/messages/{messageId}/forward` with 1 to 5 target chat ids. All-or-nothing: if you may not post in any target, send nothing. Forwarded copies are flagged `forwarded` and drop the reply quote and reactions.
+- `PUT/DELETE /v1/chats/{id}/pin`: anyone in a 1:1 chat; only admins in groups. One pinned message per chat.
+- Mentions are plain `@handle` text. For notifications the server must resolve handles itself (only to members of that group) rather than trust the client.
+- Search in chat is client-side over loaded messages in this build. A real backend needs paged server-side search that only returns messages the user is allowed to see.
+
+## Creating groups
+- `POST /v1/groups` with name (1 to 40), description (up to 200), optional photo id and 1 to 255 member ids. The creator becomes owner.
+- Validate that every member is a real, non-blocked student at the same university, and that nobody has blocked the creator. Never reveal who blocked whom: skip such members and report a generic result.
+- Rate limit group creation and member adds to limit spam.
