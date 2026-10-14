@@ -227,7 +227,15 @@ data class GroupInfo(
     val canAddMembers: Boolean get() = !onlyAdminsCanAddMembers || iAmAdmin
 }
 
-enum class CommunityRole { None, Member, Moderator }
+enum class CommunityRole { None, Member, Moderator, Owner }
+
+/** Public communities can be joined at once; private ones need a moderator to approve each request. */
+enum class CommunityPrivacy { Public, Private }
+
+val CommunityCategories = listOf("Academic", "Arts", "Business", "Sports", "Social", "Culture", "Wellbeing", "Service")
+const val MAX_COMMUNITIES_OWNED = 5
+
+data class CommunityMember(val student: Student, val role: CommunityRole, val isMe: Boolean = false)
 
 data class Community(
     val id: String,
@@ -240,7 +248,15 @@ data class Community(
     val muted: Boolean = false,
     val rules: List<String> = emptyList(),
     val moderators: List<String> = emptyList(),
-)
+    val privacy: CommunityPrivacy = CommunityPrivacy.Public,
+    /** You asked to join a private community and are waiting for approval. */
+    val joinRequested: Boolean = false,
+    val createdLabel: String = "",
+) {
+    val isMember: Boolean get() = role != CommunityRole.None
+    /** Owners and moderators. */
+    val isStaff: Boolean get() = role == CommunityRole.Owner || role == CommunityRole.Moderator
+}
 
 data class ReportItem(val id: String, val excerpt: String, val authorName: String, val reason: String)
 

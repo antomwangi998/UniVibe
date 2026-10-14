@@ -11,7 +11,11 @@ import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.model.ReplyRef
 import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.Community
+import com.univibe.app.data.model.CommunityMember
+import com.univibe.app.data.model.CommunityPrivacy
 import com.univibe.app.data.model.CommunityRole
+import com.univibe.app.data.model.CommunityCategories
+import com.univibe.app.data.model.MAX_COMMUNITIES_OWNED
 import com.univibe.app.data.model.FollowEntry
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
@@ -40,6 +44,7 @@ import com.univibe.app.data.model.NotificationTarget
 import com.univibe.app.data.model.NotificationType
 import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.model.StudentProfile
@@ -150,7 +155,11 @@ object MockData {
 
 /** Shared in-memory state so every mock repository sees the same posts, chats, comments, etc. */
 class MockStore {
-    val posts = MockData.posts.toMutableList()
+    val posts = (MockData.posts + listOf(
+        Post("pc1", MockData.brian, "3h", "Hack night is back this Friday. Bring a laptop and an idea.", 12, 3, audience = PostAudience.Community("tech", "Tech Club")),
+        Post("pc2", MockData.grace, "1d", "Reminder: slides from the AI talk are in the shared folder.", 7, 1, audience = PostAudience.Community("tech", "Tech Club")),
+        Post("pc3", MockData.grace, "2d", "Photo walk on Saturday morning, meet at the library steps.", 20, 5, audience = PostAudience.Community("photo", "Photography Club")),
+    )).toMutableList()
     val liked = mutableSetOf<String>()
     val saved = mutableSetOf<String>()
     val following = mutableSetOf("s2", "s3", "s6")
@@ -162,6 +171,35 @@ class MockStore {
     private val typingFlows = mutableMapOf<String, MutableStateFlow<Boolean>>()
 
     val groups = mutableMapOf<String, GroupInfo>()
+
+    private val communityMembers = mutableMapOf<String, MutableList<CommunityMember>>()
+    val joinRequests = mutableMapOf<String, MutableList<Student>>(
+        "tech" to mutableListOf(MockData.amina, MockData.kevin),
+    )
+
+    /** Mock-only member lists. A real backend stores memberships; counts shown in lists come from the server. */
+    fun membersOf(id: String): MutableList<CommunityMember> = communityMembers.getOrPut(id) {
+        val c = communities.first { it.id == id }
+        val list = mutableListOf<CommunityMember>()
+        c.moderators.forEach { name ->
+            MockData.allStudents.firstOrNull { it.name == name && it.id != MockData.tech.id }?.let { s ->
+                val isMe = s.id == MockData.aisha.id
+                list += CommunityMember(s, if (isMe && c.role != CommunityRole.None) c.role else CommunityRole.Moderator, isMe)
+            }
+        }
+        if (c.role != CommunityRole.None && list.none { it.isMe }) list += CommunityMember(MockData.aisha, c.role, true)
+        MockData.allStudents.filter { s -> s.id != MockData.tech.id && list.none { it.student.id == s.id } && !(joinRequests[id].orEmpty().any { r -> r.id == s.id }) }
+            .take(3).forEach { list += CommunityMember(it, CommunityRole.Member) }
+        list
+    }
+
+    fun dropCommunity(id: String) {
+        communities.removeAll { it.id == id }
+        communityMembers.remove(id)
+        joinRequests.remove(id)
+        reports.remove(id)
+        posts.removeAll { (it.audience as? PostAudience.Community)?.id == id }
+    }
     private val pinnedFlows = mutableMapOf<String, MutableStateFlow<String?>>()
     fun pinnedFlow(chatId: String): MutableStateFlow<String?> = pinnedFlows.getOrPut(chatId) { MutableStateFlow(null) }
 
@@ -196,7 +234,8 @@ class MockStore {
 
     val communities = mutableListOf(
         Community("tech", "Tech Club", "Talks, hack nights and projects for anyone curious about technology.", 842, "Academic", 5,
-            CommunityRole.Moderator, rules = listOf("Be respectful", "No spam or ads", "Credit your sources"), moderators = listOf("Aisha Njoki", "Brian Otieno")),
+            CommunityRole.Moderator, rules = listOf("Be respectful", "No spam or ads", "Credit your sources"), moderators = listOf("Aisha Njoki", "Brian Otieno"),
+            privacy = CommunityPrivacy.Private, createdLabel = "Created 4 Feb 2026"),
         Community("photo", "Photography Club", "Photo walks, editing tips and monthly exhibitions.", 612, "Arts", 2,
             CommunityRole.Member, rules = listOf("Post your own work", "Ask before photographing people"), moderators = listOf("Grace Wanjiku")),
         Community("debate", "Debate Club", "Weekly debates and public-speaking practice.", 290, "Academic", 4,
@@ -524,26 +563,163 @@ class MockCommentRepository(private val store: MockStore = MockStore()) : Commen
 }
 
 class MockCommunityRepository(private val store: MockStore = MockStore()) : CommunityRepository {
-    override suspend fun getCommunities(): List<Community> { delay(300); return store.communities.toList() }
-    override suspend fun getCommunity(id: String): Community? = store.communities.firstOrNull { it.id == id }
+    private fun index(id: String): Int = store.communities.indexOfFirst { it.id == id }
+    private fun need(id: String): Community = store.communities.getOrNull(index(id)) ?: throw IllegalArgumentException("Community not found")
+    private fun requested(id: String) = store.joinRequests[id].orEmpty().any { it.id == MockData.aisha.id }
+    private fun view(c: Community) = c.copy(joinRequested = requested(c.id))
+
+    /** Keeps your role and the moderator names shown on cards in step with the member list. */
+    private fun sync(id: String) {
+        val i = index(id)
+        if (i < 0) return
+        val members = store.membersOf(id)
+        val me = members.firstOrNull { it.isMe }
+        store.communities[i] = store.communities[i].copy(
+            role = me?.role ?: CommunityRole.None,
+            moderators = members.filter { it.role == CommunityRole.Owner || it.role == CommunityRole.Moderator }.map { it.student.name },
+        )
+    }
+
+    /** The headline member count is a server number (the mock lists only a few people), so adjust it by the change. */
+    private fun bump(id: String, delta: Int) {
+        val i = index(id)
+        if (i >= 0) store.communities[i] = store.communities[i].copy(members = (store.communities[i].members + delta).coerceAtLeast(0))
+    }
+
+    override suspend fun getCommunities(): List<Community> { delay(300); return store.communities.map(::view) }
+    override suspend fun getCommunity(id: String): Community? = store.communities.firstOrNull { it.id == id }?.let(::view)
 
     override suspend fun setMembership(id: String, join: Boolean) {
-        val i = store.communities.indexOfFirst { it.id == id }
-        if (i < 0) return
-        val c = store.communities[i]
-        if (join && c.role == CommunityRole.None) store.communities[i] = c.copy(role = CommunityRole.Member, members = c.members + 1)
-        if (!join && c.role != CommunityRole.None) store.communities[i] = c.copy(role = CommunityRole.None, members = c.members - 1, muted = false)
+        val c = store.communities.firstOrNull { it.id == id } ?: return
+        if (join) {
+            if (c.isMember || requested(id)) return
+            if (c.privacy == CommunityPrivacy.Public) {
+                store.membersOf(id) += CommunityMember(MockData.aisha, CommunityRole.Member, isMe = true)
+                bump(id, +1)
+                sync(id)
+            } else {
+                store.joinRequests.getOrPut(id) { mutableListOf() } += MockData.aisha
+            }
+        } else {
+            check(c.role != CommunityRole.Owner) { "Delete the community, or hand it over, before you leave." }
+            if (store.membersOf(id).removeAll { it.isMe }) bump(id, -1)
+            store.joinRequests[id]?.removeAll { it.id == MockData.aisha.id }
+            sync(id)
+            val i = index(id)
+            store.communities[i] = store.communities[i].copy(muted = false)
+        }
     }
 
     override suspend fun setMuted(id: String, muted: Boolean) {
-        val i = store.communities.indexOfFirst { it.id == id }
+        val i = index(id)
         if (i >= 0) store.communities[i] = store.communities[i].copy(muted = muted)
     }
 
-    override suspend fun getReports(id: String): List<ReportItem> = store.reports[id].orEmpty().toList()
+    override suspend fun getReports(id: String): List<ReportItem> {
+        check(need(id).isStaff) { "Only moderators can see reports." }
+        return store.reports[id].orEmpty().toList()
+    }
 
     override suspend fun resolveReport(communityId: String, reportId: String, removePost: Boolean) {
+        check(need(communityId).isStaff) { "Only moderators can resolve reports." }
         store.reports[communityId]?.removeAll { it.id == reportId }
+    }
+
+    private fun validate(description: String, category: String, accent: Int, rules: List<String>): List<String> {
+        require(description.trim().length in 10..300) { "Description must be 10 to 300 characters" }
+        require(category in CommunityCategories) { "Pick a category" }
+        require(accent in 0..5) { "Invalid colour" }
+        val clean = rules.map { it.trim() }.filter { it.isNotEmpty() }
+        require(clean.size <= 8) { "Up to 8 rules" }
+        require(clean.all { it.length <= 120 }) { "Rules can be up to 120 characters" }
+        return clean
+    }
+
+    override suspend fun createCommunity(name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy): String {
+        delay(400)
+        val n = name.trim()
+        require(n.length in 3..40) { "Name must be 3 to 40 characters" }
+        require(store.communities.none { it.name.equals(n, ignoreCase = true) }) { "A community with that name already exists." }
+        val cleanRules = validate(description, category, accent, rules)
+        check(store.communities.count { it.role == CommunityRole.Owner } < MAX_COMMUNITIES_OWNED) { "You can own up to $MAX_COMMUNITIES_OWNED communities." }
+        val id = "c${System.nanoTime()}"
+        store.communities.add(0, Community(
+            id, n, description.trim(), 1, category, accent, CommunityRole.Owner, rules = cleanRules,
+            moderators = listOf(MockData.aisha.name), privacy = privacy, createdLabel = "Created today",
+        ))
+        store.membersOf(id) // seeds me as owner
+        sync(id)
+        return id
+    }
+
+    override suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy) {
+        val c = need(id)
+        check(c.role == CommunityRole.Owner) { "Only the owner can edit this community." }
+        val cleanRules = validate(description, category, accent, rules)
+        if (privacy == CommunityPrivacy.Public && c.privacy == CommunityPrivacy.Private) {
+            val waiting = store.joinRequests[id].orEmpty().toList()
+            waiting.forEach { s -> store.membersOf(id) += CommunityMember(s, CommunityRole.Member) }
+            store.joinRequests[id]?.clear()
+            bump(id, waiting.size)
+        }
+        store.communities[index(id)] = c.copy(description = description.trim(), category = category, accent = accent, rules = cleanRules, privacy = privacy)
+        sync(id)
+    }
+
+    override suspend fun deleteCommunity(id: String) {
+        check(need(id).role == CommunityRole.Owner) { "Only the owner can delete this community." }
+        store.dropCommunity(id)
+    }
+
+    override suspend fun getMembers(id: String): List<CommunityMember> {
+        delay(200)
+        val c = need(id)
+        check(c.privacy == CommunityPrivacy.Public || c.isMember) { "Join to see the members." }
+        return store.membersOf(id).sortedWith(compareBy<CommunityMember>({ -it.role.ordinal }, { !it.isMe }, { it.student.name }))
+    }
+
+    override suspend fun setMemberRole(id: String, studentId: String, role: CommunityRole) {
+        check(need(id).role == CommunityRole.Owner) { "Only the owner can change moderators." }
+        require(role == CommunityRole.Member || role == CommunityRole.Moderator) { "Invalid role" }
+        val members = store.membersOf(id)
+        val i = members.indexOfFirst { it.student.id == studentId }
+        if (i < 0) return
+        check(!members[i].isMe && members[i].role != CommunityRole.Owner) { "You can't change that role." }
+        members[i] = members[i].copy(role = role)
+        sync(id)
+    }
+
+    override suspend fun removeMember(id: String, studentId: String) {
+        val c = need(id)
+        check(c.isStaff) { "Only moderators can remove members." }
+        val members = store.membersOf(id)
+        val target = members.firstOrNull { it.student.id == studentId } ?: return
+        check(!target.isMe) { "Use Leave to remove yourself." }
+        check(target.role != CommunityRole.Owner) { "The owner can't be removed." }
+        check(target.role != CommunityRole.Moderator || c.role == CommunityRole.Owner) { "Only the owner can remove a moderator." }
+        members.remove(target)
+        bump(id, -1)
+        sync(id)
+    }
+
+    override suspend fun getJoinRequests(id: String): List<Student> {
+        check(need(id).isStaff) { "Only moderators can see requests." }
+        return store.joinRequests[id].orEmpty().toList()
+    }
+
+    override suspend fun resolveJoinRequest(id: String, studentId: String, approve: Boolean) {
+        check(need(id).isStaff) { "Only moderators can answer requests." }
+        val pending = store.joinRequests[id] ?: return
+        val s = pending.firstOrNull { it.id == studentId } ?: return
+        pending.remove(s)
+        if (approve) { store.membersOf(id) += CommunityMember(s, CommunityRole.Member); bump(id, +1); sync(id) }
+    }
+
+    override suspend fun getPosts(id: String): List<Post> {
+        delay(250)
+        val c = need(id)
+        if (c.privacy == CommunityPrivacy.Private && !c.isMember) return emptyList()
+        return store.posts.filter { (it.audience as? PostAudience.Community)?.id == id }
     }
 }
 

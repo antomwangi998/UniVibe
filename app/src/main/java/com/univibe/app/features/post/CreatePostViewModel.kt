@@ -54,7 +54,13 @@ class CreatePostViewModel(
             val me = runCatching { repository.getCurrentUser() }.getOrNull()
             val joined = runCatching { communityRepository.getCommunities() }.getOrDefault(emptyList())
                 .filter { it.role != CommunityRole.None }
-            _state.update { it.copy(me = me, communities = joined) }
+            val preset = PostComposeHandoff.take()?.let { id -> joined.firstOrNull { it.id == id } }
+            _state.update {
+                it.copy(
+                    me = me, communities = joined,
+                    audience = preset?.let { c -> PostAudience.Community(c.id, c.name) } ?: it.audience,
+                )
+            }
         }
     }
 

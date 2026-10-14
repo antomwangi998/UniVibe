@@ -1,6 +1,9 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.CommunityMember
+import com.univibe.app.data.model.CommunityPrivacy
+import com.univibe.app.data.model.CommunityRole
 import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.GroupInfo
 import com.univibe.app.data.model.GroupRole
@@ -146,4 +149,26 @@ interface CommunityRepository {
     suspend fun setMuted(id: String, muted: Boolean)
     suspend fun getReports(id: String): List<ReportItem>
     suspend fun resolveReport(communityId: String, reportId: String, removePost: Boolean)
+
+    /**
+     * Creates a community with you as owner and returns its id. The server must validate everything again,
+     * keep names unique, and rate limit creation.
+     */
+    suspend fun createCommunity(
+        name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy,
+    ): String
+    /** Owner only. Switching a private community to public approves everyone waiting. */
+    suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy)
+    /** Owner only. Removes the community, its posts and the events it hosts. */
+    suspend fun deleteCommunity(id: String)
+    /** Members of private communities are only visible to members. */
+    suspend fun getMembers(id: String): List<CommunityMember>
+    /** Owner only; [role] is Member or Moderator. */
+    suspend fun setMemberRole(id: String, studentId: String, role: CommunityRole)
+    /** Moderators remove members; only the owner removes moderators. */
+    suspend fun removeMember(id: String, studentId: String)
+    suspend fun getJoinRequests(id: String): List<com.univibe.app.data.model.Student>
+    suspend fun resolveJoinRequest(id: String, studentId: String, approve: Boolean)
+    /** Posts addressed to this community. Private communities only show them to members. */
+    suspend fun getPosts(id: String): List<com.univibe.app.data.model.Post>
 }
