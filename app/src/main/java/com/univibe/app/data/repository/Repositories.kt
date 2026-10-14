@@ -41,13 +41,27 @@ interface FeedRepository {
     /** Sends a report to moderators. */
     suspend fun reportPost(postId: String, reason: String)
     /** Server must validate length/content; returns the stored post. */
-    suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String? = null): Post
+    suspend fun createPost(
+        text: String,
+        hasMedia: Boolean,
+        imagePath: String? = null,
+        videoPath: String? = null,
+        pollOptions: List<String> = emptyList(),
+    ): Post
     /**
      * Creates a post with attached photos and an audience. The server must validate text length, photo count/size/type
      * and that the author may post to the chosen community; client checks are convenience only.
      */
     suspend fun publishPost(post: NewPost): Post
     suspend fun getSavedPosts(): List<Post>
+    /** One vote per student per poll; the server must reject a second vote and out-of-range options. Returns the updated post. */
+    suspend fun vote(postId: String, optionIndex: Int): Post
+    /** Author only. The server re-validates the text and marks the post as edited. */
+    suspend fun editPost(postId: String, text: String): Post
+    /** Author only. The server also removes the post's media and comments. */
+    suspend fun deletePost(postId: String)
+    /** Counts one share. Only campus-wide posts may be shared outside the app. */
+    suspend fun recordShare(postId: String)
 }
 
 interface NotificationRepository {

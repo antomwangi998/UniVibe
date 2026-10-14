@@ -50,7 +50,31 @@ data class Post(
     /** All attached photos in order; [imagePath] is the first one, kept for older screens. */
     val imagePaths: List<String> = emptyList(),
     val audience: PostAudience = PostAudience.Campus,
-)
+    /** Local file of an attached video (app storage). Mock-only: a real backend returns a streaming URL. */
+    val videoPath: String? = null,
+    val poll: Poll? = null,
+    val edited: Boolean = false,
+) {
+    /** True when the post carries something besides text, so its text may be empty. */
+    val hasAttachment: Boolean
+        get() = imagePath != null || imagePaths.isNotEmpty() || videoPath != null || mediaAccent != null || poll != null
+}
+
+/** Limits shared by the composer and the mock repository. The server must enforce the same rules. */
+object PostLimits {
+    const val MAX_TEXT = 280
+    const val MIN_POLL_OPTIONS = 2
+    const val MAX_POLL_OPTIONS = 4
+    const val MAX_POLL_OPTION_LENGTH = 40
+    const val MAX_VIDEO_BYTES = 50L * 1024 * 1024
+}
+
+data class PollOption(val text: String, val votes: Int = 0)
+
+/** [myVote] is the index the signed-in student chose, or null if they have not voted. One vote per student. */
+data class Poll(val options: List<PollOption>, val myVote: Int? = null) {
+    val totalVotes: Int get() = options.sumOf { it.votes }
+}
 
 data class Chat(
     val id: String,

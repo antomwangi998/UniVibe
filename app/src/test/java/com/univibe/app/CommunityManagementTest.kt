@@ -124,11 +124,11 @@ class CommunityManagementTest {
         store.joinRequests[id] = mutableListOf(MockData.amina, MockData.kevin)
         repo.updateCommunity(id, "A long enough description.", "Social", 2, emptyList(), CommunityPrivacy.Public)
         val members = repo.getMembers(id).map { it.student.id }
-        assertEquals(1, members.count { it == MockData.amina.id })
-        assertEquals(1, members.count { it == MockData.kevin.id })
-        assertEquals(members.size, members.toSet().size) // nobody listed twice
-        assertTrue(repo.getJoinRequests(id).isEmpty())
-        assertEquals(3, repo.getCommunity(id)!!.members)
+        assertEquals("amina listed once in $members", 1, members.count { it == MockData.amina.id })
+        assertEquals("kevin listed once in $members", 1, members.count { it == MockData.kevin.id })
+        assertEquals("nobody listed twice in $members", members.size, members.toSet().size)
+        assertTrue("requests cleared", repo.getJoinRequests(id).isEmpty())
+        assertEquals("member counter", 3, repo.getCommunity(id)!!.members)
     }
 
     @Test

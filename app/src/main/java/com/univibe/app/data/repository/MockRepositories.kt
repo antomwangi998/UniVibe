@@ -53,6 +53,9 @@ import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.model.StudentProfile
+import com.univibe.app.data.model.Poll
+import com.univibe.app.data.model.PollOption
+import com.univibe.app.data.model.PostLimits
 import kotlinx.coroutines.delay
 
 /*
@@ -78,7 +81,8 @@ object MockData {
     val posts = listOf(
         Post("p1", tech, "2h", "Great session today on AI & innovation! The future is exciting.", 128, 26, 12, mediaAccent = 1, fromFollowing = true),
         Post("p2", grace, "4h", "Sunset at the lake is always a vibe.", 342, 41, 5, mediaAccent = 2, mediaPortrait = true),
-        Post("p3", brian, "6h", "Anyone up for a 5-a-side game on Saturday morning? We need two more players.", 54, 18, 2, fromFollowing = true),
+        Post("p3", brian, "6h", "Anyone up for a 5-a-side game on Saturday morning? We need two more players.", 54, 18, 2, fromFollowing = true,
+            poll = Poll(listOf(PollOption("Saturday 8am", 9), PollOption("Saturday 10am", 14), PollOption("Sunday afternoon", 4)))),
         Post("p4", amina, "1d", "Debate club trials open next week. No experience needed, just bring opinions.", 89, 12, 7),
         Post("p5", kevin, "1d", "Our robotics team just placed second at the regional showcase. Proud of everyone.", 210, 33, 9, mediaAccent = 4),
     )
@@ -371,14 +375,82 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         return created
     }
 
-    override suspend fun createPost(text: String, hasMedia: Boolean, imagePath: String?): Post {
+    override suspend fun createPost(
+        text: String,
+        hasMedia: Boolean,
+        imagePath: String?,
+        videoPath: String?,
+        pollOptions: List<String>,
+    ): Post {
         delay(250)
+        val clean = text.trim()
+        val poll = if (pollOptions.isEmpty()) null else {
+            require(!hasMedia && imagePath == null && videoPath == null) { "A poll can't have media" }
+            Poll(validPollOptions(pollOptions).map { PollOption(it) })
+        }
+        require(clean.length <= PostLimits.MAX_TEXT) { "Post too long" }
         val post = Post(
-            "p${System.nanoTime()}", MockData.aisha, "now", text.trim(), 0, 0,
-            mediaAccent = if (hasMedia && imagePath == null) 0 else null, imagePath = imagePath,
+            "p${System.nanoTime()}", MockData.aisha, "now", clean, 0, 0,
+            mediaAccent = if (hasMedia && imagePath == null && videoPath == null) 0 else null,
+            imagePath = imagePath, videoPath = videoPath, poll = poll,
         )
         store.posts.add(0, post)
         return post
+    }
+
+    private fun validPollOptions(raw: List<String>): List<String> {
+        val options = raw.map { it.trim() }
+        require(options.size in PostLimits.MIN_POLL_OPTIONS..PostLimits.MAX_POLL_OPTIONS) { "A poll needs 2 to 4 options" }
+        require(options.all { it.isNotEmpty() && it.length <= PostLimits.MAX_POLL_OPTION_LENGTH }) { "Invalid poll option" }
+        require(options.map { it.lowercase() }.toSet().size == options.size) { "Poll options must differ" }
+        return options
+    }
+
+    private fun change(postId: String, transform: (Post) -> Post): Post {
+        val i = store.posts.indexOfFirst { it.id == postId }
+        require(i >= 0) { "Post not found" }
+        val updated = transform(store.posts[i])
+        store.posts[i] = updated
+        return updated
+    }
+
+    private fun requireOwn(post: Post) = require(post.author.id == MockData.aisha.id) { "You can only change your own posts" }
+
+    override suspend fun vote(postId: String, optionIndex: Int): Post {
+        delay(150)
+        return change(postId) { post ->
+            val poll = requireNotNull(post.poll) { "This post has no poll" }
+            require(poll.myVote == null) { "You already voted" }
+            require(optionIndex in poll.options.indices) { "Unknown option" }
+            val options = poll.options.mapIndexed { i, o -> if (i == optionIndex) o.copy(votes = o.votes + 1) else o }
+            post.copy(poll = poll.copy(options = options, myVote = optionIndex))
+        }
+    }
+
+    override suspend fun editPost(postId: String, text: String): Post {
+        delay(250)
+        val clean = text.trim()
+        require(clean.length <= PostLimits.MAX_TEXT) { "Post too long" }
+        return change(postId) { post ->
+            requireOwn(post)
+            val hasContent = post.imagePath != null || post.imagePaths.isNotEmpty() || post.videoPath != null ||
+                post.mediaAccent != null || post.poll != null
+            require(clean.isNotEmpty() || hasContent) { "Empty post" }
+            post.copy(text = clean, edited = true)
+        }
+    }
+
+    override suspend fun deletePost(postId: String) {
+        delay(250)
+        val post = store.posts.firstOrNull { it.id == postId } ?: return
+        requireOwn(post)
+        store.posts.remove(post)
+        store.liked -= postId
+        store.saved -= postId
+    }
+
+    override suspend fun recordShare(postId: String) {
+        change(postId) { it.copy(shareCount = it.shareCount + 1) }
     }
 }
 

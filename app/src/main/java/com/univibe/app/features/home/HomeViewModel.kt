@@ -3,10 +3,13 @@ package com.univibe.app.features.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
+import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.media.VideoStore
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.settings.BlockedUser
 import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostLimits
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-const val MAX_POST_LENGTH = 280
+const val MAX_POST_LENGTH = PostLimits.MAX_TEXT
 
 data class HomeUiState(
     val loading: Boolean = true,
@@ -30,6 +33,9 @@ data class HomeUiState(
     val postedCount: Int = 0,
     val blocked: Set<String> = emptySet(),
     val menuPost: Post? = null,
+    val editingPost: Post? = null,
+    val savingEdit: Boolean = false,
+    val deletingPost: Post? = null,
     val notice: String? = null,
 ) {
     val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
@@ -111,14 +117,88 @@ class HomeViewModel(
         _state.update { it.copy(menuPost = null, notice = "Thanks. We'll review this post.") }
     }
 
-    /** Client-side checks are convenience only; the backend must validate again. */
-    fun publish(text: String, hasMedia: Boolean, imagePath: String?) {
+    // ---- own posts: edit and delete
+    fun startEdit() = _state.update { it.copy(editingPost = it.menuPost, menuPost = null) }
+    fun cancelEdit() = _state.update { it.copy(editingPost = null) }
+
+    fun saveEdit(text: String) {
+        val post = _state.value.editingPost ?: return
         val clean = text.trim()
-        if ((clean.isEmpty() && !hasMedia) || clean.length > MAX_POST_LENGTH || _state.value.publishing) return
+        val hasContent = post.imagePath != null || post.imagePaths.isNotEmpty() || post.videoPath != null ||
+            post.mediaAccent != null || post.poll != null
+        if (clean.length > MAX_POST_LENGTH || (clean.isEmpty() && !hasContent) || _state.value.savingEdit) return
+        if (clean == post.text) { cancelEdit(); return }
+        viewModelScope.launch {
+            _state.update { it.copy(savingEdit = true) }
+            try {
+                val saved = repository.editPost(post.id, clean)
+                updatePost(post.id) { it.copy(text = saved.text, edited = saved.edited) }
+                _state.update { it.copy(savingEdit = false, editingPost = null, notice = "Post updated.") }
+            } catch (e: Exception) {
+                _state.update { it.copy(savingEdit = false, notice = "Couldn't save your changes. Please try again.") }
+            }
+        }
+    }
+
+    fun askDelete() = _state.update { it.copy(deletingPost = it.menuPost, menuPost = null) }
+    fun cancelDelete() = _state.update { it.copy(deletingPost = null) }
+
+    fun confirmDelete() {
+        val post = _state.value.deletingPost ?: return
+        _state.update { it.copy(deletingPost = null) }
+        viewModelScope.launch {
+            try {
+                repository.deletePost(post.id)
+                _state.update { s -> s.copy(posts = s.posts.filterNot { it.id == post.id }, notice = "Post deleted.") }
+                post.imagePaths.ifEmpty { listOfNotNull(post.imagePath) }.forEach { PhotoStore.delete(it) }
+                VideoStore.delete(post.videoPath)
+            } catch (e: Exception) {
+                _state.update { it.copy(notice = "Couldn't delete the post. Please try again.") }
+            }
+        }
+    }
+
+    // ---- polls and sharing
+    fun vote(postId: String, optionIndex: Int) {
+        val before = _state.value.posts.firstOrNull { it.id == postId }?.poll ?: return
+        if (before.myVote != null || optionIndex !in before.options.indices) return
+        updatePost(postId) { post ->
+            val poll = post.poll ?: return@updatePost post
+            val options = poll.options.mapIndexed { i, o -> if (i == optionIndex) o.copy(votes = o.votes + 1) else o }
+            post.copy(poll = poll.copy(options = options, myVote = optionIndex))
+        }
+        viewModelScope.launch {
+            try { repository.vote(postId, optionIndex) } catch (e: Exception) {
+                updatePost(postId) { it.copy(poll = before) }
+                _state.update { it.copy(notice = "Couldn't record your vote. Please try again.") }
+            }
+        }
+    }
+
+    fun noteShared(postId: String) {
+        updatePost(postId) { it.copy(shareCount = it.shareCount + 1) }
+        viewModelScope.launch { runCatching { repository.recordShare(postId) } }
+    }
+
+    fun explain(message: String) = _state.update { it.copy(notice = message) }
+
+    /** Client-side checks are convenience only; the backend must validate again. */
+    fun publish(
+        text: String,
+        hasMedia: Boolean,
+        imagePath: String?,
+        videoPath: String? = null,
+        pollOptions: List<String> = emptyList(),
+    ) {
+        val clean = text.trim()
+        val options = pollOptions.map { it.trim() }
+        val hasPoll = options.isNotEmpty()
+        if (hasPoll && (clean.isEmpty() || options.size < PostLimits.MIN_POLL_OPTIONS || options.any { it.isEmpty() })) return
+        if ((clean.isEmpty() && !hasMedia && !hasPoll) || clean.length > MAX_POST_LENGTH || _state.value.publishing) return
         viewModelScope.launch {
             _state.update { it.copy(publishing = true, publishError = null) }
             try {
-                val post = repository.createPost(clean, hasMedia, imagePath)
+                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options)
                 _state.update { it.copy(publishing = false, posts = listOf(post) + it.posts, postedCount = it.postedCount + 1) }
             } catch (e: Exception) {
                 _state.update { it.copy(publishing = false, publishError = "Couldn't post. Please try again.") }
