@@ -754,7 +754,9 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
             store.joinRequests[id]?.clear()
             bump(id, waiting.size)
         }
-        store.communities[index(id)] = c.copy(description = description.trim(), category = category, accent = accent, rules = cleanRules, privacy = privacy)
+        // Re-read: bump() above may have changed the stored member count, and a stale copy would undo it.
+        val latest = store.communities[index(id)]
+        store.communities[index(id)] = latest.copy(description = description.trim(), category = category, accent = accent, rules = cleanRules, privacy = privacy)
         sync(id)
     }
 
