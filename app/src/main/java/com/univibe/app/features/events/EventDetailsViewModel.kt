@@ -19,7 +19,13 @@ data class EventDetailsUiState(
     val details: EventDetails? = null,
     /** True while the "leave this event?" confirmation is showing. */
     val confirmLeave: Boolean = false,
+    val manageOpen: Boolean = false,
+    val confirm: EventConfirm? = null,
+    val notice: String? = null,
+    val deleted: Boolean = false,
 )
+
+enum class EventConfirm { Cancel, Delete }
 
 class EventDetailsViewModel(
     private val eventId: String,
@@ -66,6 +72,25 @@ class EventDetailsViewModel(
 
     fun dismissLeave() = _state.update { it.copy(confirmLeave = false) }
 
+    fun openManage(show: Boolean) = _state.update { it.copy(manageOpen = show) }
+    fun confirm(c: EventConfirm?) = _state.update { it.copy(confirm = c, manageOpen = false) }
+    fun consumeNotice() = _state.update { it.copy(notice = null) }
+
+    fun doConfirmed() {
+        val c = _state.value.confirm ?: return
+        _state.update { it.copy(confirm = null) }
+        viewModelScope.launch {
+            try {
+                when (c) {
+                    EventConfirm.Cancel -> { repository.cancelEvent(eventId); _state.update { it.copy(notice = "Event cancelled") }; load() }
+                    EventConfirm.Delete -> { repository.deleteEvent(eventId); _state.update { it.copy(deleted = true) } }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(notice = e.message?.takeIf { m -> m.length < 90 } ?: "That didn't work. Try again.") }
+            }
+        }
+    }
+
     private fun apply(newState: RsvpState) {
         val d = _state.value.details ?: return
         val e = d.event
@@ -76,6 +101,12 @@ class EventDetailsViewModel(
         if (newState == RsvpState.Going) going++
         if (newState == RsvpState.Interested) interested++
         _state.update { it.copy(details = d.copy(event = e.copy(rsvp = newState, going = going, interested = interested))) }
-        viewModelScope.launch { runCatching { repository.setRsvp(e.id, newState) } }
+        viewModelScope.launch {
+            try { repository.setRsvp(e.id, newState) }
+            catch (ex: Exception) {
+                _state.update { it.copy(notice = ex.message?.takeIf { m -> m.length < 90 } ?: "Couldn't save your RSVP.") }
+                load() // show what the server really has
+            }
+        }
     }
 }

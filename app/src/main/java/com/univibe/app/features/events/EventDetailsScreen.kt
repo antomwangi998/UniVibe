@@ -1,5 +1,9 @@
 package com.univibe.app.features.events
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.provider.CalendarContract
+import android.widget.Toast
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +33,17 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.HorizontalDivider
+import com.univibe.app.ui.components.VibeBottomSheet
+import com.univibe.app.features.chats.SheetRow
+import com.univibe.app.data.model.EventStatus
+import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.core.formatDate
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.EventBusy
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -65,10 +80,13 @@ import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun EventDetailsScreen(eventId: String, onBack: () -> Unit) {
+fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}) {
     val viewModel = keyedViewModel("event-$eventId") { EventDetailsViewModel(eventId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val details = s.details
+    val ctx = LocalContext.current
+    LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
+    LaunchedEffect(s.deleted) { if (s.deleted) onBack() }
 
     if (details == null) {
         Column(Modifier.fillMaxSize()) {
@@ -83,14 +101,23 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit) {
     }
 
     val event = details.event
+    val status = event.status()
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Hero(details)
                 Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    StatusBanner(event)
                     Text(event.title, style = MaterialTheme.typography.headlineSmall)
                     HostRow(details)
                     InfoCard(details)
+                    if (status == EventStatus.Upcoming || status == EventStatus.Live) {
+                        TextButton(onClick = { addToCalendar(ctx, event, details.description) }) {
+                            Icon(Icons.Outlined.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add to calendar")
+                        }
+                    }
                     if (details.description.isNotBlank()) {
                         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                             Text("About this event", style = MaterialTheme.typography.titleMedium)
@@ -110,12 +137,34 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             BackButton(onBack)
-            VibeIconButton(Icons.Outlined.Share, "Share event", {
-                val text = "${event.title}\n${event.timeLabel}\n${event.location}"
-                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
-                context.startActivity(Intent.createChooser(send, "Share event"))
-            })
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                if (event.mine && status != EventStatus.Ended) VibeIconButton(Icons.Outlined.MoreHoriz, "Manage event", { viewModel.openManage(true) })
+                VibeIconButton(Icons.Outlined.Share, "Share event", {
+                    val text = "${event.title}\n${event.timeLabel}\n${event.location}"
+                    val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
+                    context.startActivity(Intent.createChooser(send, "Share event"))
+                })
+            }
         }
+    }
+
+    if (s.manageOpen) {
+        VibeBottomSheet(onDismiss = { viewModel.openManage(false) }) {
+            SheetRow(Icons.Outlined.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
+            if (status != EventStatus.Cancelled) SheetRow(Icons.Outlined.EventBusy, "Cancel event", true) { viewModel.confirm(EventConfirm.Cancel) }
+            SheetRow(Icons.Outlined.DeleteOutline, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
+        }
+    }
+    when (s.confirm) {
+        EventConfirm.Cancel -> ConfirmDialog(
+            title = "Cancel this event?", message = "It stays visible as cancelled, and the people who RSVPed are told. This can't be undone.",
+            confirmLabel = "Cancel event", dismissLabel = "Keep event", destructive = true, onConfirm = viewModel::doConfirmed, onDismiss = { viewModel.confirm(null) },
+        )
+        EventConfirm.Delete -> ConfirmDialog(
+            title = "Delete this event?", message = "It's removed for everyone. If people have RSVPed you'll need to cancel it instead.",
+            confirmLabel = "Delete", dismissLabel = "Keep event", destructive = true, onConfirm = viewModel::doConfirmed, onDismiss = { viewModel.confirm(null) },
+        )
+        null -> Unit
     }
 
     if (s.confirmLeave) {
@@ -128,6 +177,33 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit) {
             onConfirm = viewModel::confirmLeave,
             onDismiss = viewModel::dismissLeave,
         )
+    }
+}
+
+private fun addToCalendar(context: Context, e: CampusEvent, description: String) {
+    // Opens the calendar app's own "new event" screen: no calendar permission needed, and nothing is saved until you confirm.
+    val intent = Intent(Intent.ACTION_INSERT).apply {
+        data = CalendarContract.Events.CONTENT_URI
+        putExtra(CalendarContract.Events.TITLE, e.title)
+        putExtra(CalendarContract.Events.EVENT_LOCATION, e.location)
+        putExtra(CalendarContract.Events.DESCRIPTION, description)
+        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, e.startMillis)
+        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, e.endMillis)
+    }
+    try { context.startActivity(intent) } catch (ex: ActivityNotFoundException) { Toast.makeText(context, "No calendar app found on this device.", Toast.LENGTH_SHORT).show() }
+}
+
+@Composable
+private fun StatusBanner(e: CampusEvent) {
+    val colors = MaterialTheme.colorScheme
+    val (text, bg, fg) = when (e.status()) {
+        EventStatus.Cancelled -> Triple("This event was cancelled by the host.", colors.errorContainer, colors.onErrorContainer)
+        EventStatus.Ended -> Triple("This event has ended. It will be removed on ${formatDate(e.expiresAtMillis)}.", colors.surfaceContainerHigh, colors.onSurfaceVariant)
+        EventStatus.Live -> Triple("Happening now", colors.primaryContainer, colors.onPrimaryContainer)
+        EventStatus.Upcoming -> return
+    }
+    Surface(shape = RoundedCornerShape(16.dp), color = bg, contentColor = fg, modifier = Modifier.fillMaxWidth()) {
+        Text(text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(Spacing.md))
     }
 }
 
@@ -259,7 +335,9 @@ private fun ActionBar(details: EventDetails, onGoing: () -> Unit, onInterested: 
         Column {
         HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.55f))
         Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(Spacing.md)) {
-            if (event.isPast) {
+            if (event.cancelled) {
+                Text("This event was cancelled.", style = MaterialTheme.typography.bodyMedium, color = colors.error, modifier = Modifier.align(Alignment.Center))
+            } else if (event.isPast) {
                 Text("This event has ended.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
             } else {
                 val going = event.rsvp == RsvpState.Going
