@@ -123,7 +123,11 @@ class CommunityManagementTest {
         val id = create("Secret Society", CommunityPrivacy.Private)
         store.joinRequests[id] = mutableListOf(MockData.amina, MockData.kevin)
         repo.updateCommunity(id, "A long enough description.", "Social", 2, emptyList(), CommunityPrivacy.Public)
-        assertEquals(3, repo.getMembers(id).size)
+        val members = repo.getMembers(id).map { it.student.id }
+        assertEquals(1, members.count { it == MockData.amina.id })
+        assertEquals(1, members.count { it == MockData.kevin.id })
+        assertEquals(members.size, members.toSet().size) // nobody listed twice
+        assertTrue(repo.getJoinRequests(id).isEmpty())
         assertEquals(3, repo.getCommunity(id)!!.members)
     }
 
