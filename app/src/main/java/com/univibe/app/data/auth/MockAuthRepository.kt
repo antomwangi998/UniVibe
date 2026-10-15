@@ -8,6 +8,7 @@ import com.univibe.app.domain.auth.AuthUser
 import com.univibe.app.domain.auth.AuthValidators
 import com.univibe.app.domain.auth.DevAuthHints
 import com.univibe.app.domain.auth.OnboardingProfile
+import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.domain.auth.SignUpRequest
 import com.univibe.app.domain.auth.SignedOutReason
 import com.univibe.app.domain.auth.University
@@ -284,6 +285,22 @@ class MockAuthRepository(
         accounts[email] = updated
         persistAccounts()
         _session.value = AuthState.Authenticated(toUser(updated))
+        return AuthResult.Success(Unit)
+    }
+
+    override suspend fun updateProfile(edit: ProfileEdit): AuthResult<Unit> {
+        ensureLoaded(); simulateLatency()
+        val email = activeEmail ?: return fail(AuthError.SessionExpired)
+        val account = accounts[email] ?: return fail(AuthError.SessionExpired)
+        AuthValidators.fullName(edit.fullName)?.let { return fail(AuthError.Validation(it)) }
+        if (edit.bio.length > 160) return fail(AuthError.Validation("Keep your bio under 160 characters."))
+        val updated = account.copy(
+            fullName = edit.fullName.trim(), course = edit.course.trim(),
+            interests = edit.interests.distinct().take(12), bio = edit.bio.trim(),
+        )
+        accounts[email] = updated
+        persistAccounts()
+        _session.value = stateFor(updated)
         return AuthResult.Success(Unit)
     }
 

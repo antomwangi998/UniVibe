@@ -354,7 +354,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
                     StudentAvatar(st.name, size = 40.dp, accent = st.accent)
                     Column(Modifier.weight(1f).padding(horizontal = Spacing.sm + 4.dp)) {
                         Text(st.name, style = MaterialTheme.typography.titleSmall)
-                        Text("${st.course} · ${st.year}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${st.courseLine}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     VibeButton("Decline", { vm.answerRequest(st, false) }, style = VibeButtonStyle.Secondary, compact = true)
                     Spacer(Modifier.width(Spacing.xs))
@@ -376,7 +376,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
                 StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online)
                 Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
                     Text(if (m.isMe) "${m.student.name} (you)" else m.student.name, style = MaterialTheme.typography.titleSmall)
-                    Text("${m.student.course} · ${m.student.year}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (m.role == CommunityRole.Owner || m.role == CommunityRole.Moderator) {
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {

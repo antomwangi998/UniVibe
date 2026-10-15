@@ -129,7 +129,7 @@ fun FullProfileScreen(
                     Text(student.name, style = MaterialTheme.typography.headlineSmall)
                     Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                     Text(
-                        "${student.course} · ${student.year}\n${student.university}".trim(),
+                        "${student.courseLine}\n${student.university}".trim(),
                         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
                         textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.xs),
                     )

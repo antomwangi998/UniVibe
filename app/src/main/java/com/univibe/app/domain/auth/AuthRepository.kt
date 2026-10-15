@@ -23,6 +23,8 @@ interface AuthRepository {
     suspend fun requestPasswordReset(email: String): AuthResult<Unit>
     suspend fun resetPassword(email: String, code: String, newPassword: String): AuthResult<Unit>
     suspend fun completeOnboarding(profile: OnboardingProfile): AuthResult<Unit>
+    /** Saves edits to the signed-in student's profile on the server and refreshes the session user. */
+    suspend fun updateProfile(edit: ProfileEdit): AuthResult<Unit> = AuthResult.Failure(AuthError.Unknown)
     suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit>
     /** Permanently deletes the account after re-checking the password. */
     suspend fun deleteAccount(password: String): AuthResult<Unit>

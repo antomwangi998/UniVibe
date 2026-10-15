@@ -10,6 +10,7 @@ import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.domain.auth.AuthUser
 import com.univibe.app.domain.auth.AuthValidators
 import com.univibe.app.domain.auth.OnboardingProfile
+import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.domain.auth.SignUpRequest
 import com.univibe.app.domain.auth.SignedOutReason
 import com.univibe.app.domain.auth.University
@@ -238,6 +239,26 @@ class RemoteAuthRepository(
         return AuthResult.Success(Unit)
     }
 
+    override suspend fun updateProfile(edit: ProfileEdit): AuthResult<Unit> {
+        AuthValidators.fullName(edit.fullName)?.let { return fail(AuthError.Validation(it)) }
+        if (edit.bio.length > 300) return fail(AuthError.Validation("Keep your bio under 300 characters."))
+        val body = JSONObject()
+            .put("fullName", edit.fullName.trim())
+            .put("yearOfStudy", edit.yearOfStudy.trim())
+            .put("course", edit.course.trim())
+            .put("interests", JSONArray(edit.interests.map { it.trim().take(30) }.filter { it.isNotEmpty() }.distinct().take(10)))
+            .put("bio", edit.bio.trim())
+        val response = when (val r = authedCall("PUT", "/me/profile", body)) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return fail(mapError(response))
+        val updated = parseUser(response.body) ?: return fail(AuthError.Unknown)
+        setUser(updated)
+        _session.value = stateFor(updated)
+        return AuthResult.Success(Unit)
+    }
+
     override suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit> {
         AuthValidators.password(newPassword)?.let { return fail(AuthError.Validation(it)) }
         if (currentPassword == newPassword) return fail(AuthError.Validation("Choose a password you haven't used here."))
@@ -412,6 +433,8 @@ class RemoteAuthRepository(
                 interests = if (interests == null) emptyList() else (0 until interests.length()).map { interests.getString(it) },
                 bio = o.optString("bio"),
                 hasPhoto = o.optBoolean("hasPhoto", false),
+                handle = o.optString("handle"),
+                yearOfStudy = o.optString("yearOfStudy"),
             ),
             onboardingComplete = o.optBoolean("onboardingComplete", false),
             raw = json,

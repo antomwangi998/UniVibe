@@ -30,7 +30,15 @@ import com.univibe.app.data.repository.MockMessageRepository
 import com.univibe.app.data.repository.MockProfileRepository
 import com.univibe.app.data.repository.MockStore
 import com.univibe.app.data.repository.ProfileRepository
+import com.univibe.app.data.repository.MockData
 import com.univibe.app.domain.auth.AuthRepository
+import com.univibe.app.domain.auth.AuthResult
+import com.univibe.app.domain.auth.AuthState
+import com.univibe.app.domain.auth.AuthUser
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class UniVibeApplication : Application() {
     override fun onCreate() {
@@ -43,10 +51,23 @@ class UniVibeApplication : Application() {
 object AppContainer {
     private lateinit var app: Application
 
-    fun init(application: Application) { app = application }
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    fun init(application: Application) {
+        app = application
+        // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
+        appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
+    }
+
+    private fun accountOf(state: AuthState): AuthUser? = when (state) {
+        is AuthState.Authenticated -> state.user
+        is AuthState.OnboardingRequired -> state.user
+        else -> null
+    }
 
     // MOCK data layer: one shared in-memory store so screens stay consistent with each other.
-    private val mockStore by lazy { MockStore() }
+    // With a real backend the sample social graph (people followed, clubs joined) is not seeded: a new student starts empty.
+    private val mockStore by lazy { MockStore(demo = BuildConfig.API_BASE_URL.isBlank()) }
     val feedRepository: FeedRepository by lazy { MockFeedRepository(mockStore) }
     val commentRepository: CommentRepository by lazy { MockCommentRepository(mockStore) }
     val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
@@ -58,7 +79,13 @@ object AppContainer {
     val discoverRepository: DiscoverRepository by lazy { MockDiscoverRepository() }
     val notificationRepository: NotificationRepository by lazy { MockNotificationRepository() }
     val eventRepository: EventRepository by lazy { MockEventRepository(mockStore) }
-    val profileRepository: ProfileRepository by lazy { MockProfileRepository(mockStore, DataStoreProfileLocalStore(app)) }
+    val profileRepository: ProfileRepository by lazy {
+        MockProfileRepository(
+            mockStore, DataStoreProfileLocalStore(app),
+            account = { accountOf(authRepository.session.value) },
+            saveAccount = { edit -> authRepository.updateProfile(edit) is AuthResult.Success },
+        )
+    }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
 

@@ -283,7 +283,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
                             }
                             Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                "${student.course} · ${student.year}\n${student.university}".trim(),
+                                "${student.courseLine}\n${student.university}".trim(),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.xs),
                             )
