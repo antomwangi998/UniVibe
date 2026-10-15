@@ -59,6 +59,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.json:json:20240303") // the Android stub of org.json does nothing in unit tests
 }
 
 // Print the full assertion message and stack trace of any failing unit test, so CI logs say what actually failed.

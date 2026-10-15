@@ -4,6 +4,8 @@ import android.app.Application
 import com.univibe.app.BuildConfig
 import com.univibe.app.data.auth.KeystoreSecureStore
 import com.univibe.app.data.auth.MockAuthRepository
+import com.univibe.app.data.auth.RemoteAuthRepository
+import com.univibe.app.data.net.UrlConnectionTransport
 import com.univibe.app.data.settings.DataStoreSettingsRepository
 import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.profile.DataStoreProfileLocalStore
@@ -66,7 +68,7 @@ object AppContainer {
             check(BuildConfig.DEBUG) { "No backend configured. Set univibe.apiBaseUrl and provide a RemoteAuthRepository." }
             MockAuthRepository(KeystoreSecureStore(app))
         } else {
-            error("RemoteAuthRepository is not implemented yet. See docs/AUTH_BACKEND.md.")
+            RemoteAuthRepository(BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app))
         }
     }
 }
