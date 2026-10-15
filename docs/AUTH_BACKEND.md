@@ -6,10 +6,13 @@
 | Sign-up, log-in, email verification, password reset, onboarding screens | Built |
 | `AuthRepository` interface + auth state machine (`AuthState`) | Built, unit-tested |
 | `MockAuthRepository` | **Mock only.** Accounts stay on the device, no email is sent, codes are shown in debug builds. |
-| Real backend (`RemoteAuthRepository`) | **Not built.** Release builds refuse to start without one. |
+| Real backend | Server in `backend/` (Render + Neon + Resend). `RemoteAuthRepository` talks to it whenever `univibe.apiBaseUrl` is set (it is, in `gradle.properties`). Blank it to fall back to the mock in debug builds. Release builds refuse to start without a backend. |
 
 The mock proves nothing about who owns an email address or who belongs to a university.
 Never ship it.
+
+## How the real backend is wired (done)
+The steps below describe what was done, kept for reference.
 
 ## How to switch to a real backend
 1. Implement `AuthRepository` against your API (new class `RemoteAuthRepository`).
