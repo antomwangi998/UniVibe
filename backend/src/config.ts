@@ -13,7 +13,9 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const config = schema.parse({ ...env, RESEND_API_KEY: env.RESEND_API_KEY || undefined });
+  // A blank or quoted EMAIL_FROM (an easy slip in a dashboard) would make Resend answer 422, so tidy it up.
+  const from = env.EMAIL_FROM?.trim().replace(/^["']+|["']+$/g, '');
+  const config = schema.parse({ ...env, RESEND_API_KEY: env.RESEND_API_KEY || undefined, EMAIL_FROM: from || undefined });
   if (config.NODE_ENV === 'production' && !config.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY is required in production');
   }

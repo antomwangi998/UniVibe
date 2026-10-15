@@ -25,7 +25,11 @@ export function createResendMailer(apiKey: string, from: string): Mailer {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to: [to], subject, text, html }),
     });
-    if (!response.ok) throw new Error(`Resend responded with status ${response.status}`);
+    if (!response.ok) {
+      // Resend's error text says what is wrong (for example an invalid "from" address). It never contains secrets.
+      const detail = (await response.text().catch(() => '')).slice(0, 300);
+      throw new Error(`Resend responded with status ${response.status}: ${detail}`);
+    }
   }
   return {
     sendVerification: (to, name, code) =>
