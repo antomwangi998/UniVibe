@@ -1,0 +1,360 @@
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import { HttpError } from './errors';
+import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId } from './shared';
+
+const TEXT_MAX = 280;
+const text = z.string().trim().min(1, 'Write something first.').max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
+
+const pollSchema = z.object({
+  options: z
+    .array(z.string().trim().min(1, 'Poll options cannot be empty.').max(40, 'Keep poll options under 40 characters.'))
+    .min(2, 'A poll needs at least 2 options.')
+    .max(4, 'A poll can have at most 4 options.')
+    .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, 'Poll options must be different.'),
+});
+const createSchema = z.object({
+  text,
+  audience: z.enum(['campus', 'followers']).default('campus'),
+  poll: pollSchema.optional(),
+});
+const editSchema = z.object({ text });
+const voteSchema = z.object({ optionIndex: z.number().int().min(0).max(3) });
+const reportSchema = z.object({ reason: z.string().trim().min(1).max(200) });
+const feedQuery = z.object({ filter: z.enum(['campus', 'following']).default('campus') });
+const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() });
+
+/**
+ * Who may see a post. $1 = the viewer's id, $2 = the viewer's university id.
+ * Authors always see their own posts. Campus posts stay inside the author's university.
+ * Followers-only posts need a follow. The server is the only place this is enforced.
+ */
+const visible = (p: string, author: string) =>
+  `(${p}.author_id = $1 or (${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
+  `(${p}.audience = 'followers' and exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = ${p}.author_id)))`;
+
+const POST_COLS =
+  'p.id, p.text, p.audience, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
+  'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
+  AUTHOR_COLS +
+  ', (select count(*) from post_likes l where l.post_id = p.id)::int as like_count' +
+  ', (select count(*) from comments c where c.post_id = p.id)::int as comment_count' +
+  ', exists (select 1 from post_likes l where l.post_id = p.id and l.user_id = $1) as liked' +
+  ', exists (select 1 from post_saves s where s.post_id = p.id and s.user_id = $1) as saved' +
+  ', (select v.option_index from poll_votes v where v.post_id = p.id and v.user_id = $1) as my_vote' +
+  ", (select coalesce(json_object_agg(t.option_index, t.n), '{}'::json) from " +
+  '(select option_index, count(*)::int as n from poll_votes where post_id = p.id group by option_index) t) as vote_counts';
+
+const POST_FROM = 'from posts p join users a on a.id = p.author_id join universities uni on uni.id = a.university_id';
+
+type PostRow = AuthorCols & {
+  id: string; text: string; audience: string; share_count: number; poll_options: string[] | null;
+  created_at: Date; edited_at: Date | null; age_seconds: number;
+  like_count: number; comment_count: number; liked: boolean; saved: boolean;
+  my_vote: number | null; vote_counts: Record<string, number> | null;
+};
+
+function postJson(r: PostRow) {
+  const counts = r.vote_counts ?? {};
+  return {
+    id: r.id,
+    author: authorJson(r),
+    createdAt: r.created_at,
+    ageSeconds: r.age_seconds,
+    text: r.text,
+    audience: r.audience,
+    likeCount: r.like_count,
+    commentCount: r.comment_count,
+    shareCount: r.share_count,
+    likedByMe: r.liked,
+    savedByMe: r.saved,
+    edited: r.edited_at !== null,
+    poll: r.poll_options
+      ? { options: r.poll_options.map((t, i) => ({ text: t, votes: counts[String(i)] ?? 0 })), myVote: r.my_vote }
+      : null,
+  };
+}
+
+const COMMENT_COLS =
+  'c.id, c.post_id, c.author_id, c.text, c.parent_id, c.reply_to_handle, c.created_at, p.author_id as post_author_id, ' +
+  'floor(extract(epoch from (now() - c.created_at)))::int as age_seconds, ' +
+  AUTHOR_COLS +
+  ', (select count(*) from comment_likes l where l.comment_id = c.id)::int as like_count' +
+  ', exists (select 1 from comment_likes l where l.comment_id = c.id and l.user_id = $1) as liked';
+
+const COMMENT_FROM =
+  'from comments c join posts p on p.id = c.post_id join users a on a.id = c.author_id ' +
+  'join universities uni on uni.id = a.university_id';
+
+type CommentRow = AuthorCols & {
+  id: string; post_id: string; author_id: string; text: string; parent_id: string | null; reply_to_handle: string | null;
+  created_at: Date; post_author_id: string; age_seconds: number; like_count: number; liked: boolean;
+};
+
+function commentJson(r: CommentRow, viewerId: string) {
+  return {
+    id: r.id,
+    postId: r.post_id,
+    author: authorJson(r),
+    createdAt: r.created_at,
+    ageSeconds: r.age_seconds,
+    text: r.text,
+    likeCount: r.like_count,
+    likedByMe: r.liked,
+    isMine: r.author_id === viewerId,
+    isPostAuthor: r.author_id === r.post_author_id,
+    parentId: r.parent_id,
+    replyToHandle: r.reply_to_handle,
+  };
+}
+
+export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): void {
+  const { pool } = ctx;
+
+  async function fetchPost(user: SignedInUser, id: string): Promise<PostRow | undefined> {
+    const { rows } = await pool.query<PostRow>(
+      `select ${POST_COLS} ${POST_FROM} where p.id = $3 and ${visible('p', 'a')}`,
+      [user.id, user.university_id, id],
+    );
+    return rows[0];
+  }
+
+  /** The post, if this student may see it. Everything else is "not found", so private posts are not revealed. */
+  async function visiblePost(user: SignedInUser, id: string) {
+    const { rows } = await pool.query<{ author_id: string; audience: string; poll_options: string[] | null }>(
+      `select p.author_id, p.audience, p.poll_options from posts p join users a on a.id = p.author_id ` +
+        `where p.id = $3 and ${visible('p', 'a')}`,
+      [user.id, user.university_id, id],
+    );
+    if (!rows[0]) throw new HttpError(404, 'not_found', 'That post is not available.');
+    return rows[0];
+  }
+
+  async function fetchComment(user: SignedInUser, id: string): Promise<CommentRow | undefined> {
+    const { rows } = await pool.query<CommentRow>(`select ${COMMENT_COLS} ${COMMENT_FROM} where c.id = $2`, [user.id, id]);
+    return rows[0];
+  }
+
+  /** The comment, if its post is visible to this student. */
+  async function visibleComment(user: SignedInUser, id: string) {
+    const { rows } = await pool.query<{ post_id: string; author_id: string; post_author_id: string }>(
+      'select c.post_id, c.author_id, p.author_id as post_author_id from comments c join posts p on p.id = c.post_id where c.id = $1',
+      [id],
+    );
+    const row = rows[0];
+    if (!row) throw new HttpError(404, 'not_found', 'That comment is not available.');
+    await visiblePost(user, row.post_id);
+    return row;
+  }
+
+  // ---- reading
+  app.get('/posts', async (req) => {
+    const user = await ctx.requireUser(req);
+    const { filter } = feedQuery.parse(req.query ?? {});
+    const following =
+      filter === 'following'
+        ? 'and exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = p.author_id)'
+        : '';
+    const { rows } = await pool.query<PostRow>(
+      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${following} order by p.created_at desc, p.id desc limit 100`,
+      [user.id, user.university_id],
+    );
+    return rows.map(postJson);
+  });
+
+  app.get('/posts/saved', async (req) => {
+    const user = await ctx.requireUser(req);
+    const { rows } = await pool.query<PostRow>(
+      `select ${POST_COLS} ${POST_FROM} join post_saves sv on sv.post_id = p.id and sv.user_id = $1 ` +
+        `where ${visible('p', 'a')} order by sv.created_at desc limit 200`,
+      [user.id, user.university_id],
+    );
+    return rows.map(postJson);
+  });
+
+  app.get('/posts/:id', async (req) => {
+    const user = await ctx.requireUser(req);
+    const post = await fetchPost(user, paramId(req));
+    if (!post) throw new HttpError(404, 'not_found', 'That post is not available.');
+    return postJson(post);
+  });
+
+  // ---- writing
+  app.post('/posts', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const b = createSchema.parse(req.body ?? {});
+    ctx.tooMany(`post:${user.id}`, 30, 3600);
+    const created = await pool.query<{ id: string }>(
+      'insert into posts (author_id, text, audience, poll_options) values ($1, $2, $3, $4) returning id',
+      [user.id, b.text, b.audience, b.poll ? b.poll.options : null],
+    );
+    const post = await fetchPost(user, created.rows[0].id);
+    return reply.status(201).send(postJson(post as PostRow));
+  });
+
+  app.put('/posts/:id', async (req) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const b = editSchema.parse(req.body ?? {});
+    const post = await visiblePost(user, id);
+    if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only change your own posts.');
+    await pool.query('update posts set text = $2, edited_at = now() where id = $1', [id, b.text]);
+    return postJson((await fetchPost(user, id)) as PostRow);
+  });
+
+  app.delete('/posts/:id', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const post = await visiblePost(user, id);
+    if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only delete your own posts.');
+    await pool.query('delete from posts where id = $1', [id]); // likes, saves, votes and comments cascade
+    return reply.status(204).send();
+  });
+
+  // ---- likes and saves (idempotent: repeating a request changes nothing)
+  const toggles = [
+    { segment: 'like', table: 'post_likes' },
+    { segment: 'save', table: 'post_saves' },
+  ] as const;
+  for (const { segment, table } of toggles) {
+    app.put(`/posts/:id/${segment}`, async (req, reply) => {
+      const user = await ctx.requireUser(req);
+      const id = paramId(req);
+      ctx.tooMany(`${segment}:${user.id}`, 600, 3600);
+      await visiblePost(user, id);
+      await pool.query(`insert into ${table} (post_id, user_id) values ($1, $2) on conflict do nothing`, [id, user.id]);
+      return reply.status(204).send();
+    });
+    app.delete(`/posts/:id/${segment}`, async (req, reply) => {
+      const user = await ctx.requireUser(req);
+      const id = paramId(req);
+      ctx.tooMany(`${segment}:${user.id}`, 600, 3600);
+      await pool.query(`delete from ${table} where post_id = $1 and user_id = $2`, [id, user.id]);
+      return reply.status(204).send();
+    });
+  }
+
+  // ---- polls, sharing, reports
+  app.post('/posts/:id/vote', async (req) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const b = voteSchema.parse(req.body ?? {});
+    ctx.tooMany(`vote:${user.id}`, 300, 3600);
+    const post = await visiblePost(user, id);
+    if (!post.poll_options) throw new HttpError(400, 'validation', 'This post has no poll.');
+    if (b.optionIndex >= post.poll_options.length) throw new HttpError(400, 'validation', 'Unknown option.');
+    try {
+      await pool.query('insert into poll_votes (post_id, user_id, option_index) values ($1, $2, $3)', [id, user.id, b.optionIndex]);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw new HttpError(409, 'already_voted', 'You already voted in this poll.');
+      throw e;
+    }
+    return postJson((await fetchPost(user, id)) as PostRow);
+  });
+
+  app.post('/posts/:id/share', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    ctx.tooMany(`share:${user.id}`, 120, 3600);
+    const post = await visiblePost(user, id);
+    if (post.audience !== 'campus') throw new HttpError(403, 'forbidden', 'Only campus-wide posts can be shared.');
+    await pool.query('update posts set share_count = share_count + 1 where id = $1', [id]);
+    return reply.status(204).send();
+  });
+
+  app.post('/posts/:id/report', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const b = reportSchema.parse(req.body ?? {});
+    ctx.tooMany(`report:${user.id}`, 30, 3600);
+    await visiblePost(user, id);
+    await pool.query(
+      'insert into post_reports (post_id, reporter_id, reason) values ($1, $2, $3) on conflict do nothing',
+      [id, user.id, b.reason],
+    );
+    return reply.status(204).send();
+  });
+
+  // ---- comments
+  app.get('/posts/:id/comments', async (req) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    await visiblePost(user, id);
+    const { rows } = await pool.query<CommentRow>(
+      `select ${COMMENT_COLS} ${COMMENT_FROM} where c.post_id = $2 order by c.created_at asc, c.id asc limit 500`,
+      [user.id, id],
+    );
+    return rows.map((r) => commentJson(r, user.id));
+  });
+
+  app.post('/posts/:id/comments', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const b = commentSchema.parse(req.body ?? {});
+    ctx.tooMany(`comment:${user.id}`, 90, 3600);
+    await visiblePost(user, id);
+
+    let parentId: string | null = null;
+    let replyToHandle: string | null = null;
+    if (b.replyToId) {
+      const target = await pool.query<{ id: string; parent_id: string | null; handle: string }>(
+        'select c.id, c.parent_id, a.handle from comments c join users a on a.id = c.author_id where c.id = $1 and c.post_id = $2',
+        [b.replyToId, id],
+      );
+      const t = target.rows[0];
+      if (!t) throw new HttpError(404, 'not_found', 'The comment you are replying to is gone.');
+      parentId = t.parent_id ?? t.id; // replies always hang under the top-level comment
+      replyToHandle = t.handle;
+    }
+    const created = await pool.query<{ id: string }>(
+      'insert into comments (post_id, author_id, parent_id, reply_to_handle, text) values ($1, $2, $3, $4, $5) returning id',
+      [id, user.id, parentId, replyToHandle, b.text],
+    );
+    const comment = await fetchComment(user, created.rows[0].id);
+    return reply.status(201).send(commentJson(comment as CommentRow, user.id));
+  });
+
+  async function setCommentLike(req: FastifyRequest, on: boolean): Promise<void> {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    ctx.tooMany(`clike:${user.id}`, 600, 3600);
+    await visibleComment(user, id);
+    if (on) {
+      await pool.query('insert into comment_likes (comment_id, user_id) values ($1, $2) on conflict do nothing', [id, user.id]);
+    } else {
+      await pool.query('delete from comment_likes where comment_id = $1 and user_id = $2', [id, user.id]);
+    }
+  }
+  app.put('/comments/:id/like', async (req, reply) => {
+    await setCommentLike(req, true);
+    return reply.status(204).send();
+  });
+  app.delete('/comments/:id/like', async (req, reply) => {
+    await setCommentLike(req, false);
+    return reply.status(204).send();
+  });
+
+  app.delete('/comments/:id', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const comment = await visibleComment(user, id);
+    if (comment.author_id !== user.id && comment.post_author_id !== user.id) {
+      throw new HttpError(403, 'forbidden', 'You can only delete your own comments, or comments on your posts.');
+    }
+    await pool.query('delete from comments where id = $1', [id]); // replies cascade
+    return reply.status(204).send();
+  });
+
+  app.post('/comments/:id/report', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const id = paramId(req);
+    const b = reportSchema.parse(req.body ?? {});
+    ctx.tooMany(`creport:${user.id}`, 30, 3600);
+    await visibleComment(user, id);
+    await pool.query(
+      'insert into comment_reports (comment_id, reporter_id, reason) values ($1, $2, $3) on conflict do nothing',
+      [id, user.id, b.reason],
+    );
+    return reply.status(204).send();
+  });
+}

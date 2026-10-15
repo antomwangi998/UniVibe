@@ -167,7 +167,7 @@ fun CreatePostScreen(onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val add = s.canAddPhoto
-            Row(
+            if (viewModel.supportsMedia) Row(
                 Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
                     .clickable(enabled = add, role = Role.Button, onClickLabel = "Add photos") {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

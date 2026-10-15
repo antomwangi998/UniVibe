@@ -46,6 +46,8 @@ class HomeViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
 ) : ViewModel() {
+    /** False when the server can't store photos and videos yet: the composer then hides those buttons. */
+    val supportsMedia: Boolean = repository.supportsMedia
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 

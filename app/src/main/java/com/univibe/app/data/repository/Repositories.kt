@@ -33,6 +33,8 @@ import com.univibe.app.data.model.StudentProfile
  * backend (paginated, authenticated) can replace the mock implementations later.
  */
 interface FeedRepository {
+    /** False while the server can't store photos and videos; screens then hide those buttons. */
+    val supportsMedia: Boolean get() = true
     suspend fun getCurrentUser(): Student
     suspend fun getPosts(filter: FeedFilter): List<Post>
     suspend fun getStories(): List<Student>

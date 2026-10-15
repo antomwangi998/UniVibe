@@ -30,7 +30,11 @@ import com.univibe.app.data.repository.MockMessageRepository
 import com.univibe.app.data.repository.MockProfileRepository
 import com.univibe.app.data.repository.MockStore
 import com.univibe.app.data.repository.ProfileRepository
+import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.repository.MockData
+import com.univibe.app.data.repository.RemoteCommentRepository
+import com.univibe.app.data.repository.RemoteFeedRepository
+import com.univibe.app.data.repository.RemoteProfileBackend
 import com.univibe.app.domain.auth.AuthRepository
 import com.univibe.app.domain.auth.AuthResult
 import com.univibe.app.domain.auth.AuthState
@@ -68,8 +72,13 @@ object AppContainer {
     // MOCK data layer: one shared in-memory store so screens stay consistent with each other.
     // With a real backend the sample social graph (people followed, clubs joined) is not seeded: a new student starts empty.
     private val mockStore by lazy { MockStore(demo = BuildConfig.API_BASE_URL.isBlank()) }
-    val feedRepository: FeedRepository by lazy { MockFeedRepository(mockStore) }
-    val commentRepository: CommentRepository by lazy { MockCommentRepository(mockStore) }
+    /** The server connection, when the app runs against a real backend (null in offline demo mode). */
+    private val api: AuthedApi? get() = authRepository as? AuthedApi
+
+    val feedRepository: FeedRepository by lazy {
+        api?.let { RemoteFeedRepository(it) { accountOf(authRepository.session.value) } } ?: MockFeedRepository(mockStore)
+    }
+    val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
     val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
     val chatRepository: ChatRepository by lazy { MockChatRepository(mockStore) }
     val messageRepository: MessageRepository by lazy { MockMessageRepository(mockStore) }
@@ -84,6 +93,7 @@ object AppContainer {
             mockStore, DataStoreProfileLocalStore(app),
             account = { accountOf(authRepository.session.value) },
             saveAccount = { edit -> authRepository.updateProfile(edit) is AuthResult.Success },
+            backend = api?.let { RemoteProfileBackend(it) },
         )
     }
 
