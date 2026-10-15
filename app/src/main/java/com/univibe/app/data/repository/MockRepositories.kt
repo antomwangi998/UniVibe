@@ -202,7 +202,7 @@ class MockStore(demo: Boolean = true) {
         Post("pc1", MockData.brian, "3h", "Hack night is back this Friday. Bring a laptop and an idea.", 12, 3, audience = PostAudience.Community("tech", "Tech Club")),
         Post("pc2", MockData.grace, "1d", "Reminder: slides from the AI talk are in the shared folder.", 7, 1, audience = PostAudience.Community("tech", "Tech Club")),
         Post("pc3", MockData.grace, "2d", "Photo walk on Saturday morning, meet at the library steps.", 20, 5, audience = PostAudience.Community("photo", "Photography Club")),
-    )).toMutableList()
+    )).let { if (demo) it else emptyList() }.toMutableList() // a real account sees only real posts
     val liked = mutableSetOf<String>()
     val saved = mutableSetOf<String>()
     val following: MutableSet<String> = if (demo) mutableSetOf("s2", "s3", "s6") else mutableSetOf()
@@ -985,12 +985,17 @@ class MockProfileRepository(
     private val account: () -> AuthUser? = { null },
     /** Saves profile edits to the real account; false means the server refused or could not be reached. */
     private val saveAccount: suspend (ProfileEdit) -> Boolean = { true },
+    /** The server's people routes. When set (and a real account is signed in) counts, profiles and follows come from it. */
+    private val backend: ProfileBackend? = null,
 ) : ProfileRepository {
+    private fun live(): AuthUser? = if (backend != null) account() else null
+
     override suspend fun getMyProfile(): MyProfile {
         val live = account()
         MockData.applyAccount(live)
         val base = MockData.me
         val e = local.edits.first()
+        val stats = if (live() != null) runCatching { backend?.myStats() }.getOrNull() else null
         // With a real account the name, course, interests and bio come from it; only photos are still kept on this device.
         val student = if (live != null) base.student else base.student.copy(
             name = e.name ?: base.student.name,
@@ -1000,9 +1005,10 @@ class MockProfileRepository(
         )
         return base.copy(
             student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
-            posts = base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" },
-            savedPosts = store.saved.size,
-            following = store.following.size,
+            posts = stats?.posts ?: (base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" }),
+            savedPosts = stats?.saved ?: store.saved.size,
+            followers = stats?.followers ?: base.followers,
+            following = stats?.following ?: store.following.size,
         )
     }
 
@@ -1037,9 +1043,26 @@ class MockProfileRepository(
         PhotoStore.delete(path)
     }
 
-    override suspend fun getStudent(id: String): Student? = MockData.allStudents.firstOrNull { it.id == id }
+    override suspend fun getStudent(id: String): Student? {
+        if (live() != null) return getStudentProfile(id)?.student
+        return MockData.allStudents.firstOrNull { it.id == id }
+    }
 
     override suspend fun getStudentProfile(id: String): StudentProfile? {
+        val account = live()
+        if (backend != null && account != null) {
+            if (id == account.id || id == MockData.ME_ID) {
+                val mine = getMyProfile()
+                return StudentProfile(mine.student, mine.bio, mine.posts, mine.followers, mine.following)
+            }
+            val found = backend.studentProfile(id) ?: return null
+            // The data layer computes what you have in common; the UI never guesses it.
+            val student = found.student.copy(
+                shared = found.student.interests.filter { it in account.interests },
+                sameCourse = found.student.course.isNotBlank() && found.student.course == account.course,
+            )
+            return found.copy(student = student)
+        }
         if (id == MockData.ME_ID) {
             val me = MockData.me
             return StudentProfile(me.student, me.bio, me.posts, me.followers, me.following, listOf("tech", "photo", "debate"))
@@ -1056,12 +1079,18 @@ class MockProfileRepository(
     }
 
     override suspend fun getFollowers(): List<FollowEntry> =
+        if (live() != null) backend!!.followers() else
         listOf(MockData.kevin, MockData.amina, MockData.grace, MockData.brian).map { FollowEntry(it, it.id in store.following) }
 
     override suspend fun getFollowing(): List<FollowEntry> =
+        if (live() != null) backend!!.following() else
         MockData.allStudents.filter { it.id != MockData.ME_ID && it.id in store.following }.map { FollowEntry(it, true) }
 
     override suspend fun setFollowing(studentId: String, following: Boolean) {
+        if (live() != null) {
+            backend!!.setFollowing(studentId, following)
+            return
+        }
         if (following) store.following += studentId else store.following -= studentId
     }
 }

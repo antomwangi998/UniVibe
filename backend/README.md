@@ -41,6 +41,18 @@ Protected routes need `Authorization: Bearer <accessToken>`. Access tokens last 
 | `GET /me` | the user |
 | `PUT /me/profile` `{ fullName?, yearOfStudy?, course, interests[≤10], bio≤300 }` | saves onboarding or a later edit, returns the user. `handle` is generated at sign-up and does not change |
 | `POST /me/delete-account` `{ password }` | `204`, deletes the account and its sessions |
+| `POST /posts` `{ text≤280, audience: campus\|followers, poll?: { options: 2–4 × ≤40 chars } }` | `201` post. Text and polls only for now; photos and video need file storage |
+| `GET /posts?filter=campus\|following` · `GET /posts/saved` · `GET /posts/:id` | posts this student may see (newest first, up to 100) |
+| `PUT /posts/:id` `{ text }` · `DELETE /posts/:id` | author only |
+| `PUT\|DELETE /posts/:id/like` · `/save` | idempotent, `204` |
+| `POST /posts/:id/vote` `{ optionIndex }` · `/share` · `/report` `{ reason }` | one vote per student (`409 already_voted`); only campus posts can be shared |
+| `GET /posts/:id/comments` · `POST /posts/:id/comments` `{ text≤280, replyToId? }` | replies always attach to the top-level comment |
+| `PUT\|DELETE /comments/:id/like` · `DELETE /comments/:id` · `POST /comments/:id/report` | the comment's author or the post's author may delete |
+| `GET /me/stats` | `{ posts, followers, following, saved }` |
+| `GET /students/:id` | another student's profile (same university only) with counts and `followedByMe` |
+| `PUT\|DELETE /students/:id/follow` · `GET /me/followers` · `GET /me/following` | follows; lists are `[{ student, isFollowing }]` |
+
+Visibility: a **campus** post is visible to students of the author's university; a **followers** post only to followers (and its author). Anything a student may not see answers `404`, so private posts are never revealed.
 
 `user` = `{ id, fullName, handle, yearOfStudy, email, universityId, universityName, emailVerified, studentVerified, course, interests, bio, hasPhoto, onboardingComplete }`.
 
@@ -54,7 +66,7 @@ Protected routes need `Authorization: Bearer <accessToken>`. Access tokens last 
 
 ## Not built yet
 
-Profile photo upload, social features (posts, chat, events, communities, notifications), cleanup of never-verified accounts, push notifications, the Android `RemoteAuthRepository`.
+Photo and video upload (needs file storage), chat, events, communities, notifications, blocking, cleanup of never-verified accounts, push notifications, the Android `RemoteAuthRepository`.
 
 ## Local run and tests
 

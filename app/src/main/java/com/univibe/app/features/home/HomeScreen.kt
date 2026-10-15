@@ -132,10 +132,11 @@ fun HomeScreen(
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                item(key = "stories") { StoriesRow(state.visibleStories) }
+                if (state.visibleStories.isNotEmpty()) item(key = "stories") { StoriesRow(state.visibleStories) }
                 item(key = "composer") {
                     Composer(
-                        fullName = state.me?.name ?: "Aisha Njoki",
+                        fullName = state.me?.name.orEmpty(),
+                        supportsMedia = viewModel.supportsMedia,
                         publishing = state.publishing,
                         error = state.publishError,
                         postedCount = state.postedCount,
@@ -280,6 +281,7 @@ private fun SheetOption(icon: ImageVector, label: String, destructive: Boolean =
 @Composable
 private fun Composer(
     fullName: String,
+    supportsMedia: Boolean,
     publishing: Boolean,
     error: String?,
     postedCount: Int,
@@ -399,11 +401,13 @@ private fun Composer(
             Modifier.fillMaxWidth().padding(top = Spacing.xs),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            ComposerAction(Icons.Outlined.Image, "Photo") {
-                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }
-            ComposerAction(Icons.Outlined.Videocam, "Video") {
-                videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+            if (supportsMedia) {
+                ComposerAction(Icons.Outlined.Image, "Photo") {
+                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+                ComposerAction(Icons.Outlined.Videocam, "Video") {
+                    videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                }
             }
             ComposerAction(Icons.Outlined.Event, "Event", onOpenEvents)
             ComposerAction(Icons.Outlined.Poll, "Poll") { buildingPoll = true }

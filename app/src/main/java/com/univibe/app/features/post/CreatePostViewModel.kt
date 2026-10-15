@@ -46,6 +46,7 @@ class CreatePostViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
     private val communityRepository: CommunityRepository = AppContainer.communityRepository,
 ) : ViewModel() {
+    val supportsMedia: Boolean = repository.supportsMedia
     private val _state = MutableStateFlow(CreatePostUiState())
     val state: StateFlow<CreatePostUiState> = _state.asStateFlow()
 

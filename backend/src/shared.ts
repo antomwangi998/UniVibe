@@ -1,0 +1,48 @@
+import type { FastifyRequest } from 'fastify';
+import type { Pool } from 'pg';
+import { z } from 'zod';
+import { HttpError } from './errors';
+
+/** What the social routes need from the app: the database, the signed-in student, and rate limiting. */
+export interface RouteContext {
+  pool: Pool;
+  requireUser: (req: FastifyRequest) => Promise<SignedInUser>;
+  tooMany: (key: string, max: number, windowSeconds: number) => void;
+}
+
+export type SignedInUser = { id: string; university_id: string; full_name: string; handle: string };
+
+/** Columns describing a student, from a query that joins `users a` and `universities uni`. */
+export const AUTHOR_COLS =
+  'a.id as a_id, a.full_name as a_name, a.handle as a_handle, a.course as a_course, a.year_of_study as a_year, ' +
+  'a.interests as a_interests, a.student_verified as a_verified, a.has_photo as a_photo, uni.name as a_university';
+
+export type AuthorCols = {
+  a_id: string; a_name: string; a_handle: string; a_course: string; a_year: string;
+  a_interests: string[]; a_verified: boolean; a_photo: boolean; a_university: string;
+};
+
+export function authorJson(r: AuthorCols) {
+  return {
+    id: r.a_id,
+    fullName: r.a_name,
+    handle: r.a_handle,
+    course: r.a_course,
+    yearOfStudy: r.a_year,
+    interests: r.a_interests,
+    studentVerified: r.a_verified,
+    hasPhoto: r.a_photo,
+    universityName: r.a_university,
+  };
+}
+
+const uuid = z.string().uuid();
+
+/** A malformed id is simply "not found", never a database error. */
+export function paramId(req: FastifyRequest, name = 'id'): string {
+  const parsed = uuid.safeParse((req.params as Record<string, string>)[name]);
+  if (!parsed.success) throw new HttpError(404, 'not_found', 'Not found.');
+  return parsed.data;
+}
+
+export const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === '23505';

@@ -7,6 +7,8 @@ import { withTx } from './db';
 import type { Mailer } from './email';
 import { HttpError } from './errors';
 import { RateLimiter } from './limiter';
+import { registerPeopleRoutes } from './people';
+import { registerPostRoutes } from './posts';
 import * as sec from './security';
 
 export interface AppDeps {
@@ -454,6 +456,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     await pool.query('delete from users where id = $1', [user.id]); // codes and sessions cascade
     return reply.status(204).send();
   });
+
+  // ---- feed, comments, people
+  const routeContext = { pool, requireUser, tooMany };
+  registerPostRoutes(app, routeContext);
+  registerPeopleRoutes(app, routeContext);
 
   return app;
 }

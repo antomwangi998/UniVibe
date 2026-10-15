@@ -2,6 +2,7 @@ package com.univibe.app.data.auth
 
 import com.univibe.app.data.net.HttpRequest
 import com.univibe.app.data.net.HttpResponse
+import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.HttpTransport
 import com.univibe.app.domain.auth.AuthError
 import com.univibe.app.domain.auth.AuthRepository
@@ -33,7 +34,7 @@ class RemoteAuthRepository(
     private val transport: HttpTransport,
     private val store: SecureStore,
     private val clock: Clock = SystemClock,
-) : AuthRepository {
+) : AuthRepository, AuthedApi {
 
     private val baseUrl = baseUrl.trimEnd('/')
 
@@ -340,7 +341,7 @@ class RemoteAuthRepository(
     }
 
     /** A request that needs a signed-in student. Refreshes once if the server rejects the access token. */
-    private suspend fun authedCall(method: String, path: String, body: JSONObject? = null): AuthResult<HttpResponse> {
+    override suspend fun authedCall(method: String, path: String, body: JSONObject?): AuthResult<HttpResponse> {
         var token = when (val t = accessToken()) {
             is AuthResult.Success -> t.value
             is AuthResult.Failure -> return sessionFailure(t.error)
