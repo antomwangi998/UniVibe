@@ -250,7 +250,7 @@ fun GroupInfoScreen(
                         StudentAvatar(st.name, size = 44.dp, accent = st.accent)
                         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
                             Text(st.name, style = MaterialTheme.typography.titleSmall)
-                            Text("${st.course} · ${st.year}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                            Text("${st.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                         }
                         Checkbox(checked = picked, onCheckedChange = null)
                     }
@@ -334,7 +334,7 @@ private fun MemberRow(m: GroupMember, onClick: () -> Unit) {
         StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online)
         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
             Text(if (m.isMe) "${m.student.name} (you)" else m.student.name, style = MaterialTheme.typography.titleSmall)
-            Text("${m.student.course} · ${m.student.year}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
         if (m.role != GroupRole.Member) {
             Surface(shape = CircleShape, color = colors.primaryContainer, contentColor = colors.onPrimaryContainer) {

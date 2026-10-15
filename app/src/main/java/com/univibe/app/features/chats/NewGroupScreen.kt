@@ -125,7 +125,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
                             StudentAvatar(st.name, size = 44.dp, accent = st.accent, online = st.online)
                             Column(Modifier.weight(1f).padding(start = Spacing.md)) {
                                 Text(st.name, style = MaterialTheme.typography.titleSmall)
-                                Text("${st.course} · ${st.year}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                                Text("${st.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                             }
                             Checkbox(checked = picked, onCheckedChange = null)
                         }

@@ -248,7 +248,7 @@ private fun Header(profile: MyProfile, actions: ProfileActions) {
         Text(profile.student.name, style = MaterialTheme.typography.headlineSmall)
         Text(profile.student.handle, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
         Text(
-            "${profile.student.course} · ${profile.student.year}\n${profile.student.university}",
+            "${profile.student.courseLine}\n${profile.student.university}",
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
             textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.xs),
         )

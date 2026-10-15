@@ -21,6 +21,19 @@ data class AuthUser(
     val interests: List<String> = emptyList(),
     val bio: String = "",
     val hasPhoto: Boolean = false,
+    /** Public handle without the "@". Chosen by the server at sign-up; empty for the offline mock. */
+    val handle: String = "",
+    /** For example "2nd Year". Empty until the student sets it. */
+    val yearOfStudy: String = "",
+)
+
+/** A later edit of the signed-in student's own profile (as opposed to the first-time [OnboardingProfile]). */
+data class ProfileEdit(
+    val fullName: String,
+    val course: String,
+    val yearOfStudy: String,
+    val interests: List<String>,
+    val bio: String,
 )
 
 data class SignUpRequest(

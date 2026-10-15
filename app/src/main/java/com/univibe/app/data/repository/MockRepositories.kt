@@ -1,6 +1,8 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.AgendaItem
+import com.univibe.app.domain.auth.AuthUser
+import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EDIT_WINDOW_MILLIS
 import com.univibe.app.data.model.EVENT_RETENTION_MILLIS
@@ -65,8 +67,29 @@ import kotlinx.coroutines.delay
 object MockData {
     private const val UNI = "Lakeside University"
 
-    val aisha = Student("s1", "Aisha Njoki", "@aishanjoki", 21, "Computer Science", "2nd Year", UNI,
+    private val sampleAisha = Student("s1", "Aisha Njoki", "@aishanjoki", 21, "Computer Science", "2nd Year", UNI,
         listOf("Music", "Travel", "Reading", "Movies"), verified = true, online = true, accent = 0)
+
+    @Volatile private var identity: Student? = null
+    @Volatile private var identityBio: String? = null
+
+    /** Makes the mock world revolve around the real signed-in student instead of the sample one. Null restores the sample. */
+    fun applyAccount(user: AuthUser?) {
+        if (user == null) {
+            identity = null
+            identityBio = null
+            return
+        }
+        val handle = user.handle.ifBlank { user.fullName.lowercase().filter { it.isLetterOrDigit() }.ifBlank { "student" } }
+        identity = Student(
+            ME_ID, user.fullName, "@$handle", 0, user.course, user.yearOfStudy, user.universityName,
+            user.interests, verified = user.studentVerified, online = true, accent = 0,
+        )
+        identityBio = user.bio
+    }
+
+    /** The signed-in student (the real account once one is applied). */
+    val aisha: Student get() = identity ?: sampleAisha
     val brian = Student("s2", "Brian Otieno", "@brian.o", 21, "Computer Science", "3rd Year", UNI,
         listOf("Music", "Football", "Travel", "Tech"), verified = true, online = true, accent = 1)
     val grace = Student("s3", "Grace Wanjiku", "@gracew", 20, "Business", "2nd Year", UNI,
@@ -146,11 +169,11 @@ object MockData {
         "s6" to Extra("Talks, hack nights and projects for anyone curious about technology.", 64, 2400, 12, listOf("tech")),
     )
 
-    val allStudents = listOf(aisha, brian, grace, kevin, amina, tech)
+    val allStudents: List<Student> get() = listOf(aisha, brian, grace, kevin, amina, tech)
     const val ME_ID = "s1"
 
-    val me = MyProfile(
-        student = aisha,
+    private val sampleMe = MyProfile(
+        student = sampleAisha,
         bio = "Lover of good music, weekend adventures and great conversations.",
         posts = 128, followers = 1200, following = 980, savedPosts = 12,
         groups = listOf(
@@ -159,11 +182,22 @@ object MockData {
             GroupSummary("Debate Club", 290, 4),
         ),
     )
+
+    /** A real account starts with nothing: no followers, no posts, no groups. Counts then come from the data layer. */
+    val me: MyProfile
+        get() {
+            val account = identity ?: return sampleMe
+            return MyProfile(
+                student = account, bio = identityBio.orEmpty(),
+                posts = 0, followers = 0, following = 0, savedPosts = 0, groups = emptyList(),
+            )
+        }
 }
 
 
 /** Shared in-memory state so every mock repository sees the same posts, chats, comments, etc. */
-class MockStore {
+/** [demo] = true seeds the sample social graph (people you follow, clubs you belong to). A real account starts empty. */
+class MockStore(demo: Boolean = true) {
     val posts = (MockData.posts + listOf(
         Post("pc1", MockData.brian, "3h", "Hack night is back this Friday. Bring a laptop and an idea.", 12, 3, audience = PostAudience.Community("tech", "Tech Club")),
         Post("pc2", MockData.grace, "1d", "Reminder: slides from the AI talk are in the shared folder.", 7, 1, audience = PostAudience.Community("tech", "Tech Club")),
@@ -171,7 +205,7 @@ class MockStore {
     )).toMutableList()
     val liked = mutableSetOf<String>()
     val saved = mutableSetOf<String>()
-    val following = mutableSetOf("s2", "s3", "s6")
+    val following: MutableSet<String> = if (demo) mutableSetOf("s2", "s3", "s6") else mutableSetOf()
 
     val chats = MockData.chats.toMutableList()
     val archived = mutableSetOf<String>()
@@ -271,6 +305,10 @@ class MockStore {
         Community("football", "Football Club", "Training sessions and inter-faculty matches.", 380, "Sports", 1,
             rules = listOf("Respect the referee", "Everyone plays"), moderators = listOf("Brian Otieno")),
     )
+
+    init {
+        if (!demo) for (i in communities.indices) communities[i] = communities[i].copy(role = CommunityRole.None)
+    }
     val reports = mutableMapOf(
         "tech" to mutableListOf(
             ReportItem("r1", "Selling cheap laptops, message me for prices!!!", "Unknown Seller", "Spam"),
@@ -943,18 +981,25 @@ class MockEventRepository(private val store: MockStore = MockStore()) : EventRep
 class MockProfileRepository(
     private val store: MockStore = MockStore(),
     private val local: ProfileLocalStore = InMemoryProfileLocalStore(),
+    /** The signed-in account, when there is one. Its details replace the sample student's. */
+    private val account: () -> AuthUser? = { null },
+    /** Saves profile edits to the real account; false means the server refused or could not be reached. */
+    private val saveAccount: suspend (ProfileEdit) -> Boolean = { true },
 ) : ProfileRepository {
     override suspend fun getMyProfile(): MyProfile {
+        val live = account()
+        MockData.applyAccount(live)
         val base = MockData.me
         val e = local.edits.first()
-        val student = base.student.copy(
+        // With a real account the name, course, interests and bio come from it; only photos are still kept on this device.
+        val student = if (live != null) base.student else base.student.copy(
             name = e.name ?: base.student.name,
             course = e.course ?: base.student.course,
             year = e.year ?: base.student.year,
             interests = e.interests ?: base.student.interests,
         )
         return base.copy(
-            student = student, bio = e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
+            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
             posts = base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" },
             savedPosts = store.saved.size,
             following = store.following.size,
@@ -963,11 +1008,17 @@ class MockProfileRepository(
 
     override suspend fun updateProfile(update: ProfileUpdate) {
         val old = local.edits.first()
-        local.update {
-            it.copy(
-                name = update.name.trim(), bio = update.bio.trim(), course = update.course.trim(), year = update.year,
-                interests = update.interests, avatarPath = update.avatarPath, coverPath = update.coverPath,
-            )
+        if (account() != null) {
+            check(saveAccount(ProfileEdit(update.name, update.course, update.year, update.interests, update.bio))) { "Profile not saved" }
+            MockData.applyAccount(account())
+            local.update { it.copy(avatarPath = update.avatarPath, coverPath = update.coverPath) }
+        } else {
+            local.update {
+                it.copy(
+                    name = update.name.trim(), bio = update.bio.trim(), course = update.course.trim(), year = update.year,
+                    interests = update.interests, avatarPath = update.avatarPath, coverPath = update.coverPath,
+                )
+            }
         }
         if (old.avatarPath != update.avatarPath) PhotoStore.delete(old.avatarPath)
         if (old.coverPath != update.coverPath) PhotoStore.delete(old.coverPath)

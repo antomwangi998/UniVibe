@@ -11,6 +11,7 @@ import com.univibe.app.domain.auth.AuthError
 import com.univibe.app.domain.auth.AuthResult
 import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.domain.auth.OnboardingProfile
+import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.domain.auth.SignUpRequest
 import com.univibe.app.domain.auth.SignedOutReason
 import kotlinx.coroutines.test.runTest
@@ -54,6 +55,7 @@ private fun userJson(verified: Boolean = true, onboarded: Boolean = false) = JSO
     .put("id", "u1").put("fullName", "Test Student").put("email", EMAIL)
     .put("universityId", "cuk").put("universityName", "The Co-operative University of Kenya")
     .put("emailVerified", verified).put("studentVerified", true)
+    .put("handle", "student1").put("yearOfStudy", "")
     .put("course", "").put("interests", org.json.JSONArray()).put("bio", "").put("hasPhoto", false)
     .put("onboardingComplete", onboarded).toString()
 
@@ -135,6 +137,7 @@ class RemoteAuthRepositoryTest {
         val result = repo.verifyEmail(" 123456 ")
         assertTrue(result is AuthResult.Success)
         assertTrue(repo.session.value is AuthState.OnboardingRequired)
+        assertEquals("student1", (repo.session.value as AuthState.OnboardingRequired).user.handle)
         assertEquals("r1", store.get(REFRESH_KEY))
         assertEquals("123456", JSONObject(transport.requests.last().body!!).getString("code"))
     }
@@ -313,6 +316,36 @@ class RemoteAuthRepositoryTest {
         }
         repo.signedIn(onboarded = false)
         assertEquals(AuthError.Validation("Too many interests."), failureOf(repo.completeOnboarding(OnboardingProfile("CS", listOf("a"), "", false))))
+    }
+
+    // ---- profile edits
+    @Test fun profileEditsAreSentAndUpdateTheSession() = runTest {
+        var sent: JSONObject? = null
+        val (repo) = create { request ->
+            when {
+                request.url.endsWith("/auth/login") -> ok(sessionJson(onboarded = true))
+                request.url.endsWith("/me/profile") -> {
+                    sent = JSONObject(request.body!!)
+                    ok(userJson(onboarded = true).replace("Test Student", "New Name"))
+                }
+                else -> errorResponse(404, "not_found")
+            }
+        }
+        repo.signedIn()
+        val result = repo.updateProfile(ProfileEdit("  New Name ", "Law", "2nd Year", listOf("Music", "Music", " "), "Hi"))
+        assertTrue(result is AuthResult.Success)
+        assertEquals("New Name", (repo.session.value as AuthState.Authenticated).user.fullName)
+        assertEquals("New Name", sent!!.getString("fullName"))
+        assertEquals("2nd Year", sent!!.getString("yearOfStudy"))
+        assertEquals(1, sent!!.getJSONArray("interests").length())
+    }
+
+    @Test fun badProfileEditsNeverReachTheServer() = runTest {
+        val (repo, transport) = create { ok(sessionJson(onboarded = true)) }
+        repo.signedIn()
+        val before = transport.requests.size
+        assertTrue(failureOf(repo.updateProfile(ProfileEdit("A", "Law", "", emptyList(), ""))) is AuthError.Validation)
+        assertEquals(before, transport.requests.size)
     }
 
     // ---- account actions

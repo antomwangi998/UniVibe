@@ -18,7 +18,11 @@ data class Student(
     val sameCourse: Boolean = false,
     /** Photo shown on the Discover card; null falls back to a gradient with initials. */
     val photoPath: String? = null,
-)
+) {
+    /** "Computer Science · 2nd Year", or just the course when no year is set. */
+    val courseLine: String
+        get() = listOf(course, year).filter { it.isNotBlank() }.joinToString(" · ")
+}
 
 enum class FeedFilter { Campus, Following }
 

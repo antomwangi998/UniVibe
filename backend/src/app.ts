@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { z, ZodError } from 'zod';
@@ -20,6 +20,8 @@ type UserRow = {
   id: string;
   email: string;
   full_name: string;
+  handle: string;
+  year_of_study: string;
   password_hash: string;
   university_id: string;
   university_name: string;
@@ -68,6 +70,8 @@ const resetConfirmSchema = z.object({ email, code, newPassword: password });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: password });
 const deleteSchema = z.object({ password: z.string().min(1).max(128) });
 const profileSchema = z.object({
+  fullName: z.string().trim().min(2, 'Enter your full name.').max(80).optional(),
+  yearOfStudy: z.string().trim().max(20).optional(),
   course: z.string().trim().max(80),
   interests: z.array(z.string().trim().min(1).max(30)).max(10),
   bio: z.string().trim().max(300),
@@ -75,6 +79,11 @@ const profileSchema = z.object({
 
 function parse<S extends z.ZodTypeAny>(schema: S, data: unknown): z.infer<S> {
   return schema.parse(data ?? {});
+}
+
+function handleBase(name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+  return slug.length >= 3 ? slug : 'student';
 }
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === '23505';
@@ -132,6 +141,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const toUser = (u: UserRow) => ({
     id: u.id,
     fullName: u.full_name,
+    handle: u.handle,
+    yearOfStudy: u.year_of_study,
     email: u.email,
     universityId: u.university_id,
     universityName: u.university_name,
@@ -151,6 +162,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const user = id ? await findUserById(id) : undefined;
     if (!user || !user.email_verified_at) throw new HttpError(401, 'unauthorized', 'Please log in again.');
     return user;
+  }
+
+  /** A readable, unique handle such as "aishanjoki" or "aishanjoki482". Names are not unique, handles are. */
+  async function uniqueHandle(name: string): Promise<string> {
+    const base = handleBase(name);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate = attempt === 0 ? base : `${base}${randomInt(10, 10000)}`;
+      const taken = await pool.query('select 1 from users where handle = $1', [candidate]);
+      if (!taken.rowCount) return candidate;
+    }
+    return `${base}${randomInt(100000, 1000000)}`;
   }
 
   async function createSession(query: Query, userId: string, familyId: string = randomUUID()) {
@@ -246,9 +268,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     let name = b.fullName;
     try {
       const created = await pool.query<{ id: string }>(
-        'insert into users (email, full_name, password_hash, university_id, admission_number, accepted_terms_at) ' +
-          'values ($1, $2, $3, $4, $5, now()) returning id',
-        [b.email, b.fullName, hash, b.universityId, b.admissionNumber || null],
+        'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at) ' +
+          'values ($1, $2, $3, $4, $5, $6, now()) returning id',
+        [b.email, b.fullName, await uniqueHandle(b.fullName), hash, b.universityId, b.admissionNumber || null],
       );
       userId = created.rows[0].id;
     } catch (e) {
@@ -415,8 +437,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const user = await requireUser(req);
     const b = parse(profileSchema, req.body);
     await pool.query(
-      'update users set course = $2, interests = $3, bio = $4, onboarded_at = coalesce(onboarded_at, now()) where id = $1',
-      [user.id, b.course, b.interests, b.bio],
+      'update users set course = $2, interests = $3, bio = $4, full_name = coalesce($5::text, full_name), ' +
+        'year_of_study = coalesce($6::text, year_of_study), onboarded_at = coalesce(onboarded_at, now()) where id = $1',
+      [user.id, b.course, b.interests, b.bio, b.fullName ?? null, b.yearOfStudy ?? null],
     );
     return toUser((await findUserById(user.id)) as UserRow);
   });

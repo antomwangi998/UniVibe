@@ -92,6 +92,8 @@ describe.skipIf(!url)('auth API (needs TEST_DATABASE_URL)', () => {
     expect(ok.body.user.emailVerified).toBe(true);
     expect(ok.body.user.studentVerified).toBe(true);
     expect(ok.body.user.onboardingComplete).toBe(false);
+    expect(ok.body.user.handle).toMatch(/^[a-z0-9]{3,}$/);
+    expect(ok.body.user.yearOfStudy).toBe('');
     const status = await call('GET', '/auth/status', undefined, ok.body.accessToken);
     expect(status.body).toEqual({ emailVerified: true, studentVerified: true });
     // a used code cannot be replayed
@@ -169,6 +171,26 @@ describe.skipIf(!url)('auth API (needs TEST_DATABASE_URL)', () => {
     expect((await call('GET', '/me', undefined, account.accessToken)).body.course).toBe('Computer Science');
     const tooMany = Array.from({ length: 11 }, (_, i) => `i${i}`);
     expect((await call('PUT', '/me/profile', { course: 'x', interests: tooMany, bio: '' }, account.accessToken)).status).toBe(400);
+  });
+
+  it('every student gets a different handle, even with the same name', async () => {
+    const a = await signUpAndVerify();
+    const b = await signUpAndVerify();
+    expect(a.user.handle).not.toBe(b.user.handle);
+  });
+
+  it('profile edits can change the name and year of study', async () => {
+    const account = await signUpAndVerify();
+    const saved = await call('PUT', '/me/profile', { fullName: 'New Name', yearOfStudy: '2nd Year', course: 'Law', interests: [], bio: '' }, account.accessToken);
+    expect(saved.status).toBe(200);
+    expect(saved.body.fullName).toBe('New Name');
+    expect(saved.body.yearOfStudy).toBe('2nd Year');
+    expect(saved.body.handle).toBe(account.user.handle); // handles do not change with the name
+    // leaving the optional fields out keeps what is there
+    const again = await call('PUT', '/me/profile', { course: 'Law', interests: [], bio: 'x' }, account.accessToken);
+    expect(again.body.fullName).toBe('New Name');
+    expect(again.body.yearOfStudy).toBe('2nd Year');
+    expect((await call('PUT', '/me/profile', { fullName: 'A', course: '', interests: [], bio: '' }, account.accessToken)).status).toBe(400);
   });
 
   it('changing the password needs the current one and ends other sessions', async () => {

@@ -39,10 +39,10 @@ Protected routes need `Authorization: Bearer <accessToken>`. Access tokens last 
 | `POST /auth/password-reset/confirm` `{ email, code, newPassword }` | `204`, ends every session |
 | `POST /auth/change-password` `{ currentPassword, newPassword }` | `204`, ends every session (the app signs out) |
 | `GET /me` | the user |
-| `PUT /me/profile` `{ course, interests[≤10], bio≤300 }` | saves onboarding, returns the user |
+| `PUT /me/profile` `{ fullName?, yearOfStudy?, course, interests[≤10], bio≤300 }` | saves onboarding or a later edit, returns the user. `handle` is generated at sign-up and does not change |
 | `POST /me/delete-account` `{ password }` | `204`, deletes the account and its sessions |
 
-`user` = `{ id, fullName, email, universityId, universityName, emailVerified, studentVerified, course, interests, bio, hasPhoto, onboardingComplete }`.
+`user` = `{ id, fullName, handle, yearOfStudy, email, universityId, universityName, emailVerified, studentVerified, course, interests, bio, hasPhoto, onboardingComplete }`.
 
 ## Security choices
 

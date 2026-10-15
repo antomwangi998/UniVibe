@@ -100,7 +100,7 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
                     Box(Modifier.size(10.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
                 }
             }
-            Text("${student.course} · ${student.year}", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.bodyMedium)
+            Text("${student.courseLine}", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.bodyMedium)
             Text(student.university, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.size(Spacing.xs))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
