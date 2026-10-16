@@ -10,6 +10,8 @@ Hosting plan: server on **Render**, database on **Neon**, email through **Resend
 3. **Render**: New → Blueprint → pick this GitHub repo (it reads `backend/render.yaml`). Fill in the three secrets it asks for:
    `DATABASE_URL` (Neon), `RESEND_API_KEY`, `EMAIL_FROM` (for example `UniVibe <onboarding@resend.dev>`).
    `JWT_SECRET` and `CODE_PEPPER` are generated for you. Never commit them.
+   For photo and video uploads also add `R2_ENDPOINT` (the bucket's S3 API address), `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_BUCKET`
+   from Cloudflare R2. The bucket stays private: the server hands out short-lived links. Without these four, everything else works and uploads answer `503`.
 4. Open `https://<your-service>.onrender.com/health`. It should say `{"status":"ok"}`. The first request after a quiet period takes up to a minute on the free plan.
 5. Add your real university in the Neon SQL editor:
    `insert into universities (id, name, email_domains) values ('your-id', 'Your University', array['students.youruni.ac.ke']);`
@@ -41,20 +43,23 @@ Protected routes need `Authorization: Bearer <accessToken>`. Access tokens last 
 | `GET /me` | the user |
 | `PUT /me/profile` `{ fullName?, yearOfStudy?, course, interests[≤10], bio≤300 }` | saves onboarding or a later edit, returns the user. `handle` is generated at sign-up and does not change |
 | `POST /me/delete-account` `{ password }` | `204`, deletes the account and its sessions |
-| `POST /posts` `{ text≤280, audience: campus\|followers, poll?: { options: 2–4 × ≤40 chars } }` | `201` post. Text and polls only for now; photos and video need file storage |
+| `POST /posts` `{ text≤280, audience: campus\|followers, poll?: { options: 2–4 × ≤40 chars }, mediaIds?: up to 4 photos or 1 video }` | `201` post. Text may be empty when there is media; a poll can't have media. Posts carry `media: [{ id, kind, url }]` with links that expire after an hour |
 | `GET /posts?filter=campus\|following` · `GET /posts/saved` · `GET /posts/:id` | posts this student may see (newest first, up to 100) |
 | `PUT /posts/:id` `{ text }` · `DELETE /posts/:id` | author only |
 | `PUT\|DELETE /posts/:id/like` · `/save` | idempotent, `204` |
 | `POST /posts/:id/vote` `{ optionIndex }` · `/share` · `/report` `{ reason }` | one vote per student (`409 already_voted`); only campus posts can be shared |
 | `GET /posts/:id/comments` · `POST /posts/:id/comments` `{ text≤280, replyToId? }` | replies always attach to the top-level comment |
 | `PUT\|DELETE /comments/:id/like` · `DELETE /comments/:id` · `POST /comments/:id/report` | the comment's author or the post's author may delete |
+| `POST /media/uploads` `{ kind: image\|video, purpose: post\|avatar\|cover, contentType, size }` | `201 { mediaId, uploadUrl, headers }`. Send the file to `uploadUrl` with a `PUT` and those headers (private Cloudflare R2 bucket, link valid 10 minutes). Photos: JPEG, PNG or WebP up to 8 MB. Videos: MP4, MOV or WebM up to 50 MB |
+| `POST /media/:id/complete` | the server checks size, type and the file's real header; a bad file is deleted and answers `400 invalid_media` |
+| `PUT /me/photos` `{ avatarMediaId?, coverMediaId? }` | `null` removes a photo; a key left out stays as it is. Returns the user |
 | `GET /me/stats` | `{ posts, followers, following, saved }` |
 | `GET /students/:id` | another student's profile (same university only) with counts and `followedByMe` |
 | `PUT\|DELETE /students/:id/follow` · `GET /me/followers` · `GET /me/following` | follows; lists are `[{ student, isFollowing }]` |
 
 Visibility: a **campus** post is visible to students of the author's university; a **followers** post only to followers (and its author). Anything a student may not see answers `404`, so private posts are never revealed.
 
-`user` = `{ id, fullName, handle, yearOfStudy, email, universityId, universityName, emailVerified, studentVerified, course, interests, bio, hasPhoto, onboardingComplete }`.
+`user` = `{ id, fullName, handle, yearOfStudy, avatarUrl, coverUrl, email, universityId, universityName, emailVerified, studentVerified, course, interests, bio, hasPhoto, onboardingComplete }`.
 
 ## Security choices
 
@@ -66,7 +71,7 @@ Visibility: a **campus** post is visible to students of the author's university;
 
 ## Not built yet
 
-Photo and video upload (needs file storage), chat, events, communities, notifications, blocking, cleanup of never-verified accounts, push notifications, the Android `RemoteAuthRepository`.
+Chat, events, communities, notifications, blocking, cleanup of never-verified accounts, push notifications, the Android `RemoteAuthRepository`.
 
 ## Local run and tests
 

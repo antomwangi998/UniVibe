@@ -25,7 +25,18 @@ data class AuthUser(
     val handle: String = "",
     /** For example "2nd Year". Empty until the student sets it. */
     val yearOfStudy: String = "",
+    /** Short-lived link to the profile photo, or null. Refreshed every time the profile is loaded. */
+    val avatarUrl: String? = null,
+    val coverUrl: String? = null,
 )
+
+/** What to do with a profile or cover photo when saving a profile. */
+sealed interface PhotoChange {
+    data object Keep : PhotoChange
+    data object Remove : PhotoChange
+    /** A photo on this device that still has to be uploaded. */
+    data class Replace(val localPath: String) : PhotoChange
+}
 
 /** A later edit of the signed-in student's own profile (as opposed to the first-time [OnboardingProfile]). */
 data class ProfileEdit(
@@ -34,6 +45,8 @@ data class ProfileEdit(
     val yearOfStudy: String,
     val interests: List<String>,
     val bio: String,
+    val avatar: PhotoChange = PhotoChange.Keep,
+    val cover: PhotoChange = PhotoChange.Keep,
 )
 
 data class SignUpRequest(
