@@ -37,12 +37,12 @@ import java.io.IOException
 
 private const val BASE = "https://api.example.test"
 
-private class Call(val method: String, val path: String, val body: JSONObject?)
+private class UploadCall(val method: String, val path: String, val body: JSONObject?)
 
-private class FakeApi(private val handler: (Call) -> AuthResult<HttpResponse>) : AuthedApi {
-    val calls = mutableListOf<Call>()
+private class UploadApi(private val handler: (UploadCall) -> AuthResult<HttpResponse>) : AuthedApi {
+    val calls = mutableListOf<UploadCall>()
     override suspend fun authedCall(method: String, path: String, body: JSONObject?): AuthResult<HttpResponse> {
-        calls += Call(method, path, body)
+        calls += UploadCall(method, path, body)
         return handler(calls.last())
     }
 }
@@ -60,7 +60,7 @@ private fun ok(body: String, status: Int = 200) = AuthResult.Success(HttpRespons
 /** The server's answers to the three upload steps; every upload gets the id "m<n>". */
 private class UploadServer {
     var next = 0
-    fun answer(call: Call): AuthResult<HttpResponse> = when {
+    fun answer(call: UploadCall): AuthResult<HttpResponse> = when {
         call.method == "POST" && call.path == "/media/uploads" -> {
             next++
             ok("""{"mediaId":"m$next","uploadUrl":"https://upload.test/m$next","headers":{"Content-Type":"x"},"expiresIn":600}""", 201)
@@ -87,7 +87,7 @@ class MediaUploadTest {
     // ---- the three-step upload
     @Test fun aPhotoIsRequestedSentAndConfirmed() = runTest {
         val server = UploadServer()
-        val api = FakeApi { server.answer(it) }
+        val api = UploadApi { server.answer(it) }
         val files = FakeFiles()
         val file = temp("pic", ".jpg", 20)
         val id = MediaUploader(api, files).upload(file.path, "image", "post")
@@ -104,14 +104,14 @@ class MediaUploadTest {
 
     @Test fun aVideoIsLabelledAsVideo() = runTest {
         val server = UploadServer()
-        val api = FakeApi { server.answer(it) }
+        val api = UploadApi { server.answer(it) }
         val files = FakeFiles()
         MediaUploader(api, files).upload(temp("clip", ".mp4").path, "video", "post")
         assertEquals("video/mp4", files.sent.single().second)
     }
 
     @Test fun aMissingOrEmptyFileNeverReachesTheServer() = runTest {
-        val api = FakeApi { ok("{}") }
+        val api = UploadApi { ok("{}") }
         val uploader = MediaUploader(api, FakeFiles())
         for (path in listOf("/no/such/file.jpg", File.createTempFile("empty", ".jpg").path)) {
             try { uploader.upload(path, "image", "post"); fail("expected an IOException") } catch (e: IOException) { /* expected */ }
@@ -121,7 +121,7 @@ class MediaUploadTest {
 
     @Test fun aFailedTransferIsNotConfirmed() = runTest {
         val server = UploadServer()
-        val api = FakeApi { server.answer(it) }
+        val api = UploadApi { server.answer(it) }
         try {
             MediaUploader(api, FakeFiles(fail = true)).upload(temp("pic", ".jpg").path, "image", "post")
             fail("expected an IOException")
@@ -132,7 +132,7 @@ class MediaUploadTest {
     // ---- posts with media
     @Test fun aPhotoAndVideoPostUploadsFirstThenSendsTheIds() = runTest {
         val server = UploadServer()
-        val api = FakeApi { call ->
+        val api = UploadApi { call ->
             if (call.path == "/posts") ok("""{"id":"p1","author":${authorJson()},"ageSeconds":1,"text":"","audience":"campus","media":[{"id":"m1","kind":"image","url":"https://files.test/a.jpg"}]}""", 201)
             else server.answer(call)
         }
@@ -146,7 +146,7 @@ class MediaUploadTest {
 
     @Test fun publishingSeveralPhotosKeepsTheirOrder() = runTest {
         val server = UploadServer()
-        val api = FakeApi { call -> if (call.path == "/posts") ok("""{"id":"p1","author":${authorJson()},"text":"t","audience":"campus"}""", 201) else server.answer(call) }
+        val api = UploadApi { call -> if (call.path == "/posts") ok("""{"id":"p1","author":${authorJson()},"text":"t","audience":"campus"}""", 201) else server.answer(call) }
         val repo = RemoteFeedRepository(api, MediaUploader(api, FakeFiles())) { account }
         repo.publishPost(NewPost("t", listOf(temp("a", ".jpg").path, temp("b", ".jpg").path, temp("c", ".jpg").path), PostAudience.Campus))
         val ids = api.calls.last().body!!.getJSONArray("mediaIds")
@@ -155,7 +155,7 @@ class MediaUploadTest {
 
     @Test fun aFailedUploadMeansNoPostIsCreated() = runTest {
         val server = UploadServer()
-        val api = FakeApi { server.answer(it) }
+        val api = UploadApi { server.answer(it) }
         val repo = RemoteFeedRepository(api, MediaUploader(api, FakeFiles(fail = true))) { account }
         try { repo.createPost("hi", hasMedia = true, imagePath = temp("pic", ".jpg").path); fail("expected an IOException") } catch (e: IOException) { /* expected */ }
         assertTrue(api.calls.none { it.path == "/posts" })
@@ -202,7 +202,7 @@ class MediaUploadTest {
                 "/auth/login" -> HttpResponse(200, sessionBody)
                 "/me/photos" -> HttpResponse(200, "{}")
                 "/me/profile" -> HttpResponse(200, profileBody)
-                else -> (upload.answer(Call(request.method, path, request.body?.let { JSONObject(it) })) as AuthResult.Success).value
+                else -> (upload.answer(UploadCall(request.method, path, request.body?.let { JSONObject(it) })) as AuthResult.Success).value
             }
         }
         fun routes() = requests.map { "${it.method} ${it.url.removePrefix(BASE)}" }
