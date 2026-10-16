@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.Image
@@ -115,8 +116,10 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
 @Composable
 fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier) {
     var playing by remember(path) { mutableStateOf(false) }
+    val remote = path.startsWith("https://")
     val poster by produceState<ImageBitmap?>(null, path) {
-        value = withContext(Dispatchers.IO) {
+        // A server video is streamed, so no poster frame is fetched up front (it would download the file).
+        value = if (remote) null else withContext(Dispatchers.IO) {
             runCatching {
                 val retriever = MediaMetadataRetriever()
                 try {
@@ -139,7 +142,7 @@ fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier) {
                 factory = { context ->
                     VideoView(context).apply {
                         setMediaController(MediaController(context).also { it.setAnchorView(this) })
-                        setVideoPath(path)
+                        if (remote) setVideoURI(Uri.parse(path)) else setVideoPath(path)
                         setOnPreparedListener { start() }
                         setOnErrorListener { _, _, _ -> playing = false; true }
                     }

@@ -7,15 +7,19 @@ import { withTx } from './db';
 import type { Mailer } from './email';
 import { HttpError } from './errors';
 import { RateLimiter } from './limiter';
+import { READ_LINK_SECONDS, registerMediaRoutes } from './media';
 import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
 import * as sec from './security';
+import type { Storage } from './storage';
 
 export interface AppDeps {
   pool: Pool;
   mailer: Mailer;
   config: Config;
   limiter?: RateLimiter;
+  /** Private photo and video storage. Without it, uploads answer 503 and everything else works. */
+  storage?: Storage;
 }
 
 type UserRow = {
@@ -36,11 +40,15 @@ type UserRow = {
   bio: string;
   has_photo: boolean;
   onboarded_at: Date | null;
+  avatar_key: string | null;
+  cover_key: string | null;
 }
 
 const USER_SQL =
-  'select u.*, uni.name as university_name, uni.email_domains as university_domains ' +
-  'from users u join universities uni on uni.id = u.university_id';
+  'select u.*, uni.name as university_name, uni.email_domains as university_domains, ' +
+  'av.object_key as avatar_key, cv.object_key as cover_key ' +
+  'from users u join universities uni on uni.id = u.university_id ' +
+  'left join media av on av.id = u.avatar_media_id left join media cv on cv.id = u.cover_media_id';
 
 type Query = (text: string, params: unknown[]) => Promise<unknown>;
 
@@ -91,7 +99,7 @@ function handleBase(name: string): string {
 const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === '23505';
 
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const { pool, mailer, config } = deps;
+  const { pool, mailer, config, storage } = deps;
   const limiter = deps.limiter ?? new RateLimiter();
   const app = Fastify({ logger: config.NODE_ENV !== 'test', trustProxy: true, bodyLimit: 64 * 1024 });
 
@@ -140,7 +148,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return (await pool.query<UserRow>(`${USER_SQL} where u.id = $1`, [id])).rows[0];
   }
 
-  const toUser = (u: UserRow) => ({
+  const toUser = async (u: UserRow) => ({
     id: u.id,
     fullName: u.full_name,
     handle: u.handle,
@@ -153,7 +161,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     course: u.course,
     interests: u.interests,
     bio: u.bio,
-    hasPhoto: u.has_photo,
+    hasPhoto: u.avatar_key !== null,
+    avatarUrl: u.avatar_key && storage ? await storage.signedUrl(u.avatar_key, READ_LINK_SECONDS) : null,
+    coverUrl: u.cover_key && storage ? await storage.signedUrl(u.cover_key, READ_LINK_SECONDS) : null,
     onboardingComplete: u.onboarded_at !== null,
   });
 
@@ -312,7 +322,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return createSession(run, user.id);
     });
     const fresh = await findUserById(user.id);
-    return { ...session, user: toUser(fresh as UserRow) };
+    return { ...session, user: await toUser(fresh as UserRow) };
   });
 
   app.post('/auth/resend-verification', async (req, reply) => {
@@ -349,7 +359,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // Only said after the password is right, so it does not reveal which emails have accounts.
     if (!user.email_verified_at) throw new HttpError(403, 'email_not_verified', 'Please verify your email to continue.');
     const session = await createSession((t, p) => pool.query(t, p), user.id);
-    return { ...session, user: toUser(user) };
+    return { ...session, user: await toUser(user) };
   });
 
   app.post('/auth/refresh', async (req) => {
@@ -453,12 +463,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!(await sec.verifyPassword(user.password_hash, b.password))) {
       throw new HttpError(401, 'invalid_credentials', 'Your password is incorrect.');
     }
-    await pool.query('delete from users where id = $1', [user.id]); // codes and sessions cascade
+    const files = await pool.query<{ object_key: string }>('select object_key from media where owner_id = $1', [user.id]);
+    await pool.query('delete from users where id = $1', [user.id]); // codes, sessions, posts and media records cascade
+    if (storage && files.rowCount) await storage.remove(files.rows.map((r) => r.object_key)).catch(() => undefined);
     return reply.status(204).send();
   });
 
   // ---- feed, comments, people
-  const routeContext = { pool, requireUser, tooMany };
+  const userView = async (id: string) => toUser((await findUserById(id)) as UserRow);
+  const routeContext = { pool, requireUser, tooMany, storage, userView };
+  registerMediaRoutes(app, routeContext);
   registerPostRoutes(app, routeContext);
   registerPeopleRoutes(app, routeContext);
 

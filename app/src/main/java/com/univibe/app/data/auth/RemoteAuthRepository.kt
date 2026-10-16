@@ -2,7 +2,10 @@ package com.univibe.app.data.auth
 
 import com.univibe.app.data.net.HttpRequest
 import com.univibe.app.data.net.HttpResponse
+import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.FileUploader
+import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.HttpTransport
 import com.univibe.app.domain.auth.AuthError
 import com.univibe.app.domain.auth.AuthRepository
@@ -11,6 +14,7 @@ import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.domain.auth.AuthUser
 import com.univibe.app.domain.auth.AuthValidators
 import com.univibe.app.domain.auth.OnboardingProfile
+import com.univibe.app.domain.auth.PhotoChange
 import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.domain.auth.SignUpRequest
 import com.univibe.app.domain.auth.SignedOutReason
@@ -34,9 +38,12 @@ class RemoteAuthRepository(
     private val transport: HttpTransport,
     private val store: SecureStore,
     private val clock: Clock = SystemClock,
+    /** Needed to upload profile photos; without it a photo change fails cleanly. */
+    files: FileUploader? = null,
 ) : AuthRepository, AuthedApi {
 
     private val baseUrl = baseUrl.trimEnd('/')
+    private val media: MediaUploader? = files?.let { MediaUploader(this, it) }
 
     init {
         require(this.baseUrl.startsWith("https://")) { "The API must be reached over HTTPS." }
@@ -243,6 +250,28 @@ class RemoteAuthRepository(
     override suspend fun updateProfile(edit: ProfileEdit): AuthResult<Unit> {
         AuthValidators.fullName(edit.fullName)?.let { return fail(AuthError.Validation(it)) }
         if (edit.bio.length > 300) return fail(AuthError.Validation("Keep your bio under 300 characters."))
+        // Photos first, so the profile answer that follows already carries the new photo links.
+        val photos = JSONObject()
+        try {
+            for ((key, change, purpose) in listOf(Triple("avatarMediaId", edit.avatar, "avatar"), Triple("coverMediaId", edit.cover, "cover"))) {
+                when (change) {
+                    PhotoChange.Keep -> Unit
+                    PhotoChange.Remove -> photos.put(key, JSONObject.NULL)
+                    is PhotoChange.Replace -> photos.put(key, (media ?: return fail(AuthError.Unknown)).upload(change.localPath, "image", purpose))
+                }
+            }
+        } catch (e: IOException) {
+            return fail(AuthError.Network)
+        } catch (e: ApiException) {
+            return fail(if (e.status == 401) AuthError.SessionExpired else AuthError.Validation(e.message ?: "That photo could not be uploaded."))
+        }
+        if (photos.length() > 0) {
+            val saved = when (val r = authedCall("PUT", "/me/photos", photos)) {
+                is AuthResult.Failure -> return r
+                is AuthResult.Success -> r.value
+            }
+            if (saved.status != 200) return fail(mapError(saved))
+        }
         val body = JSONObject()
             .put("fullName", edit.fullName.trim())
             .put("yearOfStudy", edit.yearOfStudy.trim())
@@ -436,6 +465,8 @@ class RemoteAuthRepository(
                 hasPhoto = o.optBoolean("hasPhoto", false),
                 handle = o.optString("handle"),
                 yearOfStudy = o.optString("yearOfStudy"),
+                avatarUrl = if (o.isNull("avatarUrl")) null else o.optString("avatarUrl").ifEmpty { null },
+                coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifEmpty { null },
             ),
             onboardingComplete = o.optBoolean("onboardingComplete", false),
             raw = json,

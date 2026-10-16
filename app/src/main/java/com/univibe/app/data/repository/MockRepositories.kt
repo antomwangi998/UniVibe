@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.AgendaItem
 import com.univibe.app.domain.auth.AuthUser
+import com.univibe.app.domain.auth.PhotoChange
 import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EDIT_WINDOW_MILLIS
@@ -1004,7 +1005,7 @@ class MockProfileRepository(
             interests = e.interests ?: base.student.interests,
         )
         return base.copy(
-            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = e.avatarPath, coverPath = e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
+            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = if (live != null) live.avatarUrl else e.avatarPath, coverPath = if (live != null) live.coverUrl else e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
             posts = stats?.posts ?: (base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" }),
             savedPosts = stats?.saved ?: store.saved.size,
             followers = stats?.followers ?: base.followers,
@@ -1014,10 +1015,16 @@ class MockProfileRepository(
 
     override suspend fun updateProfile(update: ProfileUpdate) {
         val old = local.edits.first()
-        if (account() != null) {
-            check(saveAccount(ProfileEdit(update.name, update.course, update.year, update.interests, update.bio))) { "Profile not saved" }
+        val signedIn = account()
+        if (signedIn != null) {
+            val edit = ProfileEdit(
+                update.name, update.course, update.year, update.interests, update.bio,
+                avatar = photoChange(update.avatarPath, signedIn.avatarUrl), cover = photoChange(update.coverPath, signedIn.coverUrl),
+            )
+            check(saveAccount(edit)) { "Profile not saved" }
             MockData.applyAccount(account())
-            local.update { it.copy(avatarPath = update.avatarPath, coverPath = update.coverPath) }
+            // The photos now live on the server; the temporary copies on this phone are no longer needed.
+            listOfNotNull(update.avatarPath, update.coverPath).filter { !it.startsWith("https://") }.forEach(PhotoStore::delete)
         } else {
             local.update {
                 it.copy(
@@ -1028,6 +1035,13 @@ class MockProfileRepository(
         }
         if (old.avatarPath != update.avatarPath) PhotoStore.delete(old.avatarPath)
         if (old.coverPath != update.coverPath) PhotoStore.delete(old.coverPath)
+    }
+
+    private fun photoChange(new: String?, current: String?): PhotoChange = when {
+        new == current -> PhotoChange.Keep
+        new == null -> PhotoChange.Remove
+        new.startsWith("https://") -> PhotoChange.Keep // an unchanged server photo (its link may differ from the saved one)
+        else -> PhotoChange.Replace(new)
     }
 
     override suspend fun addPhoto(path: String) { local.update { it.copy(photos = listOf(path) + it.photos) } }
