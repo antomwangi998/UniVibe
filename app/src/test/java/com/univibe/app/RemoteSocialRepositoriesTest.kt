@@ -111,10 +111,10 @@ class RemoteSocialRepositoriesTest {
         assertEquals("@wanjirukamau", me.handle)
     }
 
-    @Test fun thereAreNoStoriesAndNoMediaYet() = runTest {
+    @Test fun thereAreNoStoriesButMediaIsSupported() = runTest {
         val repo = feed(FakeApi { ok("[]") })
         assertTrue(repo.getStories().isEmpty())
-        assertFalse(repo.supportsMedia)
+        assertTrue(repo.supportsMedia)
     }
 
     @Test fun likesAndSavesUsePutAndDelete() = runTest {

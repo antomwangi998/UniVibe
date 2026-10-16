@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { withTx } from './db';
 import { HttpError } from './errors';
+import { READ_LINK_SECONDS } from './media';
 import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId } from './shared';
 
 const TEXT_MAX = 280;
@@ -13,12 +15,15 @@ const pollSchema = z.object({
     .max(4, 'A poll can have at most 4 options.')
     .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, 'Poll options must be different.'),
 });
+// A post may have no text when it carries photos or a video.
+const maybeText = z.string().trim().max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
 const createSchema = z.object({
-  text,
+  text: maybeText.default(''),
   audience: z.enum(['campus', 'followers']).default('campus'),
   poll: pollSchema.optional(),
+  mediaIds: z.array(z.string().uuid()).max(4, 'You can add up to 4 photos.').optional(),
 });
-const editSchema = z.object({ text });
+const editSchema = z.object({ text: maybeText });
 const voteSchema = z.object({ optionIndex: z.number().int().min(0).max(3) });
 const reportSchema = z.object({ reason: z.string().trim().min(1).max(200) });
 const feedQuery = z.object({ filter: z.enum(['campus', 'following']).default('campus') });
@@ -54,10 +59,13 @@ type PostRow = AuthorCols & {
   my_vote: number | null; vote_counts: Record<string, number> | null;
 };
 
-function postJson(r: PostRow) {
+type MediaOut = { id: string; kind: string; url: string };
+
+function postJson(r: PostRow, media: MediaOut[]) {
   const counts = r.vote_counts ?? {};
   return {
     id: r.id,
+    media,
     author: authorJson(r),
     createdAt: r.created_at,
     ageSeconds: r.age_seconds,
@@ -119,6 +127,29 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     return rows[0];
   }
 
+  /** Posts as the API returns them, with short-lived links to their photos and videos. */
+  async function present(rows: PostRow[]) {
+    if (rows.length === 0) return [];
+    const byPost = new Map<string, MediaOut[]>();
+    if (ctx.storage) {
+      const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string }>(
+        "select post_id, id, kind, object_key from media where post_id = any($1::uuid[]) and status = 'ready' order by position",
+        [rows.map((r) => r.id)],
+      );
+      for (const f of files) {
+        const url = await ctx.storage.signedUrl(f.object_key, READ_LINK_SECONDS);
+        byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url }]);
+      }
+    }
+    return rows.map((r) => postJson(r, byPost.get(r.id) ?? []));
+  }
+
+  async function presentOne(user: SignedInUser, id: string) {
+    const row = await fetchPost(user, id);
+    if (!row) throw new HttpError(404, 'not_found', 'That post is not available.');
+    return (await present([row]))[0];
+  }
+
   /** The post, if this student may see it. Everything else is "not found", so private posts are not revealed. */
   async function visiblePost(user: SignedInUser, id: string) {
     const { rows } = await pool.query<{ author_id: string; audience: string; poll_options: string[] | null }>(
@@ -159,7 +190,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${following} order by p.created_at desc, p.id desc limit 100`,
       [user.id, user.university_id],
     );
-    return rows.map(postJson);
+    return present(rows);
   });
 
   app.get('/posts/saved', async (req) => {
@@ -169,14 +200,12 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
         `where ${visible('p', 'a')} order by sv.created_at desc limit 200`,
       [user.id, user.university_id],
     );
-    return rows.map(postJson);
+    return present(rows);
   });
 
   app.get('/posts/:id', async (req) => {
     const user = await ctx.requireUser(req);
-    const post = await fetchPost(user, paramId(req));
-    if (!post) throw new HttpError(404, 'not_found', 'That post is not available.');
-    return postJson(post);
+    return presentOne(user, paramId(req));
   });
 
   // ---- writing
@@ -184,12 +213,36 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const user = await ctx.requireUser(req);
     const b = createSchema.parse(req.body ?? {});
     ctx.tooMany(`post:${user.id}`, 30, 3600);
-    const created = await pool.query<{ id: string }>(
-      'insert into posts (author_id, text, audience, poll_options) values ($1, $2, $3, $4) returning id',
-      [user.id, b.text, b.audience, b.poll ? b.poll.options : null],
-    );
-    const post = await fetchPost(user, created.rows[0].id);
-    return reply.status(201).send(postJson(post as PostRow));
+    const mediaIds = b.mediaIds ?? [];
+    if (new Set(mediaIds).size !== mediaIds.length) throw new HttpError(400, 'validation', 'The same file was added twice.');
+    if (b.poll && mediaIds.length > 0) throw new HttpError(400, 'validation', "A poll can't have photos or a video.");
+    if (b.poll && b.text === '') throw new HttpError(400, 'validation', 'Add a question for your poll.');
+    if (b.text === '' && mediaIds.length === 0) throw new HttpError(400, 'validation', 'Write something first.');
+
+    const postId = await withTx(pool, async (client) => {
+      const created = await client.query<{ id: string }>(
+        'insert into posts (author_id, text, audience, poll_options) values ($1, $2, $3, $4) returning id',
+        [user.id, b.text, b.audience, b.poll ? b.poll.options : null],
+      );
+      const id = created.rows[0].id;
+      if (mediaIds.length > 0) {
+        // Only files this student uploaded, finished uploading, and has not used before.
+        const usable = await client.query<{ id: string; kind: string }>(
+          "select id, kind from media where id = any($1::uuid[]) and owner_id = $2 and status = 'ready' and purpose = 'post' and post_id is null",
+          [mediaIds, user.id],
+        );
+        if (usable.rows.length !== mediaIds.length) throw new HttpError(400, 'validation', 'One of the files is not available.');
+        const kinds = new Set(usable.rows.map((r) => r.kind));
+        if (kinds.size > 1 || (kinds.has('video') && mediaIds.length > 1)) {
+          throw new HttpError(400, 'validation', 'Add up to 4 photos, or one video.');
+        }
+        for (let position = 0; position < mediaIds.length; position++) {
+          await client.query('update media set post_id = $1, position = $2 where id = $3', [id, position, mediaIds[position]]);
+        }
+      }
+      return id;
+    });
+    return reply.status(201).send(await presentOne(user, postId));
   });
 
   app.put('/posts/:id', async (req) => {
@@ -198,8 +251,12 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const b = editSchema.parse(req.body ?? {});
     const post = await visiblePost(user, id);
     if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only change your own posts.');
+    if (b.text === '') {
+      const hasMedia = await pool.query('select 1 from media where post_id = $1 limit 1', [id]);
+      if (!hasMedia.rowCount) throw new HttpError(400, 'validation', 'Write something first.');
+    }
     await pool.query('update posts set text = $2, edited_at = now() where id = $1', [id, b.text]);
-    return postJson((await fetchPost(user, id)) as PostRow);
+    return presentOne(user, id);
   });
 
   app.delete('/posts/:id', async (req, reply) => {
@@ -207,7 +264,9 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const id = paramId(req);
     const post = await visiblePost(user, id);
     if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only delete your own posts.');
-    await pool.query('delete from posts where id = $1', [id]); // likes, saves, votes and comments cascade
+    const files = await pool.query<{ object_key: string }>('select object_key from media where post_id = $1', [id]);
+    await pool.query('delete from posts where id = $1', [id]); // likes, saves, votes, comments and media records cascade
+    if (ctx.storage && files.rowCount) await ctx.storage.remove(files.rows.map((r) => r.object_key)).catch(() => undefined);
     return reply.status(204).send();
   });
 
@@ -249,7 +308,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       if (isUniqueViolation(e)) throw new HttpError(409, 'already_voted', 'You already voted in this poll.');
       throw e;
     }
-    return postJson((await fetchPost(user, id)) as PostRow);
+    return presentOne(user, id);
   });
 
   app.post('/posts/:id/share', async (req, reply) => {

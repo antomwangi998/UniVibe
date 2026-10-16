@@ -1,11 +1,14 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.media.VideoStore
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.accentFor
 import com.univibe.app.data.net.parsePoll
 import com.univibe.app.data.net.parseStudent
@@ -17,7 +20,21 @@ import org.json.JSONObject
 
 private val NO_CONTENT = setOf(204)
 
-fun parsePost(o: JSONObject, fromFollowing: Boolean = false): Post = Post(
+fun parsePost(o: JSONObject, fromFollowing: Boolean = false): Post {
+    // Photos and videos arrive as short-lived links; the screens load them like local files.
+    val images = mutableListOf<String>()
+    var video: String? = null
+    val media = o.optJSONArray("media")
+    if (media != null) {
+        for (i in 0 until media.length()) {
+            val item = media.getJSONObject(i)
+            if (item.getString("kind") == "video") video = item.getString("url") else images += item.getString("url")
+        }
+    }
+    return buildPost(o, fromFollowing, images, video)
+}
+
+private fun buildPost(o: JSONObject, fromFollowing: Boolean, images: List<String>, video: String?): Post = Post(
     id = o.getString("id"),
     author = parseStudent(o.getJSONObject("author")),
     timeAgo = timeAgo(o.optLong("ageSeconds", 0L)),
@@ -31,6 +48,9 @@ fun parsePost(o: JSONObject, fromFollowing: Boolean = false): Post = Post(
     audience = if (o.optString("audience") == "followers") PostAudience.Followers else PostAudience.Campus,
     poll = parsePoll(o.optJSONObject("poll")),
     edited = o.optBoolean("edited", false),
+    imagePath = images.firstOrNull(),
+    imagePaths = images,
+    videoPath = video,
 )
 
 private fun parsePosts(body: String, fromFollowing: Boolean = false): List<Post> {
@@ -39,14 +59,14 @@ private fun parsePosts(body: String, fromFollowing: Boolean = false): List<Post>
 }
 
 /**
- * Posts from the UniVibe server. Text and polls only for now: photos and video need file storage on the server,
- * so [supportsMedia] is false and the app hides those buttons instead of faking them.
+ * Posts from the UniVibe server, including photos and videos. Files go to private storage through [media];
+ * without an uploader, posts with files are refused instead of faked.
  */
 class RemoteFeedRepository(
     private val api: AuthedApi,
+    private val media: MediaUploader? = null,
     private val account: () -> AuthUser?,
 ) : FeedRepository {
-    override val supportsMedia: Boolean = false
 
     override suspend fun getCurrentUser(): Student {
         val me = account() ?: throw IllegalStateException("Not signed in")
@@ -85,25 +105,43 @@ class RemoteFeedRepository(
         videoPath: String?,
         pollOptions: List<String>,
     ): Post {
-        if (hasMedia || imagePath != null || videoPath != null) {
-            throw UnsupportedOperationException("Photos and videos can't be posted yet.")
-        }
         val body = JSONObject().put("text", text.trim()).put("audience", "campus")
         if (pollOptions.isNotEmpty()) {
             body.put("poll", JSONObject().put("options", JSONArray(pollOptions.map { it.trim() })))
         }
-        return parsePost(JSONObject(api.send("POST", "/posts", body, setOf(201))))
+        if (imagePath != null || videoPath != null) {
+            val ids = uploadAll(listOfNotNull(imagePath).map { it to "image" } + listOfNotNull(videoPath).map { it to "video" })
+            body.put("mediaIds", JSONArray(ids))
+        } else if (hasMedia) {
+            throw UnsupportedOperationException("Choose a photo or video to post.")
+        }
+        val created = parsePost(JSONObject(api.send("POST", "/posts", body, setOf(201))))
+        discardLocalCopies(listOfNotNull(imagePath), videoPath)
+        return created
+    }
+
+    private suspend fun uploadAll(files: List<Pair<String, String>>): List<String> {
+        val uploader = media ?: throw UnsupportedOperationException("Photos and videos can't be posted right now.")
+        return files.map { (path, kind) -> uploader.upload(path, kind, "post") }
+    }
+
+    /** The files now live on the server, so the temporary copies on this phone can go. */
+    private fun discardLocalCopies(images: List<String>, video: String?) {
+        images.forEach(PhotoStore::delete)
+        VideoStore.delete(video)
     }
 
     override suspend fun publishPost(post: NewPost): Post {
-        if (post.imagePaths.isNotEmpty()) throw UnsupportedOperationException("Photos can't be posted yet.")
         val audience = when (post.audience) {
             PostAudience.Campus -> "campus"
             PostAudience.Followers -> "followers"
             is PostAudience.Community -> throw UnsupportedOperationException("Community posts aren't available yet.")
         }
         val body = JSONObject().put("text", post.text.trim()).put("audience", audience)
-        return parsePost(JSONObject(api.send("POST", "/posts", body, setOf(201))))
+        if (post.imagePaths.isNotEmpty()) body.put("mediaIds", JSONArray(uploadAll(post.imagePaths.map { it to "image" })))
+        val created = parsePost(JSONObject(api.send("POST", "/posts", body, setOf(201))))
+        discardLocalCopies(post.imagePaths, null)
+        return created
     }
 
     override suspend fun getSavedPosts(): List<Post> = parsePosts(api.send("GET", "/posts/saved"))
