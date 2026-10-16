@@ -47,10 +47,10 @@ private fun none() = AuthResult.Success(HttpResponse(204, ""))
 private fun serverError(status: Int, code: String) = AuthResult.Success(HttpResponse(status, """{"error":"$code","message":"msg"}"""))
 
 private fun authorJson(id: String = OTHER, name: String = "Brian Otieno", handle: String = "brianotieno") =
-    """{"id":"$id","fullName":"$name","handle":"$handle","course":"Law","yearOfStudy":"","interests":["Music"],"studentVerified":true,"hasPhoto":false,"universityName":"The Co-operative University[...]"""
+    """{"id":"$id","fullName":"$name","handle":"$handle","course":"Law","yearOfStudy":"","interests":["Music"],"studentVerified":true,"hasPhoto":false,"universityName":"The Co-operative University of Kenya","avatarUrl":null}"""
 
 private fun postJson(id: String = "p1", poll: String = "null", audience: String = "campus") =
-    """{"id":"$id","author":${authorJson()},"ageSeconds":7300,"text":"hello","audience":"$audience","likeCount":3,"commentCount":2,"shareCount":1,"likedByMe":true,"savedByMe":false,"edited":true,"[...]"""
+    """{"id":"$id","author":${authorJson()},"ageSeconds":7300,"text":"hello","audience":"$audience","likeCount":3,"commentCount":2,"shareCount":1,"likedByMe":true,"savedByMe":false,"edited":true,"media":[],"imagePaths":[],"poll":$poll}"""
 
 private val testAccount = AuthUser(
     id = ME, fullName = "Wanjiru Kamau", email = "x@student.cuk.ac.ke", universityId = "cuk",
@@ -202,7 +202,7 @@ class RemoteSocialRepositoriesTest {
 
     // ---- comments
     private fun commentJson(id: String, parent: String? = null, replyTo: String? = null) =
-        """{"id":"$id","postId":"p1","author":${authorJson()},"text":"hey","ageSeconds":90,"likeCount":1,"likedByMe":false,"isMine":false,"isPostAuthor":true,"parentId":${parent?.let { "\"$it\"" }},"replyToHandle":${replyTo?.let { "\"$it\"" }},"[...]"""
+        """{"id":"$id","postId":"p1","author":${authorJson()},"text":"hey","ageSeconds":90,"likeCount":1,"likedByMe":false,"isMine":false,"isPostAuthor":true,"parentId":${parent?.let { "\"$it\"" } ?: "null"},"replyToHandle":${replyTo?.let { "\"$it\"" } ?: "null"}}"""
 
     @Test fun commentsAreParsedWithThreadsAndMentions() = runTest {
         val api = FakeApi { ok("[${commentJson("c1")},${commentJson("c2", "c1", "brianotieno")}]") }
@@ -234,11 +234,11 @@ class RemoteSocialRepositoriesTest {
     @Test fun statsFollowListsAndProfilesComeFromTheServer() = runTest {
         val api = FakeApi { call ->
             when {
-                call.path == "/me/stats" -> ok("""{"posts":4,"followers":2,"following":1,"saved":3}""")
-                call.path == "/students/$OTHER" -> ok("""{"student":${authorJson()},"bio":"Hello","posts":5,"followers":6,"following":7,"followedByMe":true}""")
+                call.path == "/me/stats" -> ok("{" + "\"posts\":4,\"followers\":2,\"following\":1,\"saved\":3}" )
+                call.path == "/students/$OTHER" -> ok("{" + "\"student\":" + authorJson() + ",\"bio\":\"Hello\",\"posts\":5,\"followers\":6,\"following\":7,\"followedByMe\":true}")
                 call.path == "/students/missing" -> serverError(404, "not_found")
-                call.path == "/me/followers" -> ok("""[{"student":${authorJson()},"isFollowing":false}]""")
-                call.path == "/me/following" -> ok("""[{"student":${authorJson()},"isFollowing":true}]""")
+                call.path == "/me/followers" -> ok("[{" + "\"student\":" + authorJson() + ",\"isFollowing\":false}]")
+                call.path == "/me/following" -> ok("[{" + "\"student\":" + authorJson() + ",\"isFollowing\":true}]")
                 else -> none()
             }
         }
@@ -258,7 +258,7 @@ class RemoteSocialRepositoriesTest {
     }
 
     @Test fun myProfileShowsTheServersCountsNotInventedOnes() = runTest {
-        val api = FakeApi { ok("""{"posts":4,"followers":2,"following":1,"saved":3}""") }
+        val api = FakeApi { ok("{" + "\"posts\":4,\"followers\":2,\"following\":1,\"saved\":3}") }
         val repo = MockProfileRepository(
             MockStore(demo = false), InMemoryProfileLocalStore(), account = { testAccount }, backend = RemoteProfileBackend(api),
         )
@@ -280,7 +280,7 @@ class RemoteSocialRepositoriesTest {
     }
 
     @Test fun otherStudentsAreLoadedFromTheServerWithWhatYouShare() = runTest {
-        val api = FakeApi { ok("""{"student":${authorJson()},"bio":"Hello","posts":5,"followers":6,"following":7,"followedByMe":false}""") }
+        val api = FakeApi { ok("{" + "\"student\":" + authorJson() + ",\"bio\":\"Hello\",\"posts\":5,\"followers\":6,\"following\":7,\"followedByMe\":false}") }
         val repo = MockProfileRepository(
             MockStore(demo = false), InMemoryProfileLocalStore(), account = { testAccount }, backend = RemoteProfileBackend(api),
         )
