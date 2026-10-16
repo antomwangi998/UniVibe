@@ -47,12 +47,12 @@ private fun none() = AuthResult.Success(HttpResponse(204, ""))
 private fun serverError(status: Int, code: String) = AuthResult.Success(HttpResponse(status, """{"error":"$code","message":"msg"}"""))
 
 private fun authorJson(id: String = OTHER, name: String = "Brian Otieno", handle: String = "brianotieno") =
-    """{"id":"$id","fullName":"$name","handle":"$handle","course":"Law","yearOfStudy":"","interests":["Music"],"studentVerified":true,"hasPhoto":false,"universityName":"The Co-operative University of Kenya"}"""
+    """{"id":"$id","fullName":"$name","handle":"$handle","course":"Law","yearOfStudy":"","interests":["Music"],"studentVerified":true,"hasPhoto":false,"universityName":"The Co-operative University of Kenya","avatarUrl":null}"""
 
 private fun postJson(id: String = "p1", poll: String = "null", audience: String = "campus") =
-    """{"id":"$id","author":${authorJson()},"ageSeconds":7300,"text":"hello","audience":"$audience","likeCount":3,"commentCount":2,"shareCount":1,"likedByMe":true,"savedByMe":false,"edited":true,"poll":$poll}"""
+    """{"id":"$id","author":${authorJson()},"ageSeconds":7300,"text":"hello","audience":"$audience","likeCount":3,"commentCount":2,"shareCount":1,"likedByMe":true,"savedByMe":false,"edited":true,"media":[],"imagePaths":[],"poll":$poll}"""
 
-private val account = AuthUser(
+private val testAccount = AuthUser(
     id = ME, fullName = "Wanjiru Kamau", email = "x@student.cuk.ac.ke", universityId = "cuk",
     universityName = "The Co-operative University of Kenya", emailVerified = true, studentVerified = true,
     course = "Law", interests = listOf("Music", "Debate"), bio = "Hi", handle = "wanjirukamau",
@@ -61,7 +61,7 @@ private val account = AuthUser(
 class RemoteSocialRepositoriesTest {
     @After fun resetIdentity() = MockData.applyAccount(null)
 
-    private fun feed(api: FakeApi) = RemoteFeedRepository(api) { account }
+    private fun feed(api: FakeApi) = RemoteFeedRepository(api) { testAccount }
 
     // ---- time
     @Test fun timeAgoUsesTheServersAge() {
@@ -234,11 +234,11 @@ class RemoteSocialRepositoriesTest {
     @Test fun statsFollowListsAndProfilesComeFromTheServer() = runTest {
         val api = FakeApi { call ->
             when {
-                call.path == "/me/stats" -> ok("""{"posts":4,"followers":2,"following":1,"saved":3}""")
-                call.path == "/students/$OTHER" -> ok("""{"student":${authorJson()},"bio":"Hello","posts":5,"followers":6,"following":7,"followedByMe":true}""")
+                call.path == "/me/stats" -> ok("{" + "\"posts\":4,\"followers\":2,\"following\":1,\"saved\":3}" )
+                call.path == "/students/$OTHER" -> ok("{" + "\"student\":" + authorJson() + ",\"bio\":\"Hello\",\"posts\":5,\"followers\":6,\"following\":7,\"followedByMe\":true}")
                 call.path == "/students/missing" -> serverError(404, "not_found")
-                call.path == "/me/followers" -> ok("""[{"student":${authorJson()},"isFollowing":false}]""")
-                call.path == "/me/following" -> ok("""[{"student":${authorJson()},"isFollowing":true}]""")
+                call.path == "/me/followers" -> ok("[{" + "\"student\":" + authorJson() + ",\"isFollowing\":false}]")
+                call.path == "/me/following" -> ok("[{" + "\"student\":" + authorJson() + ",\"isFollowing\":true}]")
                 else -> none()
             }
         }
@@ -258,9 +258,9 @@ class RemoteSocialRepositoriesTest {
     }
 
     @Test fun myProfileShowsTheServersCountsNotInventedOnes() = runTest {
-        val api = FakeApi { ok("""{"posts":4,"followers":2,"following":1,"saved":3}""") }
+        val api = FakeApi { ok("{" + "\"posts\":4,\"followers\":2,\"following\":1,\"saved\":3}") }
         val repo = MockProfileRepository(
-            MockStore(demo = false), InMemoryProfileLocalStore(), account = { account }, backend = RemoteProfileBackend(api),
+            MockStore(demo = false), InMemoryProfileLocalStore(), account = { testAccount }, backend = RemoteProfileBackend(api),
         )
         val profile = repo.getMyProfile()
         assertEquals(4, profile.posts)
@@ -272,7 +272,7 @@ class RemoteSocialRepositoriesTest {
     @Test fun offlineProfileShowsZerosNotSampleNumbers() = runTest {
         val api = FakeApi { AuthResult.Failure(AuthError.Network) }
         val repo = MockProfileRepository(
-            MockStore(demo = false), InMemoryProfileLocalStore(), account = { account }, backend = RemoteProfileBackend(api),
+            MockStore(demo = false), InMemoryProfileLocalStore(), account = { testAccount }, backend = RemoteProfileBackend(api),
         )
         val profile = repo.getMyProfile()
         assertEquals(0, profile.posts)
@@ -280,9 +280,9 @@ class RemoteSocialRepositoriesTest {
     }
 
     @Test fun otherStudentsAreLoadedFromTheServerWithWhatYouShare() = runTest {
-        val api = FakeApi { ok("""{"student":${authorJson()},"bio":"Hello","posts":5,"followers":6,"following":7,"followedByMe":false}""") }
+        val api = FakeApi { ok("{" + "\"student\":" + authorJson() + ",\"bio\":\"Hello\",\"posts\":5,\"followers\":6,\"following\":7,\"followedByMe\":false}") }
         val repo = MockProfileRepository(
-            MockStore(demo = false), InMemoryProfileLocalStore(), account = { account }, backend = RemoteProfileBackend(api),
+            MockStore(demo = false), InMemoryProfileLocalStore(), account = { testAccount }, backend = RemoteProfileBackend(api),
         )
         val profile = repo.getStudentProfile(OTHER)!!
         assertEquals("Brian Otieno", profile.student.name)
@@ -305,7 +305,7 @@ class RemoteSocialRepositoriesTest {
             }
         }
         val repo = MockProfileRepository(
-            MockStore(demo = false), InMemoryProfileLocalStore(), account = { account }, backend = RemoteProfileBackend(api),
+            MockStore(demo = false), InMemoryProfileLocalStore(), account = { testAccount }, backend = RemoteProfileBackend(api),
         )
         assertTrue(repo.getFollowers().isEmpty())
         assertTrue(repo.getFollowing().isEmpty())

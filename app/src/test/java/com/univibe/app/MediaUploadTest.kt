@@ -26,6 +26,7 @@ import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.data.model.ProfileUpdate
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -63,19 +64,36 @@ private class UploadServer {
     fun answer(call: UploadCall): AuthResult<HttpResponse> = when {
         call.method == "POST" && call.path == "/media/uploads" -> {
             next++
-            ok("""{"mediaId":"m$next","uploadUrl":"https://upload.test/m$next","headers":{"Content-Type":"x"},"expiresIn":600}""", 201)
+            ok(
+                """{"mediaId":"m$next","uploadUrl":"https://upload.test/m$next","headers":{"Content-Type":"x"},"expiresIn":600}""",
+                201
+            )
         }
         call.path.endsWith("/complete") -> ok("""{"id":"x","kind":"image"}""")
         else -> ok("{}")
     }
 }
 
-private fun temp(name: String, ext: String, bytes: Int = 8) = File.createTempFile(name, ext).apply { writeBytes(ByteArray(bytes) { 1 }); deleteOnExit() }
+// Ensure the prefix used for createTempFile is at least 3 characters long
+private fun temp(name: String, ext: String, bytes: Int = 8): File {
+    val prefix = if (name.length >= 3) name else name.padEnd(3, '_')
+    return File.createTempFile(prefix, ext).apply {
+        writeBytes(ByteArray(bytes) { 1 })
+        deleteOnExit()
+    }
+}
 
-private fun authorJson() =
-    """{"id":"22222222-2222-4222-8222-222222222222","fullName":"Brian","handle":"brian","course":"Law","yearOfStudy":"","interests":[],"studentVerified":true,"hasPhoto":false,"universityName":"U"}"""
+private fun authorJson() = JSONObject()
+    .put("id", "22222222-2222-4222-8222-222222222222")
+    .put("fullName", "Brian")
+    .put("handle", "brian")
+    .put("course", "Law")
+    .put("yearOfStudy", "")
+    .put("interests", JSONArray())
+    .put("studentVerified", true)
+    .put("avatarUrl", "https://files.test/a.jpg")
 
-private val account = AuthUser(
+internal val account = AuthUser(
     id = "11111111-1111-4111-8111-111111111111", fullName = "Wanjiru Kamau", email = "x@student.cuk.ac.ke",
     universityId = "cuk", universityName = "The Co-operative University of Kenya", emailVerified = true, studentVerified = true,
     handle = "wanjirukamau", avatarUrl = "https://files.test/old.jpg?sig=1", coverUrl = null,
@@ -133,8 +151,20 @@ class MediaUploadTest {
     @Test fun aPhotoAndVideoPostUploadsFirstThenSendsTheIds() = runTest {
         val server = UploadServer()
         val api = UploadApi { call ->
-            if (call.path == "/posts") ok("""{"id":"p1","author":${authorJson()},"ageSeconds":1,"text":"","audience":"campus","media":[{"id":"m1","kind":"image","url":"https://files.test/a.jpg"}]}""", 201)
-            else server.answer(call)
+            if (call.path == "/posts") {
+                val mediaArray = JSONArray().put(
+                    JSONObject().put("id", "m1").put("kind", "image").put("url", "https://files.test/a.jpg")
+                )
+                val postObj = JSONObject()
+                    .put("id", "p1")
+                    .put("author", authorJson())
+                    .put("ageSeconds", 1)
+                    .put("text", "")
+                    .put("audience", "campus")
+                    .put("media", mediaArray)
+                    .put("imagePaths", JSONArray().put("https://files.test/a.jpg"))
+                ok(postObj.toString())
+            } else server.answer(call)
         }
         val repo = RemoteFeedRepository(api, MediaUploader(api, FakeFiles())) { account }
         val post = repo.createPost("", hasMedia = true, imagePath = temp("pic", ".jpg").path)
@@ -146,7 +176,9 @@ class MediaUploadTest {
 
     @Test fun publishingSeveralPhotosKeepsTheirOrder() = runTest {
         val server = UploadServer()
-        val api = UploadApi { call -> if (call.path == "/posts") ok("""{"id":"p1","author":${authorJson()},"text":"t","audience":"campus"}""", 201) else server.answer(call) }
+        val api = UploadApi { call -> if (call.path == "/posts") ok(
+            """{"id":"p1","author":${authorJson().toString()},"text":"t","audience":"campus"}""", 201
+        ) else server.answer(call) }
         val repo = RemoteFeedRepository(api, MediaUploader(api, FakeFiles())) { account }
         repo.publishPost(NewPost("t", listOf(temp("a", ".jpg").path, temp("b", ".jpg").path, temp("c", ".jpg").path), PostAudience.Campus))
         val ids = api.calls.last().body!!.getJSONArray("mediaIds")
@@ -162,13 +194,34 @@ class MediaUploadTest {
     }
 
     @Test fun mediaInAPostBecomesImagesAndAVideo() {
-        val photos = parsePost(JSONObject("""{"id":"p","author":${authorJson()},"text":"t","media":[{"id":"1","kind":"image","url":"https://f/1"},{"id":"2","kind":"image","url":"https://f/2"}]}"""))
+        val photos = parsePost(
+            JSONObject()
+                .put("id", "p")
+                .put("author", authorJson())
+                .put("text", "t")
+                .put("media", JSONArray()
+                    .put(JSONObject().put("id", "1").put("kind", "image").put("url", "https://f/1"))
+                    .put(JSONObject().put("id", "2").put("kind", "image").put("url", "https://f/2"))
+                )
+        )
         assertEquals(listOf("https://f/1", "https://f/2"), photos.imagePaths)
         assertNull(photos.videoPath)
-        val clip = parsePost(JSONObject("""{"id":"p","author":${authorJson()},"text":"t","media":[{"id":"1","kind":"video","url":"https://f/v"}]}"""))
+        val clip = parsePost(
+            JSONObject()
+                .put("id", "p")
+                .put("author", authorJson())
+                .put("text", "t")
+                .put("media", JSONArray().put(JSONObject().put("id", "1").put("kind", "video").put("url", "https://f/v")))
+        )
         assertEquals("https://f/v", clip.videoPath)
         assertTrue(clip.imagePaths.isEmpty())
-        val plain = parsePost(JSONObject("""{"id":"p","author":${authorJson()},"text":"t","media":[]}"""))
+        val plain = parsePost(
+            JSONObject()
+                .put("id", "p")
+                .put("author", authorJson())
+                .put("text", "t")
+                .put("media", JSONArray())
+        )
         assertNull(plain.videoPath)
         assertNull(plain.imagePath)
     }
