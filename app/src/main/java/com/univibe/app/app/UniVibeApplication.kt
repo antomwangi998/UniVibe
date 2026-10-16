@@ -31,6 +31,8 @@ import com.univibe.app.data.repository.MockProfileRepository
 import com.univibe.app.data.repository.MockStore
 import com.univibe.app.data.repository.ProfileRepository
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.MediaUploader
+import com.univibe.app.data.net.UrlConnectionFileUploader
 import com.univibe.app.data.repository.MockData
 import com.univibe.app.data.repository.RemoteCommentRepository
 import com.univibe.app.data.repository.RemoteFeedRepository
@@ -76,7 +78,8 @@ object AppContainer {
     private val api: AuthedApi? get() = authRepository as? AuthedApi
 
     val feedRepository: FeedRepository by lazy {
-        api?.let { RemoteFeedRepository(it) { accountOf(authRepository.session.value) } } ?: MockFeedRepository(mockStore)
+        api?.let { RemoteFeedRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value) } }
+            ?: MockFeedRepository(mockStore)
     }
     val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
     val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
@@ -105,7 +108,7 @@ object AppContainer {
             check(BuildConfig.DEBUG) { "No backend configured. Set univibe.apiBaseUrl and provide a RemoteAuthRepository." }
             MockAuthRepository(KeystoreSecureStore(app))
         } else {
-            RemoteAuthRepository(BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app))
+            RemoteAuthRepository(BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app), files = UrlConnectionFileUploader())
         }
     }
 }

@@ -2,12 +2,17 @@ import type { FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { HttpError } from './errors';
+import type { Storage } from './storage';
 
 /** What the social routes need from the app: the database, the signed-in student, and rate limiting. */
 export interface RouteContext {
   pool: Pool;
   requireUser: (req: FastifyRequest) => Promise<SignedInUser>;
   tooMany: (key: string, max: number, windowSeconds: number) => void;
+  /** Private photo and video storage. Undefined when the server has none configured. */
+  storage: Storage | undefined;
+  /** The signed-in student's own profile, as the API returns it. */
+  userView: (id: string) => Promise<object>;
 }
 
 export type SignedInUser = { id: string; university_id: string; full_name: string; handle: string };
