@@ -21,7 +21,7 @@ class ApiException(val status: Int, val code: String?, message: String) : Except
  * Sends a request and returns the response body when the status is one of [ok]. Throws [IOException] when offline and
  * [ApiException] for anything else, so callers (view models) handle one kind of failure with a plain try/catch.
  */
-suspend fun AuthedApi.send(method: String, path: String, body: JSONObject? = null, ok: Set<Int> = setOf(200)): String =
+suspend fun AuthedApi.send(method: String, path: String, body: JSONObject? = null, ok: Set<Int> = (200..299).toSet()): String =
     when (val result = authedCall(method, path, body)) {
         is AuthResult.Failure -> throw when (result.error) {
             AuthError.Network -> IOException("No connection")
