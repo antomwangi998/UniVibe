@@ -41,3 +41,9 @@ export function r2Settings(config: Config) {
   if (!R2_ENDPOINT || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET) return null;
   return { endpoint: R2_ENDPOINT, accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY, bucket: R2_BUCKET };
 }
+
+/** Names (never values) of the R2 settings that are missing, so a misconfigured server can say exactly what to fix. */
+export function missingR2Settings(config: Config): string[] {
+  const wanted = ['R2_ENDPOINT', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'] as const;
+  return wanted.filter((name) => !config[name]);
+}

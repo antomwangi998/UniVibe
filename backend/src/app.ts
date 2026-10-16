@@ -254,7 +254,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     query('update refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null', [userId]);
 
   // ---- public
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', async () => ({ status: 'ok', uploads: storage !== undefined }));
 
   app.get('/universities', async () => {
     const { rows } = await pool.query<{ id: string; name: string; email_domains: string[] }>(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config';
+import { loadConfig, missingR2Settings, r2Settings } from '../src/config';
 
 const base = {
   DATABASE_URL: 'postgres://x',
@@ -25,5 +25,30 @@ describe('loadConfig EMAIL_FROM', () => {
 
   it('still requires the email key in production', () => {
     expect(() => loadConfig({ ...base, RESEND_API_KEY: '' })).toThrow();
+  });
+});
+
+describe('R2 settings', () => {
+  const r2 = {
+    R2_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com/univibedb',
+    R2_ACCESS_KEY_ID: 'key',
+    R2_SECRET_ACCESS_KEY: 'secret',
+    R2_BUCKET: 'univibedb',
+  };
+
+  it('are complete when all four are set', () => {
+    const config = loadConfig({ ...base, ...r2 });
+    expect(missingR2Settings(config)).toEqual([]);
+    expect(r2Settings(config)).not.toBeNull();
+  });
+
+  it('name exactly what is missing, never a value', () => {
+    const config = loadConfig({ ...base, ...r2, R2_SECRET_ACCESS_KEY: '', R2_BUCKET: '   ' });
+    expect(missingR2Settings(config)).toEqual(['R2_SECRET_ACCESS_KEY', 'R2_BUCKET']);
+    expect(r2Settings(config)).toBeNull();
+  });
+
+  it('are all missing when none is set', () => {
+    expect(missingR2Settings(loadConfig({ ...base }))).toHaveLength(4);
   });
 });

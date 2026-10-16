@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
 import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.net.ApiException
+import java.io.IOException
 import com.univibe.app.data.media.VideoStore
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.settings.BlockedUser
@@ -203,7 +205,13 @@ class HomeViewModel(
                 val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options)
                 _state.update { it.copy(publishing = false, posts = listOf(post) + it.posts, postedCount = it.postedCount + 1) }
             } catch (e: Exception) {
-                _state.update { it.copy(publishing = false, publishError = "Couldn't post. Please try again.") }
+                val message = when {
+                    e is ApiException && e.code == "storage_unavailable" -> "Photo and video uploads aren't available right now. Try again later."
+                    e is ApiException && e.status == 400 -> e.message ?: "That post can't be sent."
+                    e is IOException -> "No connection. Check your internet and try again."
+                    else -> "Couldn't post. Please try again."
+                }
+                _state.update { it.copy(publishing = false, publishError = message) }
             }
         }
     }
