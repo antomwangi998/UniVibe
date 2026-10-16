@@ -83,7 +83,7 @@ private fun temp(name: String, ext: String, bytes: Int = 8): File {
 }
 
 private fun authorJson() =
-    """{"id":"22222222-2222-4222-8222-222222222222","fullName":"Brian","handle":"brian","course":"Law","yearOfStudy":"","interests":[],"studentVerified":true,"avatarUrl":"https://files.test/a.jpg"[...]"""
+    """{"id":"22222222-2222-4222-8222-222222222222","fullName":"Brian","handle":"brian","course":"Law","yearOfStudy":"","interests":[],"studentVerified":true,"avatarUrl":"https://files.test/a.jpg","coverUrl":null}"""
 
 internal val account = AuthUser(
     id = "11111111-1111-4111-8111-111111111111", fullName = "Wanjiru Kamau", email = "x@student.cuk.ac.ke",
@@ -144,7 +144,8 @@ class MediaUploadTest {
         val server = UploadServer()
         val api = UploadApi { call ->
             if (call.path == "/posts") ok(
-                """{"id":"p1","author":${authorJson()},"ageSeconds":1,"text":"","audience":"campus","media":[{"id":"m1","kind":"image","url":"https://files.test/a.jpg"}],"imagePaths":["https://fi[...]""", 201
+                """{"id":"p1","author":${authorJson()},"ageSeconds":1,"text":"","audience":"campus","media":[{"id":"m1","kind":"image","url":"https://files.test/a.jpg"}],"imagePaths":["https://files.test/a.jpg"],"imagePath":"https://files.test/a.jpg"}""",
+                201
             ) else server.answer(call)
         }
         val repo = RemoteFeedRepository(api, MediaUploader(api, FakeFiles())) { account }
@@ -175,7 +176,7 @@ class MediaUploadTest {
     }
 
     @Test fun mediaInAPostBecomesImagesAndAVideo() {
-        val photos = parsePost(JSONObject("""{"id":"p","author":${authorJson()},"text":"t","media":[{"id":"1","kind":"image","url":"https://f/1"},{"id":"2","kind":"image","url":"https://f/2"}]}"""[...]")
+        val photos = parsePost(JSONObject("""{"id":"p","author":${authorJson()},"text":"t","media":[{"id":"1","kind":"image","url":"https://f/1"},{"id":"2","kind":"image","url":"https://f/2"}]}"""))
         assertEquals(listOf("https://f/1", "https://f/2"), photos.imagePaths)
         assertNull(photos.videoPath)
         val clip = parsePost(JSONObject("""{"id":"p","author":${authorJson()},"text":"t","media":[{"id":"1","kind":"video","url":"https://f/v"}]}"""))
