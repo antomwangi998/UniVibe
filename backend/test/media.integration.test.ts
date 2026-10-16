@@ -74,6 +74,14 @@ describe.skipIf(!url)('photos and videos (needs TEST_DATABASE_URL)', () => {
     return file;
   };
 
+  it('health says whether uploads are available', async () => {
+    expect((await call('GET', '/health')).body).toEqual({ status: 'ok', uploads: true });
+    const bare = buildApp({ pool, mailer, config });
+    const res = await call('GET', '/health', undefined, undefined, bare);
+    await bare.close();
+    expect(res.body).toEqual({ status: 'ok', uploads: false });
+  });
+
   // ---- requesting an upload
   it('refuses unsupported or oversized uploads and profile videos', async () => {
     const a = await student();
