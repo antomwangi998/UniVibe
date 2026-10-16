@@ -51,7 +51,8 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
         val created = JSONObject(api.send("POST", "/media/uploads", request, setOf(201)))
         files.put(created.getString("uploadUrl"), contentType, file)
         val id = created.getString("mediaId")
-        api.send("POST", "/media/$id/complete")
+        // Accept HTTP 200 from some servers for the complete call (tests and servers may return 200)
+        api.send("POST", "/media/$id/complete", null, setOf(200))
         return id
     }
 
