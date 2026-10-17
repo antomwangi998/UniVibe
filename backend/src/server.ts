@@ -6,7 +6,7 @@ import { createConsoleMailer, createResendMailer } from './email';
 import { JobWorker, purgeOldRecords } from './jobs';
 import { RateLimiter } from './limiter';
 import { deliveryHandlers } from './modules/delivery';
-import { createFcmSender, disabledPushSender } from './push';
+import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
 import { purgeExpiredEvents, sendEventReminders } from './modules/events';
 import { cleanupPendingMedia } from './media';
@@ -42,8 +42,18 @@ async function main() {
 
   // Queue worker: live notification events and push. Safe to run in this process or in several; rows are claimed with SKIP LOCKED.
   // NOTE: live events go to the sockets of the process that handles the job, so keep one web instance (see docs).
-  const push = config.FCM_SERVICE_ACCOUNT_JSON ? createFcmSender(config.FCM_SERVICE_ACCOUNT_JSON) : disabledPushSender;
-  if (!push.enabled) console.warn('FCM_SERVICE_ACCOUNT_JSON is not set, so push notifications are skipped (in-app notifications still work).');
+  // A bad push setting must never stop the server: log it clearly and carry on with push switched off.
+  let push: PushSender = disabledPushSender;
+  if (config.FCM_SERVICE_ACCOUNT_JSON) {
+    try {
+      push = createFcmSender(config.FCM_SERVICE_ACCOUNT_JSON);
+      console.log('Push notifications enabled (FCM).');
+    } catch (e) {
+      console.error(`FCM_SERVICE_ACCOUNT_JSON is invalid, so push notifications are DISABLED: ${e instanceof Error ? e.message : 'unreadable value'}. Re-create the variable from the original key file.`);
+    }
+  } else {
+    console.warn('FCM_SERVICE_ACCOUNT_JSON is not set, so push notifications are skipped (in-app notifications still work).');
+  }
   const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push), app.log);
   worker.start();
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));

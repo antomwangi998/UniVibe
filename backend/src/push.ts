@@ -26,8 +26,16 @@ interface ServiceAccount { project_id: string; client_email: string; private_key
 
 /** Accepts the service-account JSON as is, or base64-encoded (easier to paste into a dashboard). */
 export function parseServiceAccount(raw: string): ServiceAccount {
-  const text = raw.trim().startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
-  const parsed = JSON.parse(text) as Partial<ServiceAccount>;
+  // Dashboards sometimes keep wrapping quotes or line breaks from a paste; drop them.
+  const trimmed = raw.trim().replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
+  const text = trimmed.startsWith('{') ? trimmed : Buffer.from(trimmed.replace(/\s+/g, ''), 'base64').toString('utf8');
+  let parsed: Partial<ServiceAccount>;
+  try {
+    parsed = JSON.parse(text) as Partial<ServiceAccount>;
+  } catch {
+    // Deliberately not echoing the value or the parser's position: it is a secret.
+    throw new Error('the value is not valid JSON (it was probably cut off or altered when pasted)');
+  }
   if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
     throw new Error('FCM_SERVICE_ACCOUNT_JSON must contain project_id, client_email and private_key');
   }
