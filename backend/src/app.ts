@@ -106,6 +106,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const limiter = deps.limiter ?? new RateLimiter();
   const app = Fastify({ logger: config.NODE_ENV !== 'test', trustProxy: true, bodyLimit: 64 * 1024 });
 
+  // Android's HttpURLConnection labels body-less POST/PUT requests (like /media/:id/complete) as form posts.
+  // Accept those when the body is empty instead of answering 415 "Bad request."
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    if (body === '') return done(null, undefined);
+    done(new HttpError(415, 'unsupported_media_type', 'Send JSON.'), undefined);
+  });
+
   // ---- cross-cutting
   app.addHook('onRequest', async (req) => {
     const wait = limiter.hit(`ip:${req.ip}`, 300, 60);
