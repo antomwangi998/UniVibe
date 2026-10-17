@@ -33,3 +33,6 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      # Push notifications. Optional: without it push is skipped and in-app notifications still work.
+      - key: FCM_SERVICE_ACCOUNT_JSON
+        sync: false

@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { blockedBetween } from '../access';
+import { enqueue } from '../jobs';
 
 export type NotificationType =
   | 'follow' | 'like' | 'comment' | 'reply'
@@ -37,10 +38,14 @@ export async function notify(client: Pick<PoolClient, 'query'>, n: NewNotificati
     `insert into notifications (recipient_id, actor_id, type, entity_type, entity_id, metadata)
      select $1, $2, $3, $4, $5, $6::jsonb
      where true ${blockCheck} ${prefCheck}
-     on conflict do nothing`,
+     on conflict do nothing
+     returning id`,
     [n.recipientId, n.actorId, n.type, n.entityType ?? null, n.entityId ?? null, JSON.stringify(n.metadata ?? {})],
   );
-  return (res.rowCount ?? 0) > 0;
+  if (!res.rowCount) return false;
+  // Same transaction as the notification: the live update and the push are queued if and only if it was stored.
+  await enqueue(client, 'notification.deliver', { notificationId: res.rows[0].id as string }, { dedupeKey: res.rows[0].id as string });
+  return true;
 }
 
 /** Removes the notification a like/follow created when it is undone, so a re-like starts clean. */

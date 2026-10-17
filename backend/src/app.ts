@@ -12,6 +12,7 @@ import { READ_LINK_SECONDS, registerMediaRoutes } from './media';
 import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
 import { apiV1 } from './routes';
+import { Hub } from './realtime';
 import * as sec from './security';
 import type { Storage } from './storage';
 
@@ -22,6 +23,8 @@ export interface AppDeps {
   limiter?: RateLimiter;
   /** Private photo and video storage. Without it, uploads answer 503 and everything else works. */
   storage?: Storage;
+  /** Live connections. The server passes its own so the job worker can publish to the same sockets. */
+  hub?: Hub;
 }
 
 type UserRow = {
@@ -500,7 +503,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerPeopleRoutes(app, routeContext);
 
   // ---- new modules (blocking, privacy, notifications, Discover, messaging, events), versioned under /api/v1
-  void app.register(apiV1(makeCtx(pool, config, limiter, storage ?? null)), { prefix: '/api/v1' });
+  void app.register(apiV1(makeCtx(pool, config, limiter, storage ?? null), deps.hub ?? new Hub()), { prefix: '/api/v1' });
 
   return app;
 }

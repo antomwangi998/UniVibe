@@ -1,3 +1,13 @@
 <resources>
     <string name="app_name">UniVibe</string>
+    <string name="channel_direct_messages">Direct messages</string>
+    <string name="channel_direct_messages_desc">New one-to-one messages</string>
+    <string name="channel_group_messages">Group messages</string>
+    <string name="channel_group_messages_desc">New messages in your group chats</string>
+    <string name="channel_social">Social activity</string>
+    <string name="channel_social_desc">Followers, likes, comments and replies</string>
+    <string name="channel_campus">Campus updates</string>
+    <string name="channel_campus_desc">Event reminders and changes</string>
+    <string name="channel_security">Security and account alerts</string>
+    <string name="channel_security_desc">Important notices about your account</string>
 </resources>

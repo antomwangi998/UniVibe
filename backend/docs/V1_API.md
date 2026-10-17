@@ -18,6 +18,9 @@ Messages page with `?before=<seq>` and return `{ items, nextBefore }`.
 | Discover | `GET /discover[?course&faculty&yearOfStudy&interest]` · `POST /discover/:id/pass` · `POST /discover/:id/like` (a follow) · `GET/PUT /me/discover/preferences` |
 | Conversations | `POST/GET /conversations` · `GET /conversations/:id` · `GET/POST /conversations/:id/messages` · `POST /conversations/:id/read` · `POST /conversations/:id/members` · `DELETE /conversations/:id/members/:userId` · `PATCH/DELETE /messages/:id` |
 | Events | `POST/GET /events` · `GET/PATCH/DELETE /events/:id` · `POST /events/:id/cancel` · `POST/DELETE /events/:id/register` · `GET /events/:id/attendees` · `POST /events/:id/check-in` · `GET /me/events` |
+| Chat extras | `PATCH /conversations/:id/settings` `{mutedUntil?, archived?, pinned?}` · `POST /conversations/:id/mark-unread` · `POST /conversations/:id/delivered {upToSeq}` · `PUT/DELETE /messages/:id/reaction` · `GET /messages/search?q&conversationId?&before?` · `GET /conversations?archived=true` · `GET /conversations/:id/messages?after=<seq>` |
+| Push devices | `PUT /me/devices {installationId, fcmToken}` · `DELETE /me/devices/:installationId` (call before logging out) |
+| Ops (admin) | `GET /admin/jobs` (queue depth, failures by kind, oldest waiting job) |
 | Search | `GET /search` · `/search/users` · `/search/posts` · `/search/events` (`q` 2-80 chars) |
 | Reports / moderation | `POST /reports` · `GET /moderation/reports` · `POST /moderation/reports/:id/review` · `POST /moderation/reports/:id/action` · `GET /moderation/audit-logs` (admin) |
 | Ops | `GET /health` · `GET /ready` (database check) |
@@ -77,3 +80,42 @@ following lists hide blocked people. `media.ts`: purposes `message` and `event` 
   account data export, moderator escalation and warnings, image thumbnails/variants, OpenAPI document, metrics.
 * Existing list routes (`/posts`, comments, followers) are not cursor-paginated: changing them would break the Android client.
 * Reports of private messages show the reported message text to moderators of that university (that is the purpose of a report).
+
+
+## Push, jobs and sync (stage 11)
+
+**Queue.** The project has no Redis or Bull, so jobs live in Postgres (`jobs` table, migration 011) instead of adding a second system.
+A job is written in the same transaction as the thing it describes (a stored message, a stored notification), which is the
+transactional outbox: a crash after commit cannot lose the announcement. Workers claim rows with `FOR UPDATE SKIP LOCKED`;
+a job whose worker died is claimed again when its 60 s lock expires. Retries use exponential backoff with jitter
+(about 5 s, 10 s, 20 s ... capped at 15 min), at most 6 attempts, 30 s timeout per attempt; permanent errors fail at once.
+Payloads hold ids only. Kinds: `notification.deliver` (live event + push for a stored notification) and `push.message`
+(one per message and recipient, deduped by `messageId:recipientId`). `server.ts` starts one in-process worker and a
+6-hourly purge (finished jobs, stale and revoked device tokens, read notifications older than 180 days).
+
+**Push rules** (checked again when the job runs, so a mute, block or read after queueing is honoured): the recipient must still
+be in the conversation, not have muted it, not have read the message, not have blocked or been blocked by the sender, and have
+`pushEnabled` and the matching switch (`pushMessages`, `pushSocial`, `pushEvents`) on. `verification` notices are always allowed.
+Storing in the feed (`follows`, `likes`, ... ), pushing (`push*`) and the on-device alert (Android channels) are three separate decisions.
+A muted conversation produces no feed entry and no push; the messages themselves are unaffected.
+FCM payloads are **data-only** and carry ids and generic labels (`kind`, `conversationId`, `messageId`, `notificationId`, `group`),
+never message text or tokens; the app builds the notification and fetches content from the API when it is opened.
+`push_status` on a notification is `accepted` only when FCM accepted the request; that is not proof a phone showed it.
+A token FCM reports as unregistered is revoked immediately; a token that moves to another account is revoked for the old one.
+
+**New WebSocket events:** `message:reaction {conversationId, messageId, userId, reaction|null, reactions}`,
+`notification:created {notification:{id,type,actorId,entityType,entityId,createdAt}, unreadCount}`,
+`notification:unread {unreadCount}` (sent to a person's other devices when they read or delete). On connect, everything
+stored for the person is marked delivered and senders get `message:delivered`.
+
+**Reconnect recovery.** The database is the source of truth. After reconnecting a client calls
+`GET /conversations/:id/messages?after=<last seq it holds>` (oldest first, `nextAfter` while more remain),
+`GET /notifications/unread-count`, and `GET /conversations`. Events carry `seq` / ids so replays can be ignored.
+
+**Configuration.** `FCM_SERVICE_ACCOUNT_JSON` (server secret, optional). Without it push is skipped and everything else works.
+Run **one** web instance: live events are in process memory, and the worker publishes through the same process.
+
+**Still not implemented (be aware):** forwarding, group description/avatar and system messages, audio/video/file attachments
+(only images are accepted as message media), per-user message deletion ("delete for me"), scheduled notifications,
+aggregated/grouped notification rows, Redis/Socket bus for multiple instances, metrics export (only `/admin/jobs`),
+message search is `ILIKE` (fine at campus scale; add `pg_trgm` if it gets slow).

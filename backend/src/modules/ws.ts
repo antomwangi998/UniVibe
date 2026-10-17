@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { AuthUser, Ctx } from '../context';
 import { HttpError } from '../errors';
 import type { Hub } from '../realtime';
+import { markDeliveredAll } from './chat_extras';
 import { markRead, sendMessage, typingSignal } from './messaging';
 
 const MAX_FRAME_BYTES = 16 * 1024;
@@ -74,6 +75,8 @@ export function wsRoutes(ctx: Ctx, hub: Hub) {
             token = frame.token;
             clearTimeout(authTimer);
             if (hub.add(user.id, socket)) void announcePresence(user.id, true);
+            // Whatever arrived while this person was offline counts as delivered now; senders are told.
+            void markDeliveredAll(ctx, hub, user).catch((e) => app.log.error({ err: e }, 'marking messages delivered failed'));
             return send({ type: 'auth:ok', userId: user.id });
           }
           if (!user) return socket.close(4401, 'auth required');

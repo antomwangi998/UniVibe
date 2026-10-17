@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Push needs your own Firebase project: put its google-services.json in app/ (see docs/PUSH_NOTIFICATIONS.md).
+// Without that file the app still builds and runs; push is simply switched off.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
 // API base URL comes from gradle.properties / -P, never from source. Blank = mock auth (debug only).
 val apiBaseUrl = (project.findProperty("univibe.apiBaseUrl") as? String).orEmpty()
 
@@ -15,8 +19,8 @@ android {
         applicationId = "com.univibe.app" // placeholder: change before publishing
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.1.2-push"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
@@ -53,6 +57,8 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose) // loads picked photos from app storage
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging) // push (FCM); inert until google-services.json is added
     implementation(libs.osmdroid.android) // venue map preview; OpenStreetMap tiles, no API key (see docs/MAPS.md)
 
     debugImplementation(libs.androidx.compose.ui.tooling)

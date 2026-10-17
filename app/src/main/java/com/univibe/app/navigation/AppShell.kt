@@ -136,6 +136,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
         onDispose { activity.removeOnNewIntentListener(listener) }
     }
 
+    com.univibe.app.push.AskForNotificationPermissionOnce()
+
     val selectTab: (String) -> Unit = { route ->
         if (route != currentRoute) {
             navController.navigate(route) {
