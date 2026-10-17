@@ -6,10 +6,12 @@ import type { Config } from './config';
 import { withTx } from './db';
 import type { Mailer } from './email';
 import { HttpError } from './errors';
+import { makeCtx } from './context';
 import { RateLimiter } from './limiter';
 import { READ_LINK_SECONDS, registerMediaRoutes } from './media';
 import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
+import { apiV1 } from './routes';
 import * as sec from './security';
 import type { Storage } from './storage';
 
@@ -42,6 +44,7 @@ type UserRow = {
   onboarded_at: Date | null;
   avatar_key: string | null;
   cover_key: string | null;
+  suspended_until: Date | null;
 }
 
 const USER_SQL =
@@ -109,7 +112,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (wait) throw new HttpError(429, 'rate_limited', 'Too many requests. Please slow down.', wait);
   });
 
-  app.addHook('onSend', async (_req, reply, payload) => {
+  app.addHook('onSend', async (req, reply, payload) => {
+    reply.header('X-Request-Id', req.id);
     reply.header('Cache-Control', 'no-store');
     reply.header('X-Content-Type-Options', 'nosniff');
     return payload;
@@ -173,6 +177,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const id = token ? await sec.verifyAccessToken(token, config.JWT_SECRET) : null;
     const user = id ? await findUserById(id) : undefined;
     if (!user || !user.email_verified_at) throw new HttpError(401, 'unauthorized', 'Please log in again.');
+    if (user.suspended_until && user.suspended_until.getTime() > Date.now()) {
+      throw new HttpError(403, 'account_suspended', 'This account is suspended.');
+    }
     return user;
   }
 
@@ -255,6 +262,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   // ---- public
   app.get('/health', async () => ({ status: 'ok', uploads: storage !== undefined }));
+  // Readiness: can this instance actually serve requests (is the database reachable)? Reveals nothing else.
+  app.get('/ready', async (_req, reply) => {
+    try {
+      await pool.query('select 1');
+      return { status: 'ready' };
+    } catch {
+      return reply.status(503).send({ status: 'unavailable' });
+    }
+  });
 
   app.get('/universities', async () => {
     const { rows } = await pool.query<{ id: string; name: string; email_domains: string[] }>(
@@ -475,6 +491,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerMediaRoutes(app, routeContext);
   registerPostRoutes(app, routeContext);
   registerPeopleRoutes(app, routeContext);
+
+  // ---- new modules (blocking, privacy, notifications, Discover, messaging, events), versioned under /api/v1
+  void app.register(apiV1(makeCtx(pool, config, limiter, storage ?? null)), { prefix: '/api/v1' });
 
   return app;
 }

@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { userVisible } from './access';
+import { withTx } from './db';
 import { HttpError } from './errors';
+import { notify, retract } from './modules/notify';
 import { AUTHOR_COLS, AuthorCols, RouteContext, authorJson, paramId } from './shared';
 
 const PEOPLE_FROM = 'from users a join universities uni on uni.id = a.university_id';
@@ -29,12 +32,12 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     >(
       `select ${AUTHOR_COLS}, a.bio, ` +
         // Only the posts this viewer is allowed to see are counted.
-        '(select count(*) from posts p where p.author_id = a.id and (p.audience = \'campus\' or a.id = $1 or ' +
+        '(select count(*) from posts p where p.author_id = a.id and p.status = \'active\' and (p.audience = \'campus\' or a.id = $1 or ' +
         'exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = a.id)))::int as posts, ' +
         '(select count(*) from follows where followee_id = a.id)::int as followers, ' +
         '(select count(*) from follows where follower_id = a.id)::int as following, ' +
         'exists (select 1 from follows where follower_id = $1 and followee_id = a.id) as followed_by_me ' +
-        `${PEOPLE_FROM} where a.id = $3 and a.university_id = $2 and a.email_verified_at is not null`,
+        `${PEOPLE_FROM} where a.id = $3 and a.university_id = $2 and a.email_verified_at is not null and ${userVisible('a', '$1', '$2')}`,
       [user.id, user.university_id, id],
     );
     const r = rows[0];
@@ -54,12 +57,16 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     const id = paramId(req);
     ctx.tooMany(`follow:${user.id}`, 200, 3600);
     if (id === user.id) throw new HttpError(400, 'validation', "You can't follow yourself.");
+    // Blocked pairs and suspended students look like "not found", so a block cannot be probed through this route.
     const target = await pool.query(
-      'select 1 from users where id = $1 and university_id = $2 and email_verified_at is not null',
-      [id, user.university_id],
+      `select 1 from users u where u.id = $1 and u.university_id = $2 and u.email_verified_at is not null and ${userVisible('u', '$3', '$2')}`,
+      [id, user.university_id, user.id],
     );
     if (!target.rowCount) throw new HttpError(404, 'not_found', 'That student was not found.');
-    await pool.query('insert into follows (follower_id, followee_id) values ($1, $2) on conflict do nothing', [user.id, id]);
+    await withTx(pool, async (client) => {
+      const made = await client.query('insert into follows (follower_id, followee_id) values ($1, $2) on conflict do nothing', [user.id, id]);
+      if (made.rowCount) await notify(client, { recipientId: id, actorId: user.id, type: 'follow', entityType: 'user', entityId: user.id });
+    });
     return reply.status(204).send();
   });
 
@@ -67,7 +74,10 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     const user = await ctx.requireUser(req);
     const id = paramId(req);
     ctx.tooMany(`follow:${user.id}`, 200, 3600);
-    await pool.query('delete from follows where follower_id = $1 and followee_id = $2', [user.id, id]);
+    await withTx(pool, async (client) => {
+      await client.query('delete from follows where follower_id = $1 and followee_id = $2', [user.id, id]);
+      await retract(client, id, user.id, 'follow', user.id);
+    });
     return reply.status(204).send();
   });
 
@@ -76,8 +86,8 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     const { rows } = await pool.query<AuthorCols & { following_back: boolean }>(
       `select ${AUTHOR_COLS}, exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = a.id) as following_back ` +
         'from follows f join users a on a.id = f.follower_id join universities uni on uni.id = a.university_id ' +
-        'where f.followee_id = $1 order by f.created_at desc limit 200',
-      [user.id],
+        `where f.followee_id = $1 and ${userVisible('a', '$1', '$2')} order by f.created_at desc limit 200`,
+      [user.id, user.university_id],
     );
     return rows.map((r) => ({ student: authorJson(r), isFollowing: r.following_back }));
   });
@@ -87,8 +97,8 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     const { rows } = await pool.query<AuthorCols>(
       `select ${AUTHOR_COLS} ` +
         'from follows f join users a on a.id = f.followee_id join universities uni on uni.id = a.university_id ' +
-        'where f.follower_id = $1 order by f.created_at desc limit 200',
-      [user.id],
+        `where f.follower_id = $1 and ${userVisible('a', '$1', '$2')} order by f.created_at desc limit 200`,
+      [user.id, user.university_id],
     );
     return rows.map((r) => ({ student: authorJson(r), isFollowing: true }));
   });
