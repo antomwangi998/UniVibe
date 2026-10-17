@@ -119,7 +119,7 @@ fun CreatePostScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StudentAvatar(s.me?.name ?: "You", size = 44.dp, accent = s.me?.accent ?: 0)
+                StudentAvatar(s.me?.name ?: "You", size = 44.dp, accent = s.me?.accent ?: 0, imagePath = s.me?.avatarUrl)
                 Spacer(Modifier.width(Spacing.sm + 4.dp))
                 Column {
                     Text(s.me?.name ?: "You", style = MaterialTheme.typography.titleSmall)

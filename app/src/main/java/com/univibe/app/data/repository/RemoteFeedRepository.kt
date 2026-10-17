@@ -74,7 +74,7 @@ class RemoteFeedRepository(
         return Student(
             id = me.id, name = me.fullName, handle = "@$handle", age = 0, course = me.course, year = me.yearOfStudy,
             university = me.universityName, interests = me.interests, verified = me.studentVerified,
-            online = true, accent = accentFor(me.id),
+            online = true, accent = accentFor(me.id), avatarUrl = me.avatarUrl,
         )
     }
 

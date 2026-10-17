@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { withTx } from './db';
 import { HttpError } from './errors';
 import { READ_LINK_SECONDS } from './media';
-import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId } from './shared';
+import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId, signAuthors } from './shared';
 
 const TEXT_MAX = 280;
 const text = z.string().trim().min(1, 'Write something first.').max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
@@ -138,6 +138,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   /** Posts as the API returns them, with short-lived links to their photos and videos. */
   async function present(rows: PostRow[]) {
     if (rows.length === 0) return [];
+    await signAuthors(ctx.storage, rows);
     const byPost = new Map<string, MediaOut[]>();
     if (ctx.storage) {
       const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string }>(
@@ -367,6 +368,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       `select ${COMMENT_COLS} ${COMMENT_FROM} where c.post_id = $2 and ${commentShown('c')} order by c.created_at asc, c.id asc limit 500`,
       [user.id, id],
     );
+    await signAuthors(ctx.storage, rows);
     return rows.map((r) => commentJson(r, user.id));
   });
 
@@ -403,6 +405,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       return cid;
     });
     const comment = await fetchComment(user, commentId);
+    if (comment) await signAuthors(ctx.storage, [comment as CommentRow]);
     return reply.status(201).send(commentJson(comment as CommentRow, user.id));
   });
 

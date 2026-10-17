@@ -20,12 +20,26 @@ export type SignedInUser = { id: string; university_id: string; full_name: strin
 /** Columns describing a student, from a query that joins `users a` and `universities uni`. */
 export const AUTHOR_COLS =
   'a.id as a_id, a.full_name as a_name, a.handle as a_handle, a.course as a_course, a.year_of_study as a_year, ' +
-  'a.interests as a_interests, a.student_verified as a_verified, a.has_photo as a_photo, uni.name as a_university';
+  'a.interests as a_interests, a.student_verified as a_verified, a.has_photo as a_photo, uni.name as a_university, ' +
+  "(select m.object_key from media m where m.id = a.avatar_media_id and m.status = 'ready') as a_avatar_key";
 
 export type AuthorCols = {
   a_id: string; a_name: string; a_handle: string; a_course: string; a_year: string;
   a_interests: string[]; a_verified: boolean; a_photo: boolean; a_university: string;
+  a_avatar_key: string | null;
+  /** Filled in by [signAuthors] right before the row is sent. */
+  a_avatar_url?: string | null;
 };
+
+const AVATAR_LINK_SECONDS = 900;
+
+/** Gives every row a short-lived link to its author's profile photo (null when they have none). Call before [authorJson]. */
+export async function signAuthors<T extends AuthorCols>(storage: Storage | undefined, rows: T[]): Promise<T[]> {
+  await Promise.all(rows.map(async (r) => {
+    r.a_avatar_url = r.a_avatar_key && storage ? await storage.signedUrl(r.a_avatar_key, AVATAR_LINK_SECONDS) : null;
+  }));
+  return rows;
+}
 
 export function authorJson(r: AuthorCols) {
   return {
@@ -37,6 +51,7 @@ export function authorJson(r: AuthorCols) {
     interests: r.a_interests,
     studentVerified: r.a_verified,
     hasPhoto: r.a_photo,
+    avatarUrl: r.a_avatar_url ?? null,
     universityName: r.a_university,
   };
 }

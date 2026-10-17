@@ -221,7 +221,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (Strin
                                 .padding(horizontal = Spacing.md, vertical = Spacing.sm),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            StudentAvatar(entry.student.name, size = 48.dp, accent = entry.student.accent, online = entry.student.online)
+                            StudentAvatar(entry.student.name, size = 48.dp, accent = entry.student.accent, online = entry.student.online, imagePath = entry.student.avatarUrl)
                             Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
                                 Text(entry.student.name, style = MaterialTheme.typography.titleSmall)
                                 Text(entry.student.course.ifBlank { entry.student.handle }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -270,7 +270,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
                         )
                         Box(Modifier.offset(y = (-48).dp)) {
                             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.background, modifier = Modifier.size(104.dp)) {
-                                Box(contentAlignment = Alignment.Center) { StudentAvatar(student.name, size = 92.dp, accent = student.accent, online = student.online) }
+                                Box(contentAlignment = Alignment.Center) { StudentAvatar(student.name, size = 92.dp, accent = student.accent, online = student.online, imagePath = student.avatarUrl) }
                             }
                         }
                         Column(Modifier.offset(y = (-40).dp), horizontalAlignment = Alignment.CenterHorizontally) {

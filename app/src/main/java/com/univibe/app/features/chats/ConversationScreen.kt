@@ -312,7 +312,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                     Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Mention ${st.name}") { viewModel.pickMention(st) }.padding(horizontal = Spacing.sm),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent)
+                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent, imagePath = st.avatarUrl)
                                     Text(st.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = Spacing.sm + 4.dp))
                                     Text("  ${st.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
