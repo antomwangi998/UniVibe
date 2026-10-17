@@ -34,10 +34,13 @@ export function harness(pool: () => Pool) {
   }
 
   async function student(domain = 'lakeside.example', universityId = 'lakeside'): Promise<Student> {
-    const email = `s${Date.now()}x${n++}@${domain}`;
+    // Include a small random suffix to avoid collisions when tests run in parallel or quickly in succession.
+    const email = `s${Date.now()}x${n++}_${Math.random().toString(36).slice(2,8)}@${domain}`;
     await call('POST', '/auth/register', undefined, { fullName: 'Test Student', email, universityId, password: PASSWORD, acceptedTerms: true });
     // The email goes out just after the response, so under load the code can arrive a moment later.
-    for (let i = 0; i < 100 && !codes.has(email); i++) await new Promise((r) => setTimeout(r, 20));
+    // Wait up to 5s for the in-memory mailer to receive the code.
+    for (let i = 0; i < 250 && !codes.has(email); i++) await new Promise((r) => setTimeout(r, 20));
+    if (!codes.has(email)) throw new Error(`verification code not received for ${email} after 5s`);
     const res = await call('POST', '/auth/verify-email', undefined, { email, code: codes.get(email) });
     expect(res.status, `${email}: ${JSON.stringify(res.body)} code=${codes.get(email)}`).toBe(200);
     return { id: res.body.user.id, token: res.body.accessToken, email, handle: res.body.user.handle };
