@@ -72,6 +72,8 @@ interface NotificationRepository {
     suspend fun getNotifications(): List<AppNotification>
     suspend fun markRead(id: String)
     suspend fun markAllRead()
+    /** Asks the server for the current unread count (the badge). The mock keeps its own count, so this does nothing there. */
+    suspend fun refreshUnread() {}
 }
 
 interface DiscoverRepository {

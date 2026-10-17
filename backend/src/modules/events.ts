@@ -104,9 +104,10 @@ export function eventRoutes(ctx: Ctx) {
     }
 
     async function notifyRegistrants(client: Q, me: AuthUser, eventId: string, kind: string) {
+      const title = (await client.query<{ title: string }>('select title from events where id = $1', [eventId])).rows[0]?.title ?? '';
       const { rows } = await client.query<{ user_id: string }>(
         "select user_id from event_registrations where event_id = $1 and status = 'registered' and user_id <> $2", [eventId, me.id]);
-      for (const r of rows) await notify(client as PoolClient, { recipientId: r.user_id, actorId: me.id, type: 'event_update', entityType: 'event', entityId: eventId, metadata: { kind } });
+      for (const r of rows) await notify(client as PoolClient, { recipientId: r.user_id, actorId: me.id, type: 'event_update', entityType: 'event', entityId: eventId, metadata: { kind, title } });
     }
 
     app.post('/events', async (req, reply) => {
@@ -312,14 +313,14 @@ export async function purgeExpiredEvents(ctx: Ctx): Promise<number> {
 /** Background job: one reminder per registered person, for events starting within the next hour. Idempotent. */
 export async function sendEventReminders(ctx: Ctx): Promise<number> {
   return withTx(ctx.pool, async (client) => {
-    const due = await client.query<{ event_id: string; user_id: string; organizer_id: string }>(
+    const due = await client.query<{ event_id: string; user_id: string; title: string }>(
       `insert into event_reminders (event_id, user_id)
        select r.event_id, r.user_id from event_registrations r join events e on e.id = r.event_id
         where r.status = 'registered' and e.status = 'published' and e.starts_at > now() and e.starts_at <= now() + interval '1 hour'
        on conflict do nothing returning event_id, user_id,
-         (select organizer_id from events where id = event_reminders.event_id) as organizer_id`);
+         (select title from events where id = event_reminders.event_id) as title`);
     for (const r of due.rows) {
-      await notify(client, { recipientId: r.user_id, actorId: null, type: 'event_update', entityType: 'event', entityId: r.event_id, metadata: { kind: 'reminder' } });
+      await notify(client, { recipientId: r.user_id, actorId: null, type: 'event_update', entityType: 'event', entityId: r.event_id, metadata: { kind: 'reminder', title: r.title } });
     }
     return due.rowCount ?? 0;
   });

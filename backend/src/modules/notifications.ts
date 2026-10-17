@@ -29,6 +29,7 @@ export function notificationRoutes(ctx: Ctx) {
       const cur = decodeCursor(q.cursor);
       const { rows } = await pool.query(
         `select n.id, n.type, n.entity_type, n.entity_id, n.metadata, n.read_at, n.created_at, ${tsText('n.created_at')} as "cursorT",
+                floor(extract(epoch from (now() - n.created_at)))::int as age_seconds,
                 ${CARD_COLUMNS}
            from notifications n
            left join users u on u.id = n.actor_id ${CARD_JOIN}
@@ -44,12 +45,12 @@ export function notificationRoutes(ctx: Ctx) {
         page.items.map(async (r) => {
           const row = r as unknown as CardRow & {
             id: string; type: string; entity_type: string | null; entity_id: string | null;
-            metadata: object; read_at: Date | null; created_at: Date;
+            metadata: object; read_at: Date | null; created_at: Date; age_seconds: number;
           };
           return {
             id: row.id, type: row.type, actor: row.card_id ? await toCard(ctx, row) : null,
             entityType: row.entity_type, entityId: row.entity_id, metadata: row.metadata,
-            readAt: row.read_at, createdAt: row.created_at,
+            readAt: row.read_at, createdAt: row.created_at, ageSeconds: row.age_seconds,
           };
         }),
       );

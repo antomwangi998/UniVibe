@@ -9,6 +9,9 @@ import com.univibe.app.data.net.send
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** A profile save the server refused or could not complete, with a reason that is safe to show to the student. */
+class ProfileSaveException(message: String) : Exception(message)
+
 data class MyStats(val posts: Int, val followers: Int, val following: Int, val saved: Int)
 
 /** The people side of the server: counts, other students' profiles and follows. */

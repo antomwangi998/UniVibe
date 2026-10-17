@@ -35,12 +35,16 @@ import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.UrlConnectionFileUploader
 import com.univibe.app.data.repository.MockData
 import com.univibe.app.data.repository.RemoteCommentRepository
+import com.univibe.app.data.repository.ProfileSaveException
+import com.univibe.app.data.repository.RemoteDiscoverRepository
 import com.univibe.app.data.repository.RemoteFeedRepository
+import com.univibe.app.data.repository.RemoteNotificationRepository
 import com.univibe.app.data.repository.RemoteProfileBackend
 import com.univibe.app.domain.auth.AuthRepository
 import com.univibe.app.domain.auth.AuthResult
 import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.domain.auth.AuthUser
+import com.univibe.app.domain.auth.userMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,14 +92,23 @@ object AppContainer {
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
     /** One shared instance so RSVPs made on the details screen show up in the list. */
     /** One shared instance so a decision made on a full profile also updates the Discover deck. */
-    val discoverRepository: DiscoverRepository by lazy { MockDiscoverRepository() }
-    val notificationRepository: NotificationRepository by lazy { MockNotificationRepository() }
+    // With a backend these are the real thing (no sample people or sample notifications); the mocks are offline demo only.
+    val discoverRepository: DiscoverRepository by lazy {
+        api?.let { RemoteDiscoverRepository(it) { accountOf(authRepository.session.value) } } ?: MockDiscoverRepository()
+    }
+    val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it) } ?: MockNotificationRepository() }
     val eventRepository: EventRepository by lazy { MockEventRepository(mockStore) }
     val profileRepository: ProfileRepository by lazy {
         MockProfileRepository(
             mockStore, DataStoreProfileLocalStore(app),
             account = { accountOf(authRepository.session.value) },
-            saveAccount = { edit -> authRepository.updateProfile(edit) is AuthResult.Success },
+            saveAccount = { edit ->
+                when (val result = authRepository.updateProfile(edit)) {
+                    is AuthResult.Success -> true
+                    // Say why (for example "uploads are unavailable") instead of a vague failure.
+                    is AuthResult.Failure -> throw ProfileSaveException(result.error.userMessage())
+                }
+            },
             backend = api?.let { RemoteProfileBackend(it) },
         )
     }
