@@ -148,7 +148,7 @@ fun OnboardingScreen(
                         Heading("Show your vibe")
                         Text("Add a photo and a short bio. Both are optional and can be changed later.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                            StudentAvatar(user.fullName, size = 72.dp)
+                            StudentAvatar(user.fullName, size = 72.dp, imagePath = user.avatarUrl)
                             VibeButton(
                                 if (state.hasPhoto) "Photo selected" else "Choose photo",
                                 onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },

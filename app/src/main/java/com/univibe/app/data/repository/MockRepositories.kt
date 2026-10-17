@@ -84,7 +84,7 @@ object MockData {
         val handle = user.handle.ifBlank { user.fullName.lowercase().filter { it.isLetterOrDigit() }.ifBlank { "student" } }
         identity = Student(
             ME_ID, user.fullName, "@$handle", 0, user.course, user.yearOfStudy, user.universityName,
-            user.interests, verified = user.studentVerified, online = true, accent = 0,
+            user.interests, verified = user.studentVerified, online = true, accent = 0, avatarUrl = user.avatarUrl,
         )
         identityBio = user.bio
     }
@@ -198,7 +198,7 @@ object MockData {
 
 /** Shared in-memory state so every mock repository sees the same posts, chats, comments, etc. */
 /** [demo] = true seeds the sample social graph (people you follow, clubs you belong to). A real account starts empty. */
-class MockStore(demo: Boolean = true) {
+class MockStore(val demo: Boolean = true) {
     val posts = (MockData.posts + listOf(
         Post("pc1", MockData.brian, "3h", "Hack night is back this Friday. Bring a laptop and an idea.", 12, 3, audience = PostAudience.Community("tech", "Tech Club")),
         Post("pc2", MockData.grace, "1d", "Reminder: slides from the AI talk are in the shared folder.", 7, 1, audience = PostAudience.Community("tech", "Tech Club")),
@@ -208,7 +208,8 @@ class MockStore(demo: Boolean = true) {
     val saved = mutableSetOf<String>()
     val following: MutableSet<String> = if (demo) mutableSetOf("s2", "s3", "s6") else mutableSetOf()
 
-    val chats = MockData.chats.toMutableList()
+    // With a real backend there are no invented conversations.
+    val chats = (if (demo) MockData.chats else emptyList()).toMutableList()
     val archived = mutableSetOf<String>()
     val mutedChats = mutableSetOf<String>()
     private val messageFlows = mutableMapOf<String, MutableStateFlow<List<Message>>>()
@@ -222,7 +223,7 @@ class MockStore(demo: Boolean = true) {
         val base = System.currentTimeMillis().let { it - it % hour }
         // id to (start offset in hours, duration in hours)
         val offsets = mapOf("e1" to (50L to 4L), "e2" to (150L to 3L), "e3" to (270L to 3L), "e4" to (400L to 2L), "e5" to (-80L to 4L), "e6" to (-150L to 8L))
-        MockData.eventInfo.values.map { d ->
+        if (!demo) mutableListOf() else MockData.eventInfo.values.map { d ->
             val (startH, durH) = offsets.getValue(d.event.id)
             val start = base + startH * hour
             d.copy(event = d.event.copy(startMillis = start, endMillis = start + durH * hour, hostName = d.host))
@@ -231,9 +232,9 @@ class MockStore(demo: Boolean = true) {
     val rsvps = mutableMapOf<String, RsvpState>()
 
     private val communityMembers = mutableMapOf<String, MutableList<CommunityMember>>()
-    val joinRequests = mutableMapOf<String, MutableList<Student>>(
-        "tech" to mutableListOf(MockData.amina, MockData.kevin),
-    )
+    val joinRequests = mutableMapOf<String, MutableList<Student>>().also {
+        if (demo) it["tech"] = mutableListOf(MockData.amina, MockData.kevin)
+    }
 
     /** Mock-only member lists. A real backend stores memberships; counts shown in lists come from the server. */
     fun membersOf(id: String): MutableList<CommunityMember> = communityMembers.getOrPut(id) {
@@ -246,7 +247,7 @@ class MockStore(demo: Boolean = true) {
             }
         }
         if (c.role != CommunityRole.None && list.none { it.isMe }) list += CommunityMember(MockData.aisha, c.role, true)
-        MockData.allStudents.filter { s -> s.id != MockData.tech.id && list.none { it.student.id == s.id } && !(joinRequests[id].orEmpty().any { r -> r.id == s.id }) }
+        if (demo) MockData.allStudents.filter { s -> s.id != MockData.tech.id && list.none { it.student.id == s.id } && !(joinRequests[id].orEmpty().any { r -> r.id == s.id }) }
             .take(3).forEach { list += CommunityMember(it, CommunityRole.Member) }
         list
     }
@@ -291,7 +292,8 @@ class MockStore(demo: Boolean = true) {
     private val commentLists = mutableMapOf<String, MutableList<Comment>>()
     private val likedComments = mutableSetOf<String>()
 
-    val communities = mutableListOf(
+    // Sample clubs are offline-demo only; a real backend supplies the real ones.
+    val communities = (if (!demo) emptyList() else listOf(
         Community("tech", "Tech Club", "Talks, hack nights and projects for anyone curious about technology.", 842, "Academic", 5,
             CommunityRole.Moderator, rules = listOf("Be respectful", "No spam or ads", "Credit your sources"), moderators = listOf("Aisha Njoki", "Brian Otieno"),
             privacy = CommunityPrivacy.Private, createdLabel = "Created 4 Feb 2026"),
@@ -305,17 +307,14 @@ class MockStore(demo: Boolean = true) {
             rules = listOf("No pyramid schemes", "Give honest feedback"), moderators = listOf("Grace Wanjiku")),
         Community("football", "Football Club", "Training sessions and inter-faculty matches.", 380, "Sports", 1,
             rules = listOf("Respect the referee", "Everyone plays"), moderators = listOf("Brian Otieno")),
-    )
+    )).toMutableList()
 
-    init {
-        if (!demo) for (i in communities.indices) communities[i] = communities[i].copy(role = CommunityRole.None)
-    }
-    val reports = mutableMapOf(
-        "tech" to mutableListOf(
+    val reports = mutableMapOf<String, MutableList<ReportItem>>().also {
+        if (demo) it["tech"] = mutableListOf(
             ReportItem("r1", "Selling cheap laptops, message me for prices!!!", "Unknown Seller", "Spam"),
             ReportItem("r2", "That talk was a waste of everyone's time.", "Anonymous", "Harassment or bullying"),
-        ),
-    )
+        )
+    }
 
     fun commentsFor(postId: String): MutableList<Comment> = commentLists.getOrPut(postId) {
         when (postId) {
@@ -1141,6 +1140,7 @@ class MockGroupRepository(private val store: MockStore = MockStore()) : GroupRep
     override suspend fun getAddable(chatId: String): List<Student> {
         val g = need(chatId)
         check(g.canAddMembers) { "Only admins can add members." }
+        if (!store.demo) return emptyList() // no invented people with a real backend
         // Community accounts (like Tech Club) are not people and can't join chats.
         return MockData.allStudents.filter { s -> s.id != MockData.tech.id && g.members.none { it.student.id == s.id } }
     }
@@ -1195,6 +1195,7 @@ class MockGroupRepository(private val store: MockStore = MockStore()) : GroupRep
 
     override suspend fun getContacts(): List<Student> {
         delay(250)
+        if (!store.demo) return emptyList() // no invented people with a real backend
         return MockData.allStudents.filter { it.id != MockData.tech.id && it.id != MockData.aisha.id }
     }
 

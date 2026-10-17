@@ -136,6 +136,7 @@ fun HomeScreen(
                 item(key = "composer") {
                     Composer(
                         fullName = state.me?.name.orEmpty(),
+                        avatarUrl = state.me?.avatarUrl,
                         supportsMedia = viewModel.supportsMedia,
                         publishing = state.publishing,
                         error = state.publishError,
@@ -281,6 +282,7 @@ private fun SheetOption(icon: ImageVector, label: String, destructive: Boolean =
 @Composable
 private fun Composer(
     fullName: String,
+    avatarUrl: String?,
     supportsMedia: Boolean,
     publishing: Boolean,
     error: String?,
@@ -346,7 +348,7 @@ private fun Composer(
 
     VibeCard {
         Row(verticalAlignment = Alignment.Top) {
-            StudentAvatar(fullName, size = 40.dp, modifier = Modifier.padding(top = 8.dp))
+            StudentAvatar(fullName, size = 40.dp, imagePath = avatarUrl, modifier = Modifier.padding(top = 8.dp))
             Spacer(Modifier.width(Spacing.sm + 4.dp))
             VibeTextField(
                 value = text,
@@ -526,7 +528,7 @@ private fun StoriesRow(stories: List<Student>) {
         items(stories, key = { it.id }) { student ->
             Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 StoryRing(ringSize = 72.dp) {
-                    StudentAvatar(student.name, size = 58.dp, accent = student.accent, online = student.online)
+                    StudentAvatar(student.name, size = 58.dp, accent = student.accent, online = student.online, imagePath = student.avatarUrl)
                 }
                 Text(
                     student.name.substringBefore(' '),

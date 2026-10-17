@@ -69,6 +69,7 @@ fun parseStudent(o: JSONObject): Student {
         interests = stringList(o.optJSONArray("interests")),
         verified = o.optBoolean("studentVerified", false),
         accent = accentFor(id),
+        avatarUrl = if (o.isNull("avatarUrl")) null else o.optString("avatarUrl").ifEmpty { null },
     )
 }
 

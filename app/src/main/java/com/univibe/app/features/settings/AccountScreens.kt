@@ -50,7 +50,7 @@ fun AccountScreen(
                     Text("You're signed out.", style = MaterialTheme.typography.bodyMedium)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StudentAvatar(u.fullName, size = 56.dp)
+                        StudentAvatar(u.fullName, size = 56.dp, imagePath = u.avatarUrl)
                         Column(Modifier.padding(start = Spacing.md)) {
                             Text(u.fullName, style = MaterialTheme.typography.titleMedium)
                             Text(u.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

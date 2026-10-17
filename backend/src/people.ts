@@ -3,7 +3,7 @@ import { userVisible } from './access';
 import { withTx } from './db';
 import { HttpError } from './errors';
 import { notify, retract } from './modules/notify';
-import { AUTHOR_COLS, AuthorCols, RouteContext, authorJson, paramId } from './shared';
+import { AUTHOR_COLS, AuthorCols, RouteContext, authorJson, paramId, signAuthors } from './shared';
 
 const PEOPLE_FROM = 'from users a join universities uni on uni.id = a.university_id';
 
@@ -42,6 +42,7 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     );
     const r = rows[0];
     if (!r) throw new HttpError(404, 'not_found', 'That student was not found.');
+    await signAuthors(ctx.storage, [r]);
     return {
       student: authorJson(r),
       bio: r.bio,
@@ -89,6 +90,7 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
         `where f.followee_id = $1 and ${userVisible('a', '$1', '$2')} order by f.created_at desc limit 200`,
       [user.id, user.university_id],
     );
+    await signAuthors(ctx.storage, rows);
     return rows.map((r) => ({ student: authorJson(r), isFollowing: r.following_back }));
   });
 
@@ -100,6 +102,7 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
         `where f.follower_id = $1 and ${userVisible('a', '$1', '$2')} order by f.created_at desc limit 200`,
       [user.id, user.university_id],
     );
+    await signAuthors(ctx.storage, rows);
     return rows.map((r) => ({ student: authorJson(r), isFollowing: true }));
   });
 }
