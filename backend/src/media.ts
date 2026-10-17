@@ -33,7 +33,7 @@ export function looksLike(contentType: string, b: Uint8Array): boolean {
 
 const uploadSchema = z.object({
   kind: z.enum(['image', 'video']),
-  purpose: z.enum(['post', 'avatar', 'cover']),
+  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
 });

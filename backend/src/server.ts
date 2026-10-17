@@ -1,7 +1,10 @@
 import { buildApp } from './app';
 import { loadConfig, missingR2Settings, r2Settings } from './config';
 import { createPool, migrate } from './db';
+import { makeCtx } from './context';
 import { createConsoleMailer, createResendMailer } from './email';
+import { RateLimiter } from './limiter';
+import { purgeExpiredEvents, sendEventReminders } from './modules/events';
 import { cleanupPendingMedia } from './media';
 import { createR2Storage } from './storage';
 
@@ -21,6 +24,16 @@ async function main() {
     void sweep();
     setInterval(sweep, 6 * 3600 * 1000).unref();
   }
+
+  // Background jobs. Each is safe to run twice (reminders are guarded by a unique row; the purge just finds nothing).
+  const jobs = makeCtx(pool, config, new RateLimiter(), storage ?? null);
+  const every = (name: string, ms: number, job: () => Promise<unknown>) => {
+    const run = () => job().catch((e) => app.log.error({ err: e, job: name }, 'background job failed'));
+    void run();
+    setInterval(run, ms).unref();
+  };
+  every('event-reminders', 5 * 60 * 1000, () => sendEventReminders(jobs));
+  every('event-retention', 6 * 3600 * 1000, () => purgeExpiredEvents(jobs));
 
   const shutdown = async () => {
     await app.close();

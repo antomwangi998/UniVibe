@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { blockedBetween, notSuspended } from './access';
+import { notify, retract } from './modules/notify';
 import { z } from 'zod';
 import { withTx } from './db';
 import { HttpError } from './errors';
@@ -34,16 +36,22 @@ const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() }
  * Authors always see their own posts. Campus posts stay inside the author's university.
  * Followers-only posts need a follow. The server is the only place this is enforced.
  */
-const visible = (p: string, author: string) =>
-  `(${p}.author_id = $1 or (${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
-  `(${p}.audience = 'followers' and exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = ${p}.author_id)))`;
+export const visible = (p: string, author: string) =>
+  `(${p}.status = 'active' and (${p}.author_id = $1 or (` +
+  `((${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
+  `(${p}.audience = 'followers' and exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = ${p}.author_id))) ` +
+  `and ${notSuspended(author)} and not ${blockedBetween('$1', `${p}.author_id`)})))`;
+
+/** Comments the viewer may see: not removed, and not written by someone blocked in either direction. */
+export const commentShown = (c: string) =>
+  `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
 
 const POST_COLS =
   'p.id, p.text, p.audience, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
   ', (select count(*) from post_likes l where l.post_id = p.id)::int as like_count' +
-  ', (select count(*) from comments c where c.post_id = p.id)::int as comment_count' +
+  `, (select count(*) from comments c where c.post_id = p.id and ${commentShown('c')})::int as comment_count` +
   ', exists (select 1 from post_likes l where l.post_id = p.id and l.user_id = $1) as liked' +
   ', exists (select 1 from post_saves s where s.post_id = p.id and s.user_id = $1) as saved' +
   ', (select v.option_index from poll_votes v where v.post_id = p.id and v.user_id = $1) as my_vote' +
@@ -169,8 +177,8 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   /** The comment, if its post is visible to this student. */
   async function visibleComment(user: SignedInUser, id: string) {
     const { rows } = await pool.query<{ post_id: string; author_id: string; post_author_id: string }>(
-      'select c.post_id, c.author_id, p.author_id as post_author_id from comments c join posts p on p.id = c.post_id where c.id = $1',
-      [id],
+      `select c.post_id, c.author_id, p.author_id as post_author_id from comments c join posts p on p.id = c.post_id where c.id = $2 and ${commentShown('c')}`,
+      [user.id, id],
     );
     const row = rows[0];
     if (!row) throw new HttpError(404, 'not_found', 'That comment is not available.');
@@ -265,7 +273,12 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const post = await visiblePost(user, id);
     if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only delete your own posts.');
     const files = await pool.query<{ object_key: string }>('select object_key from media where post_id = $1', [id]);
-    await pool.query('delete from posts where id = $1', [id]); // likes, saves, votes, comments and media records cascade
+    await withTx(pool, async (client) => {
+      await client.query(
+        `delete from notifications where (entity_type = 'post' and entity_id = $1)
+            or (entity_type = 'comment' and entity_id in (select id from comments where post_id = $1))`, [id]);
+      await client.query('delete from posts where id = $1', [id]); // likes, saves, votes, comments and media records cascade
+    });
     if (ctx.storage && files.rowCount) await ctx.storage.remove(files.rows.map((r) => r.object_key)).catch(() => undefined);
     return reply.status(204).send();
   });
@@ -280,15 +293,26 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       const user = await ctx.requireUser(req);
       const id = paramId(req);
       ctx.tooMany(`${segment}:${user.id}`, 600, 3600);
-      await visiblePost(user, id);
-      await pool.query(`insert into ${table} (post_id, user_id) values ($1, $2) on conflict do nothing`, [id, user.id]);
+      const post = await visiblePost(user, id);
+      await withTx(pool, async (client) => {
+        const res = await client.query(`insert into ${table} (post_id, user_id) values ($1, $2) on conflict do nothing`, [id, user.id]);
+        if (segment === 'like' && res.rowCount) {
+          await notify(client, { recipientId: post.author_id, actorId: user.id, type: 'like', entityType: 'post', entityId: id });
+        }
+      });
       return reply.status(204).send();
     });
     app.delete(`/posts/:id/${segment}`, async (req, reply) => {
       const user = await ctx.requireUser(req);
       const id = paramId(req);
       ctx.tooMany(`${segment}:${user.id}`, 600, 3600);
-      await pool.query(`delete from ${table} where post_id = $1 and user_id = $2`, [id, user.id]);
+      await withTx(pool, async (client) => {
+        await client.query(`delete from ${table} where post_id = $1 and user_id = $2`, [id, user.id]);
+        if (segment === 'like') {
+          const owner = await client.query<{ author_id: string }>('select author_id from posts where id = $1', [id]);
+          if (owner.rows[0]) await retract(client, owner.rows[0].author_id, user.id, 'like', id);
+        }
+      });
       return reply.status(204).send();
     });
   }
@@ -340,7 +364,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const id = paramId(req);
     await visiblePost(user, id);
     const { rows } = await pool.query<CommentRow>(
-      `select ${COMMENT_COLS} ${COMMENT_FROM} where c.post_id = $2 order by c.created_at asc, c.id asc limit 500`,
+      `select ${COMMENT_COLS} ${COMMENT_FROM} where c.post_id = $2 and ${commentShown('c')} order by c.created_at asc, c.id asc limit 500`,
       [user.id, id],
     );
     return rows.map((r) => commentJson(r, user.id));
@@ -351,25 +375,34 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const id = paramId(req);
     const b = commentSchema.parse(req.body ?? {});
     ctx.tooMany(`comment:${user.id}`, 90, 3600);
-    await visiblePost(user, id);
+    const post = await visiblePost(user, id);
 
     let parentId: string | null = null;
     let replyToHandle: string | null = null;
+    let replyToAuthor: string | null = null;
     if (b.replyToId) {
-      const target = await pool.query<{ id: string; parent_id: string | null; handle: string }>(
-        'select c.id, c.parent_id, a.handle from comments c join users a on a.id = c.author_id where c.id = $1 and c.post_id = $2',
-        [b.replyToId, id],
+      const target = await pool.query<{ id: string; parent_id: string | null; handle: string; author_id: string }>(
+        `select c.id, c.parent_id, a.handle, c.author_id from comments c join users a on a.id = c.author_id where c.id = $2 and c.post_id = $3 and ${commentShown('c')}`,
+        [user.id, b.replyToId, id],
       );
       const t = target.rows[0];
       if (!t) throw new HttpError(404, 'not_found', 'The comment you are replying to is gone.');
       parentId = t.parent_id ?? t.id; // replies always hang under the top-level comment
       replyToHandle = t.handle;
+      replyToAuthor = t.author_id;
     }
-    const created = await pool.query<{ id: string }>(
-      'insert into comments (post_id, author_id, parent_id, reply_to_handle, text) values ($1, $2, $3, $4, $5) returning id',
-      [id, user.id, parentId, replyToHandle, b.text],
-    );
-    const comment = await fetchComment(user, created.rows[0].id);
+    const commentId = await withTx(pool, async (client) => {
+      const created = await client.query<{ id: string }>(
+        'insert into comments (post_id, author_id, parent_id, reply_to_handle, text) values ($1, $2, $3, $4, $5) returning id',
+        [id, user.id, parentId, replyToHandle, b.text],
+      );
+      const cid = created.rows[0].id;
+      // A reply tells the person replied to; a top-level comment tells the post's author. Never the comment text.
+      if (replyToAuthor) await notify(client, { recipientId: replyToAuthor, actorId: user.id, type: 'reply', entityType: 'comment', entityId: cid, metadata: { postId: id } });
+      else await notify(client, { recipientId: post.author_id, actorId: user.id, type: 'comment', entityType: 'comment', entityId: cid, metadata: { postId: id } });
+      return cid;
+    });
+    const comment = await fetchComment(user, commentId);
     return reply.status(201).send(commentJson(comment as CommentRow, user.id));
   });
 
@@ -400,7 +433,11 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     if (comment.author_id !== user.id && comment.post_author_id !== user.id) {
       throw new HttpError(403, 'forbidden', 'You can only delete your own comments, or comments on your posts.');
     }
-    await pool.query('delete from comments where id = $1', [id]); // replies cascade
+    await withTx(pool, async (client) => {
+      await client.query(
+        "delete from notifications where entity_type = 'comment' and (entity_id = $1 or entity_id in (select id from comments where parent_id = $1))", [id]);
+      await client.query('delete from comments where id = $1', [id]); // replies cascade
+    });
     return reply.status(204).send();
   });
 

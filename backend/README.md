@@ -82,3 +82,10 @@ npm run dev              # codes are printed to the console when RESEND_API_KEY 
 npm test                 # unit tests always; integration tests when TEST_DATABASE_URL points at a throwaway Postgres
 ```
 CI (`.github/workflows/backend.yml`) runs typecheck, build and all tests against a Postgres container, and uploads `package-lock.json` as an artifact. Commit that file once so installs are reproducible.
+
+
+## Social platform modules (v1)
+
+Blocking, privacy, notifications, Discover, messaging with WebSocket, events, search and moderation are documented in
+[docs/V1_API.md](docs/V1_API.md), including rules, the WebSocket protocol, jobs and known limitations. No new environment
+variables are required. Run the tests with `TEST_DATABASE_URL=... npm test`.
