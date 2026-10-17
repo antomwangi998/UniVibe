@@ -399,12 +399,12 @@ class RemoteAuthRepository(
 
     // ---------------------------------------------------------------- http and parsing
     private suspend fun call(method: String, path: String, body: JSONObject? = null, token: String? = null): HttpResponse {
-        val headers = buildMap {
-            put("Accept", "application/json")
-            if (body != null) put("Content-Type", "application/json")
-            if (token != null) put("Authorization", "Bearer $token")
-        }
-        return transport.execute(HttpRequest(method, baseUrl + path, headers, body?.toString()))
+        val headers = mutableMapOf("Accept" to "application/json")
+        if (token != null) headers["Authorization"] = "Bearer $token"
+        // Body-less POST/PUT would otherwise go out as a form post; an empty JSON object keeps it plain JSON.
+        val payload = body?.toString() ?: if (method == "POST" || method == "PUT") "{}" else null
+        if (payload != null) headers["Content-Type"] = "application/json"
+        return transport.execute(HttpRequest(method, baseUrl + path, headers, payload))
     }
 
     private suspend fun publicCall(method: String, path: String, body: JSONObject? = null): AuthResult<HttpResponse> =
