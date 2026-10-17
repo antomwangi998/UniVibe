@@ -115,7 +115,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                         item(key = "post") {
                             Column {
                                 Row(verticalAlignment = Alignment.Top) {
-                                    StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(post.author.id) })
+                                    StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(post.author.id) })
                                     Column(Modifier.weight(1f).padding(start = Spacing.sm + 4.dp)) {
                                         Text(post.author.name, style = MaterialTheme.typography.titleSmall)
                                         Text(post.text, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
@@ -257,7 +257,7 @@ private fun CommentRow(c: Comment, isReply: Boolean, onLike: () -> Unit, onReply
     val colors = MaterialTheme.colorScheme
     val avatar: Dp = if (isReply) 28.dp else 40.dp
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        StudentAvatar(c.author.name, size = avatar, accent = c.author.accent, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthor))
+        StudentAvatar(c.author.name, size = avatar, accent = c.author.accent, imagePath = c.author.avatarUrl, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthor))
         Column(Modifier.weight(1f).padding(start = Spacing.sm + 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(c.author.name, style = MaterialTheme.typography.titleSmall)

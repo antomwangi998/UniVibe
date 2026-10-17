@@ -256,7 +256,7 @@ fun CommunityDetailScreen(
     s.memberMenu?.let { m ->
         VibeBottomSheet(onDismiss = { viewModel.memberMenu(null) }) {
             Row(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-                StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent)
+                StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, imagePath = m.student.avatarUrl)
                 Column(Modifier.padding(start = Spacing.md)) {
                     Text(m.student.name, style = MaterialTheme.typography.titleMedium)
                     Text(m.role.name, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
@@ -326,7 +326,7 @@ private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenSt
     val colors = MaterialTheme.colorScheme
     VibeCard(onClick = { onOpenComments(p.id) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StudentAvatar(p.author.name, size = 36.dp, accent = p.author.accent, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(p.author.id) })
+            StudentAvatar(p.author.name, size = 36.dp, accent = p.author.accent, imagePath = p.author.avatarUrl, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(p.author.id) })
             Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
                 Text(p.author.name, style = MaterialTheme.typography.titleSmall)
                 Text(p.timeAgo, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
@@ -351,7 +351,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
             Text("Join requests (${s.requests.size})", style = MaterialTheme.typography.titleMedium)
             s.requests.forEach { st ->
                 Row(Modifier.fillMaxWidth().padding(top = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-                    StudentAvatar(st.name, size = 40.dp, accent = st.accent)
+                    StudentAvatar(st.name, size = 40.dp, accent = st.accent, imagePath = st.avatarUrl)
                     Column(Modifier.weight(1f).padding(horizontal = Spacing.sm + 4.dp)) {
                         Text(st.name, style = MaterialTheme.typography.titleSmall)
                         Text("${st.courseLine}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -373,7 +373,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
                     },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online)
+                StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online, imagePath = m.student.avatarUrl)
                 Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
                     Text(if (m.isMe) "${m.student.name} (you)" else m.student.name, style = MaterialTheme.typography.titleSmall)
                     Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
