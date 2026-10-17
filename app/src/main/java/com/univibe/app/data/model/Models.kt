@@ -18,6 +18,8 @@ data class Student(
     val sameCourse: Boolean = false,
     /** Photo shown on the Discover card; null falls back to a gradient with initials. */
     val photoPath: String? = null,
+    /** Short-lived link to the student's profile picture; null when they have not uploaded one (initials are shown). */
+    val avatarUrl: String? = null,
 ) {
     /** "Computer Science · 2nd Year", or just the course when no year is set. */
     val courseLine: String

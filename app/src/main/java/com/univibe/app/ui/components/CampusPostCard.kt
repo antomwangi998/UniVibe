@@ -77,7 +77,7 @@ fun CampusPostCard(
                 Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onAuthorClick),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-            StudentAvatar(post.author.name, size = 44.dp, accent = post.author.accent)
+            StudentAvatar(post.author.name, size = 44.dp, accent = post.author.accent, imagePath = post.author.avatarUrl)
             Spacer(Modifier.width(Spacing.sm + 4.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -247,7 +247,7 @@ fun GroupInfoScreen(
                         Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(role = Role.Checkbox) { viewModel.toggleSelected(st.id) }.padding(horizontal = Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        StudentAvatar(st.name, size = 44.dp, accent = st.accent)
+                        StudentAvatar(st.name, size = 44.dp, accent = st.accent, imagePath = st.avatarUrl)
                         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
                             Text(st.name, style = MaterialTheme.typography.titleSmall)
                             Text("${st.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
@@ -331,7 +331,7 @@ private fun MemberRow(m: GroupMember, onClick: () -> Unit) {
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online)
+        StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online, imagePath = m.student.avatarUrl)
         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
             Text(if (m.isMe) "${m.student.name} (you)" else m.student.name, style = MaterialTheme.typography.titleSmall)
             Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
@@ -417,7 +417,7 @@ private fun MemberSheet(
     val canRemove = group.iAmAdmin && member.role != GroupRole.Owner && (member.role != GroupRole.Admin || isOwner)
     VibeBottomSheet(onDismiss = onDismiss) {
         Row(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-            StudentAvatar(member.student.name, size = 44.dp, accent = member.student.accent)
+            StudentAvatar(member.student.name, size = 44.dp, accent = member.student.accent, imagePath = member.student.avatarUrl)
             Column(Modifier.padding(start = Spacing.md)) {
                 Text(member.student.name, style = MaterialTheme.typography.titleMedium)
                 Text(member.student.handle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

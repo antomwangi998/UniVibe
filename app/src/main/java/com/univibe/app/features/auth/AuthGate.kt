@@ -8,14 +8,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -27,7 +23,6 @@ import com.univibe.app.domain.auth.AuthError
 import com.univibe.app.domain.auth.SignedOutReason
 import com.univibe.app.domain.auth.userMessage
 import com.univibe.app.navigation.AppShell
-import com.univibe.app.ui.components.UniVibeMark
 
 private fun keyOf(state: AuthState): Int = when (state) {
     AuthState.LoadingSession -> 0
@@ -50,14 +45,14 @@ fun AuthGate(
     val state by sessionViewModel.state.collectAsStateWithLifecycle()
     AnimatedContent(
         targetState = state,
+        // A solid backdrop so the cross-fade between screens never shows a black flash.
+        modifier = Modifier.background(MaterialTheme.colorScheme.background),
         contentKey = ::keyOf,
         transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
         label = "authGate",
     ) { s ->
         when (s) {
-            AuthState.LoadingSession -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), Alignment.Center) {
-                UniVibeMark(markSize = 72.dp)
-            }
+            AuthState.LoadingSession -> SessionLoadingScreen()
             is AuthState.SignedOut -> AuthNavHost(
                 notice = when (s.reason) {
                     SignedOutReason.SessionExpired -> AuthError.SessionExpired.userMessage()

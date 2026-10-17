@@ -98,7 +98,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
                             modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Remove ${st.name}") { viewModel.toggle(st.id) },
                         ) {
                             Row(Modifier.padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                StudentAvatar(st.name, size = 28.dp, accent = st.accent)
+                                StudentAvatar(st.name, size = 28.dp, accent = st.accent, imagePath = st.avatarUrl)
                                 Text(st.name.substringBefore(' '), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp))
                                 Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(14.dp))
                             }
@@ -122,7 +122,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
                             Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(role = Role.Checkbox) { viewModel.toggle(st.id) }.padding(horizontal = Spacing.md),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            StudentAvatar(st.name, size = 44.dp, accent = st.accent, online = st.online)
+                            StudentAvatar(st.name, size = 44.dp, accent = st.accent, online = st.online, imagePath = st.avatarUrl)
                             Column(Modifier.weight(1f).padding(start = Spacing.md)) {
                                 Text(st.name, style = MaterialTheme.typography.titleSmall)
                                 Text("${st.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)

@@ -116,7 +116,7 @@ fun FullProfileScreen(
                         avatar = {
                             Box {
                                 Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
-                                    Box(contentAlignment = Alignment.Center) { StudentAvatar(student.name, size = 104.dp, accent = student.accent) }
+                                    Box(contentAlignment = Alignment.Center) { StudentAvatar(student.name, size = 104.dp, accent = student.accent, imagePath = student.avatarUrl) }
                                 }
                                 // Only when the server says this student is verified.
                                 if (student.verified) {
