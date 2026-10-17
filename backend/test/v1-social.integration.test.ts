@@ -34,6 +34,9 @@ describe.skipIf(!url)('blocking, notifications and privacy on top of the existin
     expect(c.status).toBe(201);
     expect(await types(author.token)).toEqual(expect.arrayContaining(['like', 'comment']));
     expect((await types(author.token)).filter((t: string) => t === 'like')).toHaveLength(1);
+    const listed = (await call('GET', `${V1}/notifications`, author.token)).body.items[0];
+    expect(typeof listed.ageSeconds).toBe('number'); // the app formats "2m / 3h" from this
+    expect(listed.ageSeconds).toBeGreaterThanOrEqual(0);
     // the notification never carries the comment text
     expect(JSON.stringify((await call('GET', `${V1}/notifications`, author.token)).body)).not.toContain('nice one');
     // a reply notifies the person replied to

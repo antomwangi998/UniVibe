@@ -62,6 +62,8 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     // 6: cancelling the event notifies the people going (and nobody else), then closes registration
     expect((await call('POST', `${V1}/events/${ev.id}/cancel`, org.token)).status).toBe(204);
     const kinds = async (t: string) => (await call('GET', `${V1}/notifications`, t)).body.items.filter((n: { type: string }) => n.type === 'event_update').map((n: { metadata: { kind: string } }) => n.metadata.kind);
+    const titles = (await call('GET', `${V1}/notifications`, s2.token)).body.items.map((n: { metadata: { title: string } }) => n.metadata.title);
+    expect(titles).toEqual([ev.title]); // event notifications carry the title so the app can name the event
     expect(await kinds(s2.token)).toEqual(['cancelled']);
     expect(await kinds(s3.token)).toEqual(['cancelled']);
     expect(await kinds(s1.token)).toEqual([]); // had cancelled their place

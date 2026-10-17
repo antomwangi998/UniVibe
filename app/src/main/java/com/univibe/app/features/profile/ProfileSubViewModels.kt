@@ -11,6 +11,7 @@ import com.univibe.app.data.model.ProfileUpdate
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.FeedRepository
 import com.univibe.app.data.repository.MessageRepository
+import com.univibe.app.data.repository.ProfileSaveException
 import com.univibe.app.data.repository.ProfileRepository
 import com.univibe.app.data.settings.BlockedUser
 import com.univibe.app.data.settings.SettingsRepository
@@ -113,6 +114,8 @@ class EditProfileViewModel(
                 repository.updateProfile(ProfileUpdate(s.name, s.bio, s.course, s.year, s.interests.toList(), s.avatarPath, s.coverPath))
                 importedThisSession.clear() // now owned by the saved profile
                 _state.update { it.copy(saving = false, saved = true) }
+            } catch (e: ProfileSaveException) {
+                _state.update { it.copy(saving = false, error = e.message ?: "Couldn't save. Please try again.") }
             } catch (e: Exception) {
                 _state.update { it.copy(saving = false, error = "Couldn't save. Please try again.") }
             }

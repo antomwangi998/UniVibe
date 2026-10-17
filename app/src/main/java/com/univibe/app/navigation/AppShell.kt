@@ -148,6 +148,13 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     val open: (String) -> Unit = { route -> navController.navigate(route) { launchSingleTop = true } }
     val back: () -> Unit = { navController.popBackStack() }
     val unreadNotifications by AppContainer.notificationRepository.unreadCount.collectAsStateWithLifecycle()
+    // Keep the bell badge in step with the server (does nothing in the offline demo).
+    LaunchedEffect(Unit) {
+        while (true) {
+            runCatching { AppContainer.notificationRepository.refreshUnread() }
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
