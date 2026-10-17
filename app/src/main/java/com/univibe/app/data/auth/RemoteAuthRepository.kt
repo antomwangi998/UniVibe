@@ -40,6 +40,8 @@ class RemoteAuthRepository(
     private val clock: Clock = SystemClock,
     /** Needed to upload profile photos; without it a photo change fails cleanly. */
     files: FileUploader? = null,
+    /** Runs while the session is still valid, just before log-out (the app stops push for this device here). Failures are ignored. */
+    private val beforeLogOut: suspend () -> Unit = {},
 ) : AuthRepository, AuthedApi {
 
     private val baseUrl = baseUrl.trimEnd('/')
@@ -107,6 +109,7 @@ class RemoteAuthRepository(
     }
 
     override suspend fun logOut() {
+        runCatching { beforeLogOut() }
         val refresh = tokens?.refresh ?: store.get(REFRESH_KEY)
         if (refresh != null) {
             publicCall("POST", "/auth/logout", JSONObject().put("refreshToken", refresh)) // best effort

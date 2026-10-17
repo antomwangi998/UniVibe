@@ -3,6 +3,8 @@
 
     <!-- Needed for map tiles. The app never asks for the device location. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 13+: asked once, after sign-in. If it is declined the in-app notification list keeps working. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".app.UniVibeApplication"
@@ -29,5 +31,14 @@
                 <data android:scheme="univibe" />
             </intent-filter>
         </activity>
+
+        <!-- Receives FCM data messages and token changes. Not exported: only Firebase may call it. -->
+        <service
+            android:name=".push.UniVibeMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

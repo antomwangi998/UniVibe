@@ -13,6 +13,8 @@ const schema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
+  // Firebase service account (JSON, or the same JSON base64-encoded). Server-side only; without it push is skipped.
+  FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -28,6 +30,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     R2_ACCESS_KEY_ID: env.R2_ACCESS_KEY_ID?.trim() || undefined,
     R2_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY?.trim() || undefined,
     R2_BUCKET: env.R2_BUCKET?.trim() || undefined,
+    FCM_SERVICE_ACCOUNT_JSON: env.FCM_SERVICE_ACCOUNT_JSON?.trim() || undefined,
   });
   if (config.NODE_ENV === 'production' && !config.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY is required in production');

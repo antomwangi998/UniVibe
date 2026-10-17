@@ -4,6 +4,7 @@ import { expect } from 'vitest';
 import { buildApp } from '../src/app';
 import type { Config } from '../src/config';
 import type { Mailer } from '../src/email';
+import { Hub } from '../src/realtime';
 import { createMemoryStorage } from '../src/storage';
 
 export const url = process.env.TEST_DATABASE_URL;
@@ -26,7 +27,7 @@ export function harness(pool: () => Pool) {
   };
   let app: FastifyInstance;
   let n = 0;
-  const make = () => { app = buildApp({ pool: pool(), mailer, config: testConfig(), storage }); return app; };
+  const make = (hub?: Hub) => { app = buildApp({ pool: pool(), mailer, config: testConfig(), storage, hub }); return app; };
 
   async function call(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, token?: string, payload?: unknown) {
     const res = await app.inject({ method, url: path, payload: payload as object | undefined, headers: token ? { authorization: `Bearer ${token}` } : undefined });
@@ -34,13 +35,10 @@ export function harness(pool: () => Pool) {
   }
 
   async function student(domain = 'lakeside.example', universityId = 'lakeside'): Promise<Student> {
-    // Include a small random suffix to avoid collisions when tests run in parallel or quickly in succession.
-    const email = `s${Date.now()}x${n++}_${Math.random().toString(36).slice(2,8)}@${domain}`;
+    const email = `s${Date.now()}x${n++}@${domain}`;
     await call('POST', '/auth/register', undefined, { fullName: 'Test Student', email, universityId, password: PASSWORD, acceptedTerms: true });
     // The email goes out just after the response, so under load the code can arrive a moment later.
-    // Wait up to 5s for the in-memory mailer to receive the code.
-    for (let i = 0; i < 250 && !codes.has(email); i++) await new Promise((r) => setTimeout(r, 20));
-    if (!codes.has(email)) throw new Error(`verification code not received for ${email} after 5s`);
+    for (let i = 0; i < 100 && !codes.has(email); i++) await new Promise((r) => setTimeout(r, 20));
     const res = await call('POST', '/auth/verify-email', undefined, { email, code: codes.get(email) });
     expect(res.status, `${email}: ${JSON.stringify(res.body)} code=${codes.get(email)}`).toBe(200);
     return { id: res.body.user.id, token: res.body.accessToken, email, handle: res.body.user.handle };

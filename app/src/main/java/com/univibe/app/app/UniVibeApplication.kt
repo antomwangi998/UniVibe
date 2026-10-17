@@ -45,6 +45,7 @@ import com.univibe.app.domain.auth.AuthResult
 import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.domain.auth.AuthUser
 import com.univibe.app.domain.auth.userMessage
+import com.univibe.app.push.PushRegistrar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -65,8 +66,16 @@ object AppContainer {
 
     fun init(application: Application) {
         app = application
+        // Channels exist from the first launch, so they show up in system settings and a push never arrives without one.
+        com.univibe.app.push.NotificationChannels.ensure(application)
         // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
+        // Once signed in, make sure this device's push address is registered with the server (cheap no-op when unchanged).
+        appScope.launch {
+            authRepository.session.collect { state ->
+                if (state is AuthState.Authenticated) appScope.launch { pushRegistrar.registerIfNeeded() }
+            }
+        }
     }
 
     private fun accountOf(state: AuthState): AuthUser? = when (state) {
@@ -113,6 +122,10 @@ object AppContainer {
         )
     }
 
+    val pushRegistrar: PushRegistrar by lazy {
+        PushRegistrar(app, api = { api }, userId = { accountOf(authRepository.session.value)?.id })
+    }
+
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
 
     val authRepository: AuthRepository by lazy {
@@ -121,7 +134,10 @@ object AppContainer {
             check(BuildConfig.DEBUG) { "No backend configured. Set univibe.apiBaseUrl and provide a RemoteAuthRepository." }
             MockAuthRepository(KeystoreSecureStore(app))
         } else {
-            RemoteAuthRepository(BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app), files = UrlConnectionFileUploader())
+            RemoteAuthRepository(
+                BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app), files = UrlConnectionFileUploader(),
+                beforeLogOut = { pushRegistrar.unregister() },
+            )
         }
     }
 }

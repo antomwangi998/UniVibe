@@ -8,6 +8,7 @@ import { HttpError } from '../errors';
 import { idParam, pageSchema } from '../http';
 import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
+import { enqueue } from '../jobs';
 import { notify } from './notify';
 
 export const EDIT_WINDOW_MINUTES = 15;
@@ -25,6 +26,9 @@ export interface MessageView {
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
   media: { id: string; kind: string; contentType: string; url: string | null }[];
+  /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
+  reactions: Record<string, number>;
+  myReaction?: string | null;
 }
 
 type Q = Pick<PoolClient, 'query'>;
@@ -50,8 +54,12 @@ async function audience(q: Q, conversationId: string, actorId: string): Promise<
   return rows.map((r) => r.user_id);
 }
 
-async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[]): Promise<MessageView[]> {
+async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerId?: string): Promise<MessageView[]> {
   const ids = rows.map((r) => r.id as string);
+  const reactionRows = ids.length
+    ? (await ctx.pool.query<{ message_id: string; user_id: string; reaction: string }>(
+        'select message_id, user_id, reaction from message_reactions where message_id = any($1::uuid[])', [ids])).rows
+    : [];
   const media = ids.length
     ? (await ctx.pool.query(
         "select id, message_id, kind, content_type, object_key, position from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
@@ -73,6 +81,8 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[]): Promis
         preview: r.reply_status === 'active' ? String(r.reply_content).slice(0, 80) : null,
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
+      reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
+      ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
   });
 }
@@ -82,9 +92,9 @@ const MESSAGE_SELECT = `
          r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content
     from messages m left join messages r on r.id = m.reply_to_id`;
 
-export async function loadMessage(ctx: Ctx, id: string): Promise<MessageView> {
+export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Promise<MessageView> {
   const { rows } = await ctx.pool.query(`${MESSAGE_SELECT} where m.id = $1`, [id]);
-  return (await toMessageViews(ctx, rows))[0];
+  return (await toMessageViews(ctx, rows, viewerId))[0];
 }
 
 /**
@@ -140,9 +150,16 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       'update conversation_members set last_read_seq = greatest(last_read_seq, $3) where conversation_id = $1 and user_id = $2',
       [conversationId, me.id, inserted.rows[0].seq]);
     const others = await audience(client, conversationId, me.id);
-    for (const userId of others.filter((u) => u !== me.id)) {
-      // No message text in notifications. One per conversation until it is read (see the dedupe index).
+    // Muted people get no alert and no feed entry for this conversation; the message itself is stored and delivered as usual.
+    const muted = new Set((await client.query<{ user_id: string }>(
+      'select user_id from conversation_members where conversation_id = $1 and muted_until is not null and muted_until > now()', [conversationId])).rows.map((r) => r.user_id));
+    // A new message brings an archived conversation back to the inbox.
+    await client.query('update conversation_members set archived = false where conversation_id = $1 and user_id <> $2 and archived', [conversationId, me.id]);
+    for (const userId of others.filter((u) => u !== me.id && !muted.has(u))) {
+      // No message text in notifications. One feed entry per conversation until it is read (see the dedupe index).
       await notify(client, { recipientId: userId, actorId: me.id, type: 'message', entityType: 'conversation', entityId: conversationId, metadata: { conversationId } });
+      // One push job per message and recipient, written in this transaction (outbox): it exists if and only if the message does.
+      await enqueue(client, 'push.message', { messageId: inserted.rows[0].id, recipientId: userId }, { dedupeKey: `${inserted.rows[0].id}:${userId}` });
     }
     return { id: messageId, created: true };
   });
@@ -171,6 +188,7 @@ export async function markRead(ctx: Ctx, hub: Hub, me: AuthUser, conversationId:
       where conversation_id = $1 and user_id = $2 returning last_read_seq`,
     [conversationId, me.id, target]);
   await ctx.pool.query("delete from notifications where recipient_id = $1 and type = 'message' and entity_id = $2", [me.id, conversationId]);
+  await ctx.pool.query('update conversation_members set marked_unread = false where conversation_id = $1 and user_id = $2', [conversationId, me.id]);
   const seq = Number(res.rows[0].last_read_seq);
   hub.sendMany((await audience(ctx.pool, conversationId, me.id)).filter((u) => u !== me.id), { type: 'message:read', conversationId, userId: me.id, upToSeq: seq });
   // Other devices of the same user learn the conversation is read.
@@ -264,12 +282,13 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     app.get('/conversations', async (req) => {
       const me = await ctx.auth(req);
       const q = pageSchema.parse(req.query);
+      const archivedOnly = (req.query as { archived?: string }).archived === 'true';
       let cur: { t: string; id: string } | null = null;
       if (q.cursor) {
         try { cur = JSON.parse(Buffer.from(q.cursor, 'base64url').toString()); } catch { throw new HttpError(400, 'invalid_cursor', 'That page cursor is not valid.'); }
       }
       const { rows } = await pool.query(
-        `select c.id, c.kind, c.title, c.last_message_at,
+        `select c.id, c.kind, c.title, c.last_message_at, cm.muted_until, cm.archived, cm.pinned, cm.marked_unread,
                 to_char(c.last_message_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_t,
                 (select count(*) from messages x where x.conversation_id = c.id and x.seq > cm.last_read_seq
                     and x.sender_id is distinct from $1 and x.status = 'active') as unread,
@@ -282,8 +301,9 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
            ${cardJoin('o')}
           where cm.user_id = $1 and (c.kind = 'group' or (o.id is not null and not ${blockedBetween('$1', 'o.id')}))
             and ($2::timestamptz is null or (c.last_message_at, c.id) < ($2::timestamptz, $3::uuid))
+            and cm.archived = $5::boolean
           order by c.last_message_at desc, c.id desc limit $4`,
-        [me.id, cur?.t ?? null, cur?.id ?? null, q.limit + 1],
+        [me.id, cur?.t ?? null, cur?.id ?? null, q.limit + 1, archivedOnly],
       );
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
@@ -291,6 +311,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       return {
         items: await Promise.all(page.map(async (r) => ({
           id: r.id, kind: r.kind, title: r.title, lastMessageAt: r.last_message_at, unreadCount: Number(r.unread),
+          mutedUntil: r.muted_until, archived: r.archived, pinned: r.pinned, markedUnread: r.marked_unread,
           with: r.card_id ? await toCard(ctx, r as CardRow) : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created } : null,
         }))),
@@ -303,8 +324,22 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     app.get('/conversations/:id/messages', async (req) => {
       const me = await ctx.auth(req);
       const id = param(req);
-      const q = z.object({ limit: z.coerce.number().int().min(1).max(100).default(30), before: z.coerce.number().int().positive().optional() }).parse(req.query);
+      const q = z.object({
+        limit: z.coerce.number().int().min(1).max(100).default(30),
+        before: z.coerce.number().int().positive().optional(),
+        // Reconnect sync: everything newer than the last seq the device holds, oldest first.
+        after: z.coerce.number().int().nonnegative().optional(),
+      }).parse(req.query);
       await membership(pool, id, me.id);
+      if (q.after !== undefined) {
+        const { rows: newer } = await pool.query(
+          `${MESSAGE_SELECT} where m.conversation_id = $1 and m.seq > $2
+              and (m.sender_id is null or m.sender_id = $3 or not ${blockedBetween('$3', 'm.sender_id')})
+            order by m.seq asc limit $4`, [id, q.after, me.id, q.limit + 1]);
+        const hasMore = newer.length > q.limit;
+        const batch = await toMessageViews(ctx, hasMore ? newer.slice(0, q.limit) : newer, me.id);
+        return { items: batch, nextAfter: hasMore && batch.length ? batch[batch.length - 1].seq : null };
+      }
       // Newest first; `before` is the seq of the oldest message already loaded. Messages from blocked people are hidden.
       const { rows } = await pool.query(
         `${MESSAGE_SELECT} where m.conversation_id = $1 and ($2::bigint is null or m.seq < $2)
@@ -314,7 +349,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       );
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
-      const items = await toMessageViews(ctx, page);
+      const items = await toMessageViews(ctx, page, me.id);
       return { items, nextBefore: more && items.length ? items[items.length - 1].seq : null };
     });
 
