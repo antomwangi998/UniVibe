@@ -66,6 +66,8 @@ object AppContainer {
 
     fun init(application: Application) {
         app = application
+        // Channels exist from the first launch, so they show up in system settings and a push never arrives without one.
+        com.univibe.app.push.NotificationChannels.ensure(application)
         // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
         // Once signed in, make sure this device's push address is registered with the server (cheap no-op when unchanged).
