@@ -4,6 +4,8 @@ import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.FileUploader
+import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.HttpResponse
 import com.univibe.app.data.repository.RemoteChatRepository
 import com.univibe.app.data.repository.RemoteMessageRepository
@@ -19,6 +21,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.io.File
+import java.io.IOException
 
 /** The real chat repositories against a fake server: they must map what the backend sends and keep sends honest. */
 class RemoteChatRepositoriesTest {
@@ -30,6 +34,27 @@ class RemoteChatRepositoriesTest {
         }
     }
 
+    private class PhotoFiles(private val fail: Boolean = false) : FileUploader {
+        val sent = mutableListOf<String>()
+        override suspend fun put(url: String, contentType: String, file: File) {
+            if (fail) throw IOException("connection lost")
+            sent += url
+        }
+    }
+
+    private fun photoFile(): String = File.createTempFile("chat", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)); deleteOnExit() }.absolutePath
+
+    /** A server that accepts one photo upload and then the message that points at it. */
+    private fun photoServer(sent: String) = FakeApi { method, path, _ ->
+        when {
+            method == "POST" && path == "/media/uploads" -> ok("""{"mediaId":"md1","uploadUrl":"https://files.test/up"}""", 201)
+            method == "POST" && path == "/media/md1/complete" -> ok("{}")
+            method == "POST" && path.endsWith("/messages") -> ok(sent, 201)
+            path.contains("/messages") -> ok("""{"items":[],"nextBefore":null,"pinnedMessageId":null}""")
+            else -> ok(membersJson)
+        }
+    }
+
     private fun ok(json: String, status: Int = 200) = HttpResponse(status, json)
     private val me = "me"
     private val card = """"id":"u2","fullName":"Amina Otieno","handle":"amina","course":"Law","yearOfStudy":"2","universityName":"CUK","interests":[],"studentVerified":true,"avatarUrl":null"""
@@ -38,12 +63,15 @@ class RemoteChatRepositoriesTest {
 
     private fun message(
         id: String, seq: Int, sender: String, text: String?,
-        reactions: String = "{}", myReaction: String? = null, editedAt: String? = null,
+        reactions: String = "{}", myReaction: String? = null, editedAt: String? = null, mediaUrl: String? = null,
     ) = JSONObject()
         .put("id", id).put("seq", seq).put("conversationId", "c1").put("senderId", sender)
         .put("content", text ?: JSONObject.NULL).put("deleted", text == null)
         .put("createdAt", "2026-10-17T10:00:00.000Z").put("editedAt", editedAt ?: JSONObject.NULL)
-        .put("replyTo", JSONObject.NULL).put("media", org.json.JSONArray())
+        .put("replyTo", JSONObject.NULL)
+        .put("media", org.json.JSONArray().apply {
+            if (mediaUrl != null) put(JSONObject().put("id", "md1").put("kind", "image").put("contentType", "image/jpeg").put("url", mediaUrl))
+        })
         .put("reactions", JSONObject(reactions)).put("myReaction", myReaction ?: JSONObject.NULL)
         .toString()
 
@@ -137,14 +165,61 @@ class RemoteChatRepositoriesTest {
         assertTrue(repo.messages("c1").first().isEmpty())
     }
 
-    @Test fun photosAreRefusedUntilTheyAreBuilt() = runBlocking {
+    @Test fun withoutAnUploaderPhotosFailClearly() = runBlocking {
         val repo = RemoteMessageRepository(serverFor()) { me }
         try {
-            repo.send("c1", "", "/tmp/a.jpg", null)
-            fail("photos are not supported yet")
+            repo.send("c1", "", photoFile(), null)
+            fail("photos need an uploader")
         } catch (e: IllegalStateException) {
             assertTrue(e.message!!.contains("Photos"))
         }
+        assertTrue(repo.messages("c1").first().isEmpty())
+    }
+
+    @Test fun aSentPhotoIsUploadedThenAttachedAndOpensFromTheLocalCopy() = runBlocking {
+        val path = photoFile()
+        val files = PhotoFiles()
+        val api = photoServer(message("m1", 1, me, "", mediaUrl = "https://cdn.test/m1.jpg?sig=abc"))
+        val repo = RemoteMessageRepository(api, MediaUploader(api, files)) { me }
+        repo.send("c1", "", path, null)
+        assertEquals(listOf("https://files.test/up"), files.sent)
+        val post = api.calls.first { it.first == "POST" && it.second.endsWith("/messages") }
+        assertEquals("md1", post.third!!.getJSONArray("mediaIds").getString(0))
+        val list = withTimeout(5_000) { repo.messages("c1").first { l -> l.any { it.id == "m1" } } }
+        assertEquals(path, list.single().imagePath) // our own photo: the local file, instant and offline-proof
+        assertEquals("", list.single().text)        // no "Photo" caption under the picture
+        assertEquals(MessageStatus.Sent, list.single().status)
+    }
+
+    @Test fun aPhotoFromSomeoneElseOpensFromTheServerLink() = runBlocking {
+        val window = "[" + message("m1", 1, "u2", "look", mediaUrl = "https://cdn.test/m1.jpg?sig=abc") + "]"
+        val repo = RemoteMessageRepository(serverFor(window = window)) { me }
+        val list = withTimeout(5_000) { repo.messages("c1").first { it.isNotEmpty() } }
+        assertEquals("https://cdn.test/m1.jpg?sig=abc", list.single().imagePath)
+        assertEquals("look", list.single().text)
+    }
+
+    @Test fun aPhotoWithoutALinkFallsBackToTheWordPhoto() = runBlocking {
+        val bare = JSONObject(message("m1", 1, "u2", "", mediaUrl = "x")).apply {
+            getJSONArray("media").getJSONObject(0).put("url", JSONObject.NULL)
+        }.toString()
+        val repo = RemoteMessageRepository(serverFor(window = "[$bare]")) { me }
+        val list = withTimeout(5_000) { repo.messages("c1").first { it.isNotEmpty() } }
+        assertEquals("Photo", list.single().text)
+        assertNull(list.single().imagePath)
+    }
+
+    @Test fun aFailedUploadLeavesNoPlaceholderBehind() = runBlocking {
+        val api = photoServer(message("m1", 1, me, ""))
+        val repo = RemoteMessageRepository(api, MediaUploader(api, PhotoFiles(fail = true))) { me }
+        try {
+            repo.send("c1", "", photoFile(), null)
+            fail("the upload failed, so the send should fail")
+        } catch (e: IOException) {
+            assertEquals("connection lost", e.message)
+        }
+        assertTrue(repo.messages("c1").first().isEmpty())
+        assertFalse(api.calls.any { it.second.endsWith("/messages") && it.first == "POST" })
     }
 
     @Test fun historyShowsNamesReactionsAndHidesUnsentMessages() = runBlocking {
