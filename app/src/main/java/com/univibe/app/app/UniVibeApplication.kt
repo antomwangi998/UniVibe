@@ -29,6 +29,8 @@ import com.univibe.app.data.repository.MockFeedRepository
 import com.univibe.app.data.repository.MockMessageRepository
 import com.univibe.app.data.repository.MockProfileRepository
 import com.univibe.app.data.repository.MockStore
+import com.univibe.app.data.repository.RemoteChatRepository
+import com.univibe.app.data.repository.RemoteMessageRepository
 import com.univibe.app.data.repository.ProfileRepository
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.MediaUploader
@@ -96,8 +98,12 @@ object AppContainer {
     }
     val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
     val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
-    val chatRepository: ChatRepository by lazy { MockChatRepository(mockStore) }
-    val messageRepository: MessageRepository by lazy { MockMessageRepository(mockStore) }
+    val chatRepository: ChatRepository by lazy {
+        api?.let { RemoteChatRepository(it) { accountOf(authRepository.session.value)?.id } } ?: MockChatRepository(mockStore)
+    }
+    val messageRepository: MessageRepository by lazy {
+        api?.let { RemoteMessageRepository(it) { accountOf(authRepository.session.value)?.id } } ?: MockMessageRepository(mockStore)
+    }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
     /** One shared instance so RSVPs made on the details screen show up in the list. */
     /** One shared instance so a decision made on a full profile also updates the Discover deck. */

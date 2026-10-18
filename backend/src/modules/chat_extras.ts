@@ -88,7 +88,8 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
     });
 
     // ---- per-person conversation settings
-    app.patch('/conversations/:id/settings', async (req) => {
+    // PUT is accepted too: some HTTP stacks (older Android clients) cannot send PATCH.
+    app.route({ method: ['PATCH', 'PUT'], url: '/conversations/:id/settings', handler: async (req) => {
       const me = await ctx.auth(req);
       const id = param(req);
       const b = settingsBody.parse(req.body ?? {});
@@ -104,7 +105,7 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
       const r = res.rows[0];
       hub.send(me.id, { type: 'conversation:updated', conversationId: id }); // the person's other devices refresh
       return { mutedUntil: r.muted_until, archived: r.archived, pinned: r.pinned, markedUnread: r.marked_unread };
-    });
+    } });
 
     app.post('/conversations/:id/mark-unread', async (req, reply) => {
       const me = await ctx.auth(req);
