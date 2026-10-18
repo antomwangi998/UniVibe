@@ -37,6 +37,14 @@ interface FeedRepository {
     val supportsMedia: Boolean get() = true
     suspend fun getCurrentUser(): Student
     suspend fun getPosts(filter: FeedFilter): List<Post>
+
+    /**
+     * One page of the feed, newest first. [beforeId] is the last post already shown (null for the first page).
+     * A repository without paging returns everything as the first page and nothing after it.
+     */
+    suspend fun getPostsPage(filter: FeedFilter, beforeId: String?, limit: Int): List<Post> =
+        if (beforeId == null) getPosts(filter) else emptyList()
+
     suspend fun getStories(): List<Student>
     suspend fun setLiked(postId: String, liked: Boolean)
     suspend fun setSaved(postId: String, saved: Boolean)

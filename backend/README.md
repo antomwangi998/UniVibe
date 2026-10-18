@@ -78,7 +78,7 @@ Chat, events, communities, notifications, blocking, cleanup of never-verified ac
 ```
 cp .env.example .env     # fill in DATABASE_URL, JWT_SECRET, CODE_PEPPER
 npm install
-npm run dev              # codes are printed to the console when RESEND_API_KEY is empty
+npm run dev              # photos are processed with sharp (prebuilt libvips, nothing else to install); codes are printed to the console when RESEND_API_KEY is empty
 npm test                 # unit tests always; integration tests when TEST_DATABASE_URL points at a throwaway Postgres
 ```
 CI (`.github/workflows/backend.yml`) runs typecheck, build and all tests against a Postgres container, and uploads `package-lock.json` as an artifact. Commit that file once so installs are reproducible.
@@ -89,3 +89,9 @@ CI (`.github/workflows/backend.yml`) runs typecheck, build and all tests against
 Blocking, privacy, notifications, Discover, messaging with WebSocket, events, search and moderation are documented in
 [docs/V1_API.md](docs/V1_API.md), including rules, the WebSocket protocol, jobs and known limitations. No new environment
 variables are required. Run the tests with `TEST_DATABASE_URL=... npm test`.
+
+## Photo processing
+
+Uploaded photos are decoded, made upright, stripped of metadata and re-saved as WebP (plus a feed thumbnail for post
+photos) when the app completes the upload. Limits and details: [docs/POSTS_API.md](../docs/POSTS_API.md). The `sharp`
+package ships its own libvips binaries, so the Render build needs no extra steps; run `npm install` once to refresh the lockfile.

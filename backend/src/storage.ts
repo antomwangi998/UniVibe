@@ -15,6 +15,10 @@ export interface Storage {
   head(key: string): Promise<{ size: number; contentType: string | undefined } | null>;
   /** The first [bytes] bytes of a file, to check what it really is. */
   peek(key: string, bytes: number): Promise<Uint8Array>;
+  /** The whole file, for processing on the server. */
+  read(key: string): Promise<Uint8Array>;
+  /** Stores a file the server made itself (a processed photo). */
+  write(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
   /** A link to read one file, valid for [expiresSeconds]. */
   signedUrl(key: string, expiresSeconds: number): Promise<string>;
   /** Deletes files. Missing files are not an error. */
@@ -62,6 +66,15 @@ export function createR2Storage(settings: R2Settings): Storage {
       return (await out.Body?.transformToByteArray()) ?? new Uint8Array();
     },
 
+    async read(key) {
+      const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      return (await out.Body?.transformToByteArray()) ?? new Uint8Array();
+    },
+
+    async write(key, bytes, contentType) {
+      await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType }));
+    },
+
     signedUrl: (key, expiresSeconds) =>
       getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: expiresSeconds }),
 
@@ -92,6 +105,12 @@ export function createMemoryStorage(): MemoryStorage {
       return o ? { size: o.bytes.length, contentType: o.contentType } : null;
     },
     peek: async (key, bytes) => objects.get(key)?.bytes.slice(0, bytes) ?? new Uint8Array(),
+    read: async (key) => {
+      const o = objects.get(key);
+      if (!o) throw new Error('missing object');
+      return o.bytes;
+    },
+    write: async (key, bytes, contentType) => { objects.set(key, { bytes, contentType }); },
     signedUrl: async (key) => `https://files.test/${key}?signed=1`,
     remove: async (keys) => { keys.forEach((k) => objects.delete(k)); },
   };

@@ -40,6 +40,10 @@ data class HomeUiState(
     val savingEdit: Boolean = false,
     val deletingPost: Post? = null,
     val notice: String? = null,
+    /** True while the next page is being fetched at the bottom of the feed. */
+    val loadingMore: Boolean = false,
+    /** True once the server has no older posts to give. */
+    val endReached: Boolean = false,
 ) {
     val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
     val visibleStories: List<Student> get() = stories.filter { it.id !in blocked }
@@ -71,12 +75,45 @@ class HomeViewModel(
             if (!silent) _state.update { it.copy(loading = true, error = null) }
             try {
                 val me = repository.getCurrentUser()
-                val posts = repository.getPosts(_state.value.filter)
+                val page = repository.getPostsPage(_state.value.filter, null, PAGE_SIZE)
                 val stories = repository.getStories()
-                _state.update { it.copy(loading = false, me = me, posts = posts, stories = stories) }
+                _state.update { cur ->
+                    // A quiet refresh keeps the older pages the student already scrolled through, so the list never jumps.
+                    val posts = if (silent) mergeFirstPage(cur.posts, page) else page
+                    val onlyFirstPage = posts.size == page.size
+                    cur.copy(
+                        loading = false, me = me, posts = posts, stories = stories, loadingMore = false,
+                        endReached = if (onlyFirstPage) page.size < PAGE_SIZE else cur.endReached,
+                    )
+                }
             } catch (e: Exception) {
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your feed. Check your connection and try again.") }
+            }
+        }
+    }
+
+    /** Fetches the next page when the student nears the bottom. Does nothing while loading or at the end. */
+    fun loadMore() {
+        val s = _state.value
+        if (s.loading || s.loadingMore || s.endReached || s.error != null) return
+        val last = s.posts.lastOrNull() ?: return
+        val filter = s.filter
+        _state.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            try {
+                val page = repository.getPostsPage(filter, last.id, PAGE_SIZE)
+                _state.update { cur ->
+                    if (cur.filter != filter) {
+                        cur.copy(loadingMore = false) // the student switched feeds while this was loading
+                    } else {
+                        val known = cur.posts.mapTo(HashSet()) { it.id }
+                        cur.copy(posts = cur.posts + page.filter { it.id !in known }, loadingMore = false, endReached = page.size < PAGE_SIZE)
+                    }
+                }
+            } catch (e: Exception) {
+                // Leave the list as it is; scrolling away from the bottom and back tries again.
+                _state.update { it.copy(loadingMore = false) }
             }
         }
     }
@@ -222,4 +259,19 @@ class HomeViewModel(
             }
         }
     }
+}
+
+/** Posts per page of the home feed. */
+const val PAGE_SIZE = 20
+
+/**
+ * Puts a freshly fetched first page in front of the older posts already loaded, without gaps or repeats.
+ * Posts after the first page's last post are kept; anything the first page now covers is dropped from the tail.
+ */
+internal fun mergeFirstPage(old: List<Post>, first: List<Post>): List<Post> {
+    if (first.size < PAGE_SIZE || old.size <= first.size) return first
+    val firstIds = first.mapTo(HashSet()) { it.id }
+    val anchor = old.indexOfFirst { it.id == first.last().id }
+    val tail = if (anchor >= 0) old.drop(anchor + 1) else old
+    return first + tail.filter { it.id !in firstIds }
 }
