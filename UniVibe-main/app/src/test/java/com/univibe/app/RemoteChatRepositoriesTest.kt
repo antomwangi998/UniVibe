@@ -1,0 +1,187 @@
+package com.univibe.app
+
+import com.univibe.app.data.model.MessageStatus
+import com.univibe.app.data.model.Reaction
+import com.univibe.app.data.net.ApiException
+import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.HttpResponse
+import com.univibe.app.data.repository.RemoteChatRepository
+import com.univibe.app.data.repository.RemoteMessageRepository
+import com.univibe.app.domain.auth.AuthResult
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+/** The real chat repositories against a fake server: they must map what the backend sends and keep sends honest. */
+class RemoteChatRepositoriesTest {
+    private class FakeApi(private val handler: (method: String, path: String, body: JSONObject?) -> HttpResponse) : AuthedApi {
+        val calls = mutableListOf<Triple<String, String, JSONObject?>>()
+        override suspend fun authedCall(method: String, path: String, body: JSONObject?): AuthResult<HttpResponse> {
+            calls += Triple(method, path, body)
+            return AuthResult.Success(handler(method, path, body))
+        }
+    }
+
+    private fun ok(json: String, status: Int = 200) = HttpResponse(status, json)
+    private val me = "me"
+    private val card = """"id":"u2","fullName":"Amina Otieno","handle":"amina","course":"Law","yearOfStudy":"2","universityName":"CUK","interests":[],"studentVerified":true,"avatarUrl":null"""
+    private val membersJson = """{"id":"c1","kind":"direct","title":null,"mutedUntil":null,"pinned":false,"members":[
+        {"id":"me","fullName":"Me","handle":"me"},{$card,"online":true}]}"""
+
+    private fun message(
+        id: String, seq: Int, sender: String, text: String?,
+        reactions: String = "{}", myReaction: String? = null, editedAt: String? = null,
+    ) = JSONObject()
+        .put("id", id).put("seq", seq).put("conversationId", "c1").put("senderId", sender)
+        .put("content", text ?: JSONObject.NULL).put("deleted", text == null)
+        .put("createdAt", "2026-10-17T10:00:00.000Z").put("editedAt", editedAt ?: JSONObject.NULL)
+        .put("replyTo", JSONObject.NULL).put("media", org.json.JSONArray())
+        .put("reactions", JSONObject(reactions)).put("myReaction", myReaction ?: JSONObject.NULL)
+        .toString()
+
+    // ---- chat list
+
+    @Test fun chatListMapsDirectAndGroupChats() = runBlocking {
+        val api = FakeApi { _, _, _ ->
+            ok("""{"items":[
+              {"id":"c1","kind":"direct","title":null,"lastMessageAt":"2026-10-17T09:00:00.000Z","unreadCount":2,"mutedUntil":"2099-01-01T00:00:00.000Z","archived":false,"pinned":true,"markedUnread":false,
+               "with":{$card},"lastMessage":{"id":"m1","senderId":"u2","content":"see you at 5","deleted":false,"createdAt":"2026-10-17T09:00:00.000Z"}},
+              {"id":"c2","kind":"group","title":"Law 2026","lastMessageAt":"2026-10-17T08:00:00.000Z","unreadCount":0,"mutedUntil":null,"archived":false,"pinned":false,"markedUnread":false,
+               "with":null,"lastMessage":{"id":"m2","senderId":"u2","content":null,"deleted":true,"createdAt":"2026-10-17T08:00:00.000Z"}}
+            ],"nextCursor":null}""")
+        }
+        val chats = RemoteChatRepository(api) { me }.getChats()
+        assertEquals(2, chats.size)
+        val direct = chats[0]
+        assertEquals("Amina Otieno", direct.title)
+        assertEquals("see you at 5", direct.lastMessage)
+        assertEquals(2, direct.unread)
+        assertTrue(direct.pinned)
+        assertTrue(direct.muted)
+        assertEquals("u2", direct.studentId)
+        assertFalse(direct.isGroup)
+        val group = chats[1]
+        assertEquals("Law 2026", group.title)
+        assertTrue(group.isGroup)
+        assertEquals("Message deleted", group.lastMessage)
+        assertFalse(group.muted)
+        assertNull(group.studentId)
+    }
+
+    @Test fun aChatYouAreNotInIsNull() = runBlocking {
+        val api = FakeApi { _, _, _ -> HttpResponse(404, """{"error":"not_found","message":"Not found."}""") }
+        assertNull(RemoteChatRepository(api) { me }.getChat("nope"))
+    }
+
+    @Test fun getChatNamesTheOtherPersonAndReadsYourSettings() = runBlocking {
+        val api = FakeApi { _, _, _ -> ok(membersJson) }
+        val chat = RemoteChatRepository(api) { me }.getChat("c1")!!
+        assertEquals("Amina Otieno", chat.title)
+        assertEquals("u2", chat.studentId)
+        assertTrue(chat.online)
+    }
+
+    @Test fun muteAndUnmuteSendTheRightSettings() = runBlocking {
+        val api = FakeApi { _, _, _ -> ok("{}") }
+        val repo = RemoteChatRepository(api) { me }
+        repo.setMuted("c1", true)
+        repo.setMuted("c1", false)
+        val (method, path, mute) = api.calls[0]
+        assertEquals("PUT", method)
+        assertEquals("/api/v1/conversations/c1/settings", path)
+        assertEquals("2099-01-01T00:00:00.000Z", mute!!.getString("mutedUntil"))
+        assertTrue(api.calls[1].third!!.isNull("mutedUntil"))
+    }
+
+    // ---- messages
+
+    private fun serverFor(sendResult: HttpResponse? = null, window: String = "[]") = FakeApi { method, path, _ ->
+        when {
+            method == "POST" && path.endsWith("/messages") -> sendResult ?: ok(message("m1", 1, me, "hello"), 201)
+            path.contains("/messages") -> ok("""{"items":$window,"nextBefore":null}""")
+            else -> ok(membersJson)
+        }
+    }
+
+    @Test fun aSentMessageReplacesItsPlaceholderAndIsMine() = runBlocking {
+        val api = serverFor()
+        val repo = RemoteMessageRepository(api) { me }
+        repo.send("c1", "  hello  ", null, null)
+        val list = withTimeout(5_000) { repo.messages("c1").first { l -> l.any { it.id == "m1" } } }
+        assertEquals(1, list.size)
+        assertEquals("hello", list[0].text)
+        assertTrue(list[0].isMine)
+        assertEquals(MessageStatus.Sent, list[0].status)
+        val post = api.calls.first { it.first == "POST" }
+        assertEquals("hello", post.third!!.getString("content"))
+        assertTrue(post.third!!.getString("clientId").isNotBlank())
+    }
+
+    @Test fun aRefusedSendLeavesNoMessageBehindAndSaysWhy() = runBlocking {
+        val refused = HttpResponse(403, """{"error":"cannot_message","message":"You cannot message this person."}""")
+        val repo = RemoteMessageRepository(serverFor(sendResult = refused)) { me }
+        try {
+            repo.send("c1", "hi", null, null)
+            fail("send should have failed")
+        } catch (e: ApiException) {
+            assertEquals("You cannot message this person.", e.message)
+        }
+        assertTrue(repo.messages("c1").first().isEmpty())
+    }
+
+    @Test fun photosAreRefusedUntilTheyAreBuilt() = runBlocking {
+        val repo = RemoteMessageRepository(serverFor()) { me }
+        try {
+            repo.send("c1", "", "/tmp/a.jpg", null)
+            fail("photos are not supported yet")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message!!.contains("Photos"))
+        }
+    }
+
+    @Test fun historyShowsNamesReactionsAndHidesUnsentMessages() = runBlocking {
+        // The server lists newest first; the app shows oldest first and drops unsent messages.
+        val window = "[" + message("m3", 3, "u2", null) + "," +
+            message("m2", 2, me, "second", reactions = """{"heart":2}""", myReaction = "heart") + "," +
+            message("m1", 1, "u2", "first") + "]"
+        val repo = RemoteMessageRepository(serverFor(window = window)) { me }
+        val list = withTimeout(5_000) { repo.messages("c1").first { it.isNotEmpty() } }
+        assertEquals(listOf("m1", "m2"), list.map { it.id })
+        assertEquals("Amina Otieno", list[0].senderName)
+        assertFalse(list[0].isMine)
+        assertEquals("You", list[1].senderName)
+        assertEquals(mapOf(Reaction.Heart to 2), list[1].reactions)
+        assertEquals(Reaction.Heart, list[1].myReaction)
+    }
+
+    @Test fun editingUsesTheMessageEndpointAndMarksItEdited() = runBlocking {
+        val edited = message("m1", 1, me, "fixed", editedAt = "2026-10-17T10:01:00.000Z")
+        val api = FakeApi { method, path, _ ->
+            when {
+                method == "POST" -> ok(message("m1", 1, me, "typo"), 201)
+                method == "PUT" && path == "/api/v1/messages/m1" -> ok(edited)
+                path.contains("/messages") -> ok("""{"items":[],"nextBefore":null}""")
+                else -> ok(membersJson)
+            }
+        }
+        val repo = RemoteMessageRepository(api) { me }
+        repo.send("c1", "typo", null, null)
+        repo.editMessage("c1", "m1", "fixed")
+        val list = repo.messages("c1").first { it.any { m -> m.edited } }
+        assertEquals("fixed", list.single().text)
+    }
+
+    @Test fun notYetBuiltFeaturesFailClearlyInsteadOfPretending() = runBlocking {
+        val repo = RemoteMessageRepository(serverFor()) { me }
+        for (action in listOf<suspend () -> Unit>({ repo.forward("c1", "m1", listOf("c2")) }, { repo.pin("c1", "m1") }, { repo.clearChat("c1") })) {
+            try { action(); fail("should not silently succeed") } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("available yet")) }
+        }
+    }
+}
