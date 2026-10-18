@@ -29,6 +29,7 @@ object SettingsRoutes {
     const val REPORT = "settings/help/report"
     const val GUIDELINES = "settings/help/guidelines"
     const val ABOUT = "settings/help/about"
+    const val TERMS = "settings/help/terms"
 }
 
 /** Routes with arguments. Each is also a deep link: `univibe://<route>`. */

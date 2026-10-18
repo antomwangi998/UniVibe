@@ -73,6 +73,7 @@ object SettingsRegistry {
         e("faq", "Frequently asked questions", "Quick answers", SettingsRoutes.FAQ, SettingsCategories.HELP, "FAQ", keywords = listOf("questions", "how do i")),
         e("report", "Report a problem", "Tell us about a bug or a problem", SettingsRoutes.REPORT, SettingsCategories.HELP, "Report a problem", keywords = listOf("bug", "feedback", "issue")),
         e("guidelines", "Community guidelines", "What's okay on UniVibe", SettingsRoutes.GUIDELINES, SettingsCategories.HELP, "Community guidelines", keywords = listOf("rules")),
+        e("terms", "Terms of Service", "Read the rules for using UniVibe", SettingsRoutes.TERMS, SettingsCategories.HELP, "Terms of Service", keywords = listOf("terms", "terms and conditions", "legal", "agreement", "tos", "policy")),
         e("about", "About UniVibe", "Version and information", SettingsRoutes.ABOUT, SettingsCategories.HELP, "About UniVibe", keywords = listOf("version", "build", "legal")),
     )
 

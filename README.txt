@@ -1,11 +1,10 @@
-UniVibe settings - patch 1 (registry, hub + search, security/login activity, account status, backend sessions)
+UniVibe - patch 2: Terms of Service readable in the app (apply AFTER patch 1)
 
-Apply:
-  A) Copy files/ over your project (whole files), OR
-  B) cd UniVibe-main && patch -p0 < univibe-settings-phase1.diff   (use this if you edited the same files since the upload)
+ - Sign-up "Terms of Service" link now opens the real Terms (scrollable sheet).
+ - Settings > Help & support > Terms of Service (full page, deep link univibe://settings/help/terms), searchable.
+ - Settings > About > Terms of Service opens the same text.
+ - Help "Report a problem" now mails info@univibe.swiftpesanet.co.ke (was a placeholder address).
+ - Contact details live in features/legal/TermsOfService.kt (LegalContact) - change them there when you get a domain.
 
-Backend: new migration 013_sessions_account_status.sql (applies automatically through migrate()).
-Verify (not run in the authoring sandbox, which has no network):
-  backend:  npm run typecheck && npm test      (integration tests need TEST_DATABASE_URL)
-  android:  ./gradlew testDebugUnitTest
-Log in again once after deploying so your access token carries the session id.
+Apply: copy files/ over the project, or  cd UniVibe-main && patch -p0 < univibe-terms-in-app.diff
+Verify: ./gradlew testDebugUnitTest   (not run in the authoring sandbox: no network)
