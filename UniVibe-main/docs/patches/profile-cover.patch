@@ -1,0 +1,58 @@
+--- ProfileScreen.before-cover.kt	2026-10-12 19:33:33.135300020 +0000
++++ src/UniVibe-main/app/src/main/java/com/univibe/app/features/profile/ProfileScreen.kt	2026-10-12 19:33:33.203579221 +0000
+@@ -85,8 +85,10 @@
+     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
+ 
+     Column(Modifier.fillMaxSize()) {
+-        VibeTopBar("Profile", actions = { VibeIconButton(Icons.Outlined.Settings, "Settings", actions.onOpenSettings) })
+         val profile = state.profile
++        // The cover carries its own icons; the plain top bar is only for loading/error.
++        val showCover = !state.loading && state.error == null && profile != null
++        if (!showCover) VibeTopBar("Profile", actions = { VibeIconButton(Icons.Outlined.Settings, "Settings", actions.onOpenSettings) })
+         when {
+             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
+             state.error != null || profile == null -> ErrorState(state.error ?: "Something went wrong.", viewModel::load)
+@@ -218,18 +220,15 @@
+ private fun Header(profile: MyProfile, actions: ProfileActions) {
+     val colors = MaterialTheme.colorScheme
+     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+-        Box(Modifier.fillMaxWidth()) {
+-            Box(
+-                Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(24.dp))
+-                    .background(Brush.linearGradient(accentGradient(profile.student.accent + 1))),
+-            ) {
+-                profile.coverPath?.let { PhotoImage(it, contentDescription = "Cover photo") }
+-            }
+-            Box(Modifier.align(Alignment.BottomCenter).offset(y = 58.dp)) {
++        ProfileCover(
++            accent = profile.student.accent + 1,
++            coverPath = profile.coverPath,
++            modifier = Modifier.fullBleed(Spacing.md),
++            actions = { CoverIconButton(Icons.Outlined.Settings, "Settings", actions.onOpenSettings) },
++            avatar = {
+                 Box {
+                     Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
+                         Box(contentAlignment = Alignment.Center) {
+-                            // No online dot on your own profile: it would collide with the verified badge.
+                             StudentAvatar(
+                                 profile.student.name, size = 104.dp, accent = profile.student.accent,
+                                 online = false, imagePath = profile.avatarPath,
+@@ -237,15 +236,11 @@
+                         }
+                     }
+                     if (profile.student.verified) {
+-                        // Centre sits on the avatar ring at 45 degrees (58dp radius * 0.707 = 41dp from centre).
+-                        VerifiedBadge(
+-                            size = 30.dp,
+-                            modifier = Modifier.align(Alignment.TopStart).offset(x = 84.dp, y = 84.dp),
+-                        )
++                        VerifiedBadge(size = 30.dp, modifier = Modifier.align(Alignment.TopStart).offset(x = 84.dp, y = 84.dp))
+                     }
+                 }
+-            }
+-        }
++            },
++        )
+         Spacer(Modifier.height(64.dp))
+         Text(profile.student.name, style = MaterialTheme.typography.headlineSmall)
+         Text(profile.student.handle, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
