@@ -49,4 +49,10 @@ object PushPolicy {
 
     fun shouldShow(event: PushEvent, quietHoursOn: Boolean, hourOfDay: Int): Boolean =
         event.channel == PushChannel.Security || !(quietHoursOn && inQuietHours(hourOfDay))
+
+    /** With message previews off, a message alert says only that a message arrived. Other alerts are unchanged. */
+    fun forDisplay(event: PushEvent, showMessagePreview: Boolean): PushEvent {
+        val isMessage = event.channel == PushChannel.DirectMessages || event.channel == PushChannel.GroupMessages
+        return if (isMessage && !showMessagePreview) event.copy(body = "New message") else event
+    }
 }

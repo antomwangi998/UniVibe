@@ -10,6 +10,7 @@ import com.univibe.app.domain.auth.PasswordStrength
 import com.univibe.app.domain.auth.SignUpRequest
 import com.univibe.app.domain.auth.University
 import com.univibe.app.domain.auth.userMessage
+import com.univibe.app.features.legal.TermsOfService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,6 +80,7 @@ class SignUpViewModel(
             val request = SignUpRequest(
                 fullName = s.fullName, email = s.email, admissionNumber = s.admission.ifBlank { null },
                 universityId = s.universityId!!, password = s.password, acceptedTerms = s.acceptedTerms,
+                termsVersion = TermsOfService.VERSION,
             )
             when (val result = repository.signUp(request)) {
                 is AuthResult.Success -> _state.update { it.copy(submitting = false, password = "", confirm = "") }

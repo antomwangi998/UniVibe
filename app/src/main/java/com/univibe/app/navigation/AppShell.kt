@@ -82,6 +82,9 @@ import com.univibe.app.features.settings.AccountScreen
 import com.univibe.app.features.settings.AccountStatusScreen
 import com.univibe.app.features.settings.AppearanceScreen
 import com.univibe.app.features.settings.LoginActivityScreen
+import com.univibe.app.features.settings.DataStorageScreen
+import com.univibe.app.features.settings.MessagingSettingsScreen
+import com.univibe.app.features.settings.MutedConversationsScreen
 import com.univibe.app.features.settings.PermissionsScreen
 import com.univibe.app.features.settings.SecurityScreen
 import com.univibe.app.features.settings.BlockedUsersScreen
@@ -331,6 +334,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
                     subScreen(SettingsRoutes.LOGIN_ACTIVITY) { LoginActivityScreen(onBack = back) }
                     subScreen(SettingsRoutes.PERMISSIONS) { PermissionsScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DATA_STORAGE) { DataStorageScreen(onBack = back) }
+                    subScreen(SettingsRoutes.MESSAGING) {
+                        MessagingSettingsScreen(
+                            onBack = back, onPrivacy = { open(SettingsRoutes.PRIVACY) },
+                            onMuted = { open(SettingsRoutes.MUTED_CHATS) }, onBlocked = { open(SettingsRoutes.BLOCKED) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.MUTED_CHATS) { MutedConversationsScreen(onBack = back) }
                     subScreen(SettingsRoutes.APPEARANCE) { AppearanceScreen(themeMode, onThemeModeChange, onBack = back) }
                     subScreen(SettingsRoutes.STATUS) { AccountStatusScreen(onBack = back, onGuidelines = { open(SettingsRoutes.GUIDELINES) }) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
