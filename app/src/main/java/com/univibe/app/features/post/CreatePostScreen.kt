@@ -1,5 +1,6 @@
 package com.univibe.app.features.post
 
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.PickVisualMediaRequest
@@ -111,7 +112,7 @@ fun CreatePostScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().imePadding()) {
         VibeTopBar(
             "New post", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.Outlined.Close, "Close", requestClose) },
+            navigationIcon = { VibeIconButton(VibeIcons.Close, "Close", requestClose) },
             actions = { VibeButton("Post", viewModel::publish, enabled = s.canPost, loading = s.publishing, compact = true) },
         )
         Column(
@@ -152,7 +153,7 @@ fun CreatePostScreen(onBack: () -> Unit) {
                                 color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
                             ) {
                                 IconButton(onClick = { viewModel.removePhoto(path) }, enabled = !s.publishing, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Outlined.Close, contentDescription = "Remove photo ${index + 1}", tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(16.dp))
+                                    Icon(VibeIcons.Close, contentDescription = "Remove photo ${index + 1}", tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -174,7 +175,7 @@ fun CreatePostScreen(onBack: () -> Unit) {
                     }.padding(horizontal = Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = null, tint = if (add) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.5f))
+                Icon(VibeIcons.Photo, contentDescription = null, tint = if (add) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.5f))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     if (s.importing) "Adding…" else if (s.photos.size >= MAX_POST_PHOTOS) "Photo limit reached" else "Add photos",
@@ -198,12 +199,12 @@ fun CreatePostScreen(onBack: () -> Unit) {
             AudienceOption(Icons.Outlined.Public, "Campus", "Everyone at your university", s.audience == PostAudience.Campus) {
                 viewModel.selectAudience(PostAudience.Campus); showAudience = false
             }
-            AudienceOption(Icons.Outlined.PeopleOutline, "Followers", "Only people who follow you", s.audience == PostAudience.Followers) {
+            AudienceOption(VibeIcons.Groups, "Followers", "Only people who follow you", s.audience == PostAudience.Followers) {
                 viewModel.selectAudience(PostAudience.Followers); showAudience = false
             }
             s.communities.forEach { c ->
                 val option = PostAudience.Community(c.id, c.name)
-                AudienceOption(Icons.Outlined.Groups, c.name, "Members of ${c.name}", s.audience == option) {
+                AudienceOption(VibeIcons.Groups, c.name, "Members of ${c.name}", s.audience == option) {
                     viewModel.selectAudience(option); showAudience = false
                 }
             }
@@ -240,7 +241,7 @@ private fun AudiencePill(audience: PostAudience, onClick: () -> Unit) {
     ) {
         Row(Modifier.padding(start = 12.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(audience.label(), style = MaterialTheme.typography.labelMedium)
-            Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(VibeIcons.ChevronDown, contentDescription = null, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -259,6 +260,6 @@ private fun AudienceOption(icon: ImageVector, title: String, subtitle: String, s
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
-        if (selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = colors.primary)
+        if (selected) Icon(VibeIcons.Check, contentDescription = "Selected", tint = colors.primary)
     }
 }

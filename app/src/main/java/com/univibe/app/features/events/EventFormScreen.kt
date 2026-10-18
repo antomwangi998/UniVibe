@@ -1,5 +1,6 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -90,7 +91,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
     Column(Modifier.fillMaxSize().imePadding()) {
         VibeTopBar(
             if (s.editing) "Edit event" else "New event", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
         )
         when {
             s.notFound -> ErrorState("You can only edit upcoming events you host.", onBack, title = "Not available")
@@ -124,7 +125,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     DateTimeRow("Ends", s.endMillis, viewModel::setEnd)
                     if (!s.orderOk) Text("The event must end after it starts, and last at most 48 hours.", style = MaterialTheme.typography.bodySmall, color = colors.error)
                     Text("Where", style = MaterialTheme.typography.titleSmall)
-                    PickerRow(Icons.Outlined.Place, "Venue", s.venueName.ifBlank { "Choose a venue" }) { venueSheet = true }
+                    PickerRow(VibeIcons.Place, "Venue", s.venueName.ifBlank { "Choose a venue" }) { venueSheet = true }
                     if (s.customVenue) {
                         VibeTextField(
                             s.venueName, viewModel::setCustomVenueName, label = "Venue name", isError = s.venueName.isNotEmpty() && !s.venueOk,
@@ -151,7 +152,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                                 Modifier.size(44.dp).clip(CircleShape).background(Brush.linearGradient(accentGradient(i)))
                                     .clickable(role = Role.RadioButton, onClickLabel = "Colour ${i + 1}") { viewModel.setAccent(i) },
                                 contentAlignment = Alignment.Center,
-                            ) { if (s.accent == i) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = Color.White) }
+                            ) { if (s.accent == i) Icon(VibeIcons.Check, contentDescription = "Selected", tint = Color.White) }
                         }
                     }
                     Text(
@@ -171,8 +172,8 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
     if (venueSheet) {
         VibeBottomSheet(onDismiss = { venueSheet = false }) {
             Text("Choose a venue", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm))
-            s.venues.forEach { v -> SheetRow(Icons.Outlined.Place, v.name, false) { viewModel.pickVenue(v); venueSheet = false } }
-            SheetRow(Icons.Outlined.Place, "Somewhere else", false) { viewModel.useCustomVenue(); venueSheet = false }
+            s.venues.forEach { v -> SheetRow(VibeIcons.Place, v.name, false) { viewModel.pickVenue(v); venueSheet = false } }
+            SheetRow(VibeIcons.Place, "Somewhere else", false) { viewModel.useCustomVenue(); venueSheet = false }
         }
     }
 }
@@ -203,7 +204,7 @@ private fun DateTimeRow(label: String, millis: Long, onChange: (Long) -> Unit) {
     val zone = ZoneId.systemDefault()
     val current = Instant.ofEpochMilli(millis).atZone(zone)
 
-    PickerRow(Icons.Outlined.CalendarMonth, label, formatDateTime(millis)) { step = 1 }
+    PickerRow(VibeIcons.Events, label, formatDateTime(millis)) { step = 1 }
 
     if (step == 1) {
         val todayUtc = LocalDate.now(zone).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()

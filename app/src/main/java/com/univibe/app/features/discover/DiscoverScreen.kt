@@ -1,5 +1,6 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -95,7 +96,7 @@ fun DiscoverScreen(onOpenStudent: (String) -> Unit = {}, viewModel: DiscoverView
                 val top = state.deck.firstOrNull()
                 if (top == null) {
                     EmptyState(
-                        icon = Icons.Outlined.Groups,
+                        icon = VibeIcons.Groups,
                         title = if (state.remaining.isEmpty()) "You're all caught up" else "No matches for this filter",
                         message = if (state.remaining.isEmpty()) "Check back soon for more students who share your interests."
                         else "Try another filter to see more students.",
@@ -126,8 +127,8 @@ fun DiscoverScreen(onOpenStudent: (String) -> Unit = {}, viewModel: DiscoverView
                             horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            RoundAction(Icons.Outlined.Close, "Pass on ${top.name}", filled = false, enabled = request == null) { request = false }
-                            RoundAction(Icons.Filled.Favorite, "Connect with ${top.name}", filled = true, enabled = request == null) { request = true }
+                            RoundAction(VibeIcons.Close, "Pass on ${top.name}", filled = false, enabled = request == null) { request = false }
+                            RoundAction(VibeIcons.HeartFilled, "Connect with ${top.name}", filled = true, enabled = request == null) { request = true }
                         }
                     }
                 }
@@ -163,7 +164,7 @@ private fun ProgressRow(reviewed: Int, total: Int, onInfo: () -> Unit) {
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             )
             IconButton(onClick = onInfo, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Info, contentDescription = "About discovery", modifier = Modifier.size(20.dp))
+                Icon(VibeIcons.Info, contentDescription = "About discovery", modifier = Modifier.size(20.dp))
             }
         }
         Text(

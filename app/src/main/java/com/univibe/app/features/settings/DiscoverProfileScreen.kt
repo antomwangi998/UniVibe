@@ -1,5 +1,6 @@
 package com.univibe.app.features.settings
 
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -88,7 +89,7 @@ fun DiscoverProfileScreen(
                     "Show me in Discover", settings.discoverable,
                     { v -> settingsViewModel.update { it.copy(discoverable = v) } },
                     subtitle = if (settings.discoverable) "Other students at your university can see this card." else "Turn on to appear in other students' Discover.",
-                    icon = Icons.Outlined.Visibility,
+                    icon = VibeIcons.Visibility,
                 )
             }
         }
@@ -96,7 +97,7 @@ fun DiscoverProfileScreen(
             SettingsGroup {
                 SettingsSectionTitle("Card photo")
                 SettingsNavRow(
-                    Icons.Outlined.AddPhotoAlternate,
+                    VibeIcons.Photo,
                     if (hasPhoto) "Change photo" else "Add a photo",
                     onClick = { if (!state.importing) picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     subtitle = if (state.importing) "Adding…" else null,
@@ -104,7 +105,7 @@ fun DiscoverProfileScreen(
                 )
                 if (hasPhoto) {
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.Delete, "Remove photo", onClick = { viewModel.askRemove(true) }, destructive = true, showChevron = false)
+                    SettingsNavRow(VibeIcons.Delete, "Remove photo", onClick = { viewModel.askRemove(true) }, destructive = true, showChevron = false)
                 }
             }
         }

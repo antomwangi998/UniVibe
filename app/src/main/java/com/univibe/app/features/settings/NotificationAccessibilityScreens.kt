@@ -1,5 +1,6 @@
 package com.univibe.app.features.settings
 
+import com.univibe.app.ui.components.VibeIcons
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
@@ -48,21 +49,21 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewM
         item {
             SettingsGroup {
                 SettingsSwitchRow("Allow notifications", on, { v -> viewModel.update { it.copy(notificationsEnabled = v) } },
-                    subtitle = "Turn everything off or choose below.", icon = Icons.Outlined.Notifications)
+                    subtitle = "Turn everything off or choose below.", icon = VibeIcons.Bell)
             }
         }
         item {
             SettingsGroup {
                 SettingsSectionTitle("Notify me about")
-                SettingsSwitchRow("Likes", s.notifyLikes, { v -> viewModel.update { it.copy(notifyLikes = v) } }, enabled = on, icon = Icons.Outlined.FavoriteBorder)
+                SettingsSwitchRow("Likes", s.notifyLikes, { v -> viewModel.update { it.copy(notifyLikes = v) } }, enabled = on, icon = VibeIcons.Heart)
                 RowDivider()
-                SettingsSwitchRow("Comments", s.notifyComments, { v -> viewModel.update { it.copy(notifyComments = v) } }, enabled = on, icon = Icons.Outlined.Comment)
+                SettingsSwitchRow("Comments", s.notifyComments, { v -> viewModel.update { it.copy(notifyComments = v) } }, enabled = on, icon = VibeIcons.Comment)
                 RowDivider()
-                SettingsSwitchRow("Messages", s.notifyMessages, { v -> viewModel.update { it.copy(notifyMessages = v) } }, enabled = on, icon = Icons.Outlined.ChatBubbleOutline)
+                SettingsSwitchRow("Messages", s.notifyMessages, { v -> viewModel.update { it.copy(notifyMessages = v) } }, enabled = on, icon = VibeIcons.Comment)
                 RowDivider()
-                SettingsSwitchRow("Events & reminders", s.notifyEvents, { v -> viewModel.update { it.copy(notifyEvents = v) } }, enabled = on, icon = Icons.Outlined.Event)
+                SettingsSwitchRow("Events & reminders", s.notifyEvents, { v -> viewModel.update { it.copy(notifyEvents = v) } }, enabled = on, icon = VibeIcons.Events)
                 RowDivider()
-                SettingsSwitchRow("Communities", s.notifyCommunities, { v -> viewModel.update { it.copy(notifyCommunities = v) } }, enabled = on, icon = Icons.Outlined.Groups)
+                SettingsSwitchRow("Communities", s.notifyCommunities, { v -> viewModel.update { it.copy(notifyCommunities = v) } }, enabled = on, icon = VibeIcons.Groups)
             }
         }
         item {
@@ -71,7 +72,7 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewM
                     subtitle = "Pause alerts from 10 PM to 7 AM.", enabled = on, icon = Icons.Outlined.Bedtime)
                 RowDivider()
                 SettingsSwitchRow("Weekly email digest", s.emailDigest, { v -> viewModel.update { it.copy(emailDigest = v) } },
-                    subtitle = "A summary of what you missed.", icon = Icons.Outlined.MailOutline)
+                    subtitle = "A summary of what you missed.", icon = VibeIcons.Mail)
             }
         }
         item {
@@ -79,7 +80,7 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewM
                 "Open system notification settings",
                 onClick = { openSystem(context, Settings.ACTION_APP_NOTIFICATION_SETTINGS, withPackage = true) },
                 modifier = Modifier.fillMaxWidth(), style = VibeButtonStyle.Secondary,
-                leadingIcon = Icons.Outlined.Settings,
+                leadingIcon = VibeIcons.Settings,
             )
         }
         item { SettingsNote("Your choices are saved now. Real push notifications arrive once UniVibe has a server to send them.") }

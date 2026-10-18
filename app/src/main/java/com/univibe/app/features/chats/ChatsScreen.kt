@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.AnimatedVisibility
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -64,12 +65,12 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Chats", actions = { VibeIconButton(Icons.Outlined.GroupAdd, "New group", onNewGroup) })
+        VibeTopBar("Chats", actions = { VibeIconButton(VibeIcons.PersonAdd, "New group", onNewGroup) })
         VibeTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,
             placeholder = "Search messages",
-            leadingIcon = Icons.Outlined.Search,
+            leadingIcon = VibeIcons.Search,
             trailingIcon = {
                 IconButton(onClick = viewModel::toggleFilters) {
                     Icon(
@@ -95,7 +96,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
             state.error != null -> ErrorState(state.error!!, onRetry = viewModel::load)
             state.visible.isEmpty() -> EmptyState(
-                icon = Icons.Outlined.ChatBubbleOutline,
+                icon = VibeIcons.Comment,
                 title = if (state.query.isBlank() && state.filter == ChatFilter.All) "No conversations yet" else "No matches",
                 message = if (state.query.isBlank() && state.filter == ChatFilter.All) "Start a chat from a student's profile."
                 else "Try a different name, word or filter.",
@@ -160,7 +161,7 @@ private fun SwipeableChatRow(chat: Chat, onOpen: () -> Unit, onMute: () -> Unit,
                 contentAlignment = if (muteSide) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 Icon(
-                    if (muteSide) Icons.Outlined.NotificationsOff else Icons.Outlined.Archive,
+                    if (muteSide) VibeIcons.BellOff else Icons.Outlined.Archive,
                     contentDescription = if (muteSide) "Mute" else "Archive",
                 )
             }
@@ -189,7 +190,7 @@ private fun ChatRow(chat: Chat) {
         if (chat.isGroup) {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(56.dp)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Icon(VibeIcons.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
         } else {
@@ -205,10 +206,10 @@ private fun ChatRow(chat: Chat) {
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (chat.pinned) {
-                    Icon(Icons.Outlined.PushPin, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(VibeIcons.Pin, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (chat.muted) {
-                    Icon(Icons.Outlined.NotificationsOff, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(VibeIcons.BellOff, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Text(

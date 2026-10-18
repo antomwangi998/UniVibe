@@ -1,5 +1,6 @@
 package com.univibe.app.features.communities
 
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -75,7 +76,7 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
     Column(Modifier.fillMaxSize().imePadding()) {
         VibeTopBar(
             if (s.editing) "Edit community" else "New community", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
         )
         when {
             s.notFound -> ErrorState("You can only edit communities you own.", onBack, title = "Not available")
@@ -107,12 +108,12 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
                                 Modifier.size(44.dp).clip(CircleShape).background(Brush.linearGradient(accentGradient(i)))
                                     .clickable(role = Role.RadioButton, onClickLabel = "Colour ${i + 1}") { viewModel.setAccent(i) },
                                 contentAlignment = Alignment.Center,
-                            ) { if (picked) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = Color.White) }
+                            ) { if (picked) Icon(VibeIcons.Check, contentDescription = "Selected", tint = Color.White) }
                         }
                     }
                     Text("Who can join?", style = MaterialTheme.typography.titleSmall)
                     PrivacyOption(Icons.Outlined.Public, "Public", "Anyone at your university can join and see posts.", s.privacy == CommunityPrivacy.Public) { viewModel.setPrivacy(CommunityPrivacy.Public) }
-                    PrivacyOption(Icons.Outlined.Lock, "Private", "People ask to join and a moderator approves them. Only members see posts and members.", s.privacy == CommunityPrivacy.Private) { viewModel.setPrivacy(CommunityPrivacy.Private) }
+                    PrivacyOption(VibeIcons.Lock, "Private", "People ask to join and a moderator approves them. Only members see posts and members.", s.privacy == CommunityPrivacy.Private) { viewModel.setPrivacy(CommunityPrivacy.Private) }
                     Text("Rules (optional)", style = MaterialTheme.typography.titleSmall)
                     s.rules.forEachIndexed { i, rule ->
                         Row(verticalAlignment = Alignment.Top) {
@@ -120,12 +121,12 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
                                 rule, { viewModel.setRule(i, it) }, modifier = Modifier.weight(1f), placeholder = "Rule ${i + 1}",
                                 isError = rule.length > MAX_RULE_LENGTH, supportingText = if (rule.length > MAX_RULE_LENGTH - 20) "${rule.length}/$MAX_RULE_LENGTH" else null,
                             )
-                            IconButton(onClick = { viewModel.removeRule(i) }) { Icon(Icons.Outlined.Close, contentDescription = "Remove rule ${i + 1}") }
+                            IconButton(onClick = { viewModel.removeRule(i) }) { Icon(VibeIcons.Close, contentDescription = "Remove rule ${i + 1}") }
                         }
                     }
                     if (s.rules.size < MAX_RULES) {
                         TextButton(onClick = viewModel::addRule) {
-                            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(VibeIcons.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Add a rule")
                         }
@@ -160,7 +161,7 @@ private fun PrivacyOption(icon: ImageVector, title: String, subtitle: String, se
                 Text(title, style = MaterialTheme.typography.titleSmall)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
-            if (selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = colors.primary)
+            if (selected) Icon(VibeIcons.Check, contentDescription = "Selected", tint = colors.primary)
         }
     }
 }

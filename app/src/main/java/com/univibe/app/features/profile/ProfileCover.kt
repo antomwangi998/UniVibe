@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -127,7 +128,7 @@ fun CoverIconButton(
 fun CoverBellButton(unread: Int, onClick: () -> Unit) {
     Box {
         CoverIconButton(
-            Icons.Outlined.Notifications,
+            VibeIcons.Bell,
             if (unread > 0) "Notifications, $unread unread" else "Notifications",
             onClick,
         )

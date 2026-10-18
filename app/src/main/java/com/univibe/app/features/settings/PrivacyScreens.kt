@@ -1,5 +1,6 @@
 package com.univibe.app.features.settings
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -40,9 +41,9 @@ fun PrivacyScreen(
             SettingsGroup {
                 SettingsSectionTitle("Visibility")
                 SettingsSwitchRow("Show me in Discover", s.discoverable, { v -> viewModel.update { it.copy(discoverable = v) } },
-                    subtitle = "Other students can find your profile.", icon = Icons.Outlined.Visibility)
+                    subtitle = "Other students can find your profile.", icon = VibeIcons.Visibility)
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Image, "Discover profile", onDiscoverProfile, subtitle = "Choose your card photo and preview it.")
+                SettingsNavRow(VibeIcons.Photo, "Discover profile", onDiscoverProfile, subtitle = "Choose your card photo and preview it.")
                 RowDivider()
                 SettingsSwitchRow("Show online status", s.showOnline, { v -> viewModel.update { it.copy(showOnline = v) } },
                     subtitle = "Let others see when you're active.", icon = Icons.Outlined.Sensors)
@@ -58,13 +59,13 @@ fun PrivacyScreen(
                 }
                 RowDivider()
                 SettingsSwitchRow("Read receipts", s.showReadReceipts, { v -> viewModel.update { it.copy(showReadReceipts = v) } },
-                    subtitle = "Show when you've seen a message.", icon = Icons.Outlined.DoneAll)
+                    subtitle = "Show when you've seen a message.", icon = VibeIcons.DoubleCheck)
             }
         }
         item {
             SettingsGroup {
                 SettingsNavRow(
-                    Icons.Outlined.Block, "Blocked students", onBlocked,
+                    VibeIcons.Block, "Blocked students", onBlocked,
                     subtitle = if (s.blocked.isEmpty()) "No one blocked" else "${s.blocked.size} blocked",
                 )
                 RowDivider()
@@ -87,7 +88,7 @@ fun BlockedUsersScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewMo
         if (s.blocked.isEmpty()) {
             item {
                 EmptyState(
-                    icon = Icons.Outlined.PeopleOutline,
+                    icon = VibeIcons.Groups,
                     title = "No one is blocked",
                     message = "Blocked students can't appear in your feed or discover you. Block someone from the ⋯ menu on their post.",
                 )

@@ -124,6 +124,8 @@ import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeIconButton
+import com.univibe.app.ui.components.VibeIconSize
+import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.components.rememberPhotoPicker
@@ -184,7 +186,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         if (s.searching) {
             Surface(color = MaterialTheme.colorScheme.surface) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = Spacing.sm, vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-                    VibeIconButton(Icons.Outlined.Close, "Close search", viewModel::closeSearch)
+                    VibeIconButton(VibeIcons.Close, "Close search", viewModel::closeSearch)
                     VibeTextField(
                         value = s.query, onValueChange = viewModel::setQuery,
                         modifier = Modifier.weight(1f).padding(horizontal = Spacing.sm).focusRequester(searchFocus), placeholder = "Search in chat",
@@ -193,8 +195,8 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         if (s.query.isBlank()) "" else if (s.matches.isEmpty()) "No results" else "${s.searchIndex + 1} of ${s.matches.size}",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    IconButton(onClick = { viewModel.stepSearch(+1) }, enabled = s.matches.isNotEmpty()) { Icon(Icons.Outlined.KeyboardArrowUp, contentDescription = "Older match") }
-                    IconButton(onClick = { viewModel.stepSearch(-1) }, enabled = s.matches.isNotEmpty()) { Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Newer match") }
+                    IconButton(onClick = { viewModel.stepSearch(+1) }, enabled = s.matches.isNotEmpty()) { Icon(VibeIcons.ChevronUp, contentDescription = "Older match") }
+                    IconButton(onClick = { viewModel.stepSearch(-1) }, enabled = s.matches.isNotEmpty()) { Icon(VibeIcons.ChevronDown, contentDescription = "Newer match") }
                 }
             }
         } else {
@@ -205,10 +207,10 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         }
         VibeTopBar(
             title = s.title, compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
             actions = {
-                VibeIconButton(Icons.Outlined.Search, "Search in chat", viewModel::openSearch)
-                if (chat?.isGroup == true) VibeIconButton(Icons.Outlined.Info, "Group info", onOpenGroupInfo)
+                VibeIconButton(VibeIcons.Search, "Search in chat", viewModel::openSearch)
+                if (chat?.isGroup == true) VibeIconButton(VibeIcons.Info, "Group info", onOpenGroupInfo)
             },
             titleContent = if (chat == null) null else {
                 {
@@ -294,7 +296,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp,
                     ) {
                         IconButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
-                            Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = "Scroll to latest message")
+                            Icon(VibeIcons.ChevronDown, contentDescription = "Scroll to latest message")
                         }
                     }
                 }
@@ -333,7 +335,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                     } else {
                         Row(Modifier.fillMaxWidth().padding(Spacing.sm), verticalAlignment = Alignment.Bottom) {
                             IconButton(onClick = pickPhoto, modifier = Modifier.size(52.dp)) {
-                                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = "Send a photo", tint = MaterialTheme.colorScheme.primary)
+                                Icon(VibeIcons.Photo, contentDescription = "Send a photo", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(VibeIconSize.Action))
                             }
                             VibeTextField(
                                 value = s.input, onValueChange = viewModel::onInput, modifier = Modifier.weight(1f).focusRequester(composerFocus),
@@ -347,7 +349,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                 contentColor = if (s.canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                             ) {
                                 IconButton(onClick = viewModel::send, enabled = s.canSend, modifier = Modifier.size(52.dp)) {
-                                    Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = if (s.editing != null) "Save edit" else "Send message")
+                                    Icon(if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send, contentDescription = if (s.editing != null) "Save edit" else "Send message", modifier = Modifier.size(VibeIconSize.Action))
                                 }
                             }
                         }
@@ -373,17 +375,17 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                     }
                 }
             }
-            SheetRow(Icons.AutoMirrored.Outlined.Reply, "Reply", false) { viewModel.startReply(m) }
-            if (canEditMessage(m)) SheetRow(Icons.Outlined.Edit, "Edit", false) { viewModel.startEdit(m) }
-            SheetRow(Icons.AutoMirrored.Outlined.Send, "Forward", false) { viewModel.openForward(m) }
+            SheetRow(VibeIcons.Reply, "Reply", false) { viewModel.startReply(m) }
+            if (canEditMessage(m)) SheetRow(VibeIcons.Edit, "Edit", false) { viewModel.startEdit(m) }
+            SheetRow(VibeIcons.Send, "Forward", false) { viewModel.openForward(m) }
             if (s.canPin) {
-                if (s.pinnedId == m.id) SheetRow(Icons.Outlined.PushPin, "Unpin message", false) { viewModel.pin(null) }
-                else SheetRow(Icons.Outlined.PushPin, "Pin message", false) { viewModel.pin(m) }
+                if (s.pinnedId == m.id) SheetRow(VibeIcons.Pin, "Unpin message", false) { viewModel.pin(null) }
+                else SheetRow(VibeIcons.Pin, "Pin message", false) { viewModel.pin(m) }
             }
             if (m.text.isNotBlank()) {
-                SheetRow(Icons.Outlined.ContentCopy, "Copy text", false) { clipboard.setText(AnnotatedString(m.text)); viewModel.openMenu(null) }
+                SheetRow(VibeIcons.Copy, "Copy text", false) { clipboard.setText(AnnotatedString(m.text)); viewModel.openMenu(null) }
             }
-            if (m.isMine) SheetRow(Icons.Outlined.DeleteOutline, "Delete message", true, viewModel::deleteMessage)
+            if (m.isMine) SheetRow(VibeIcons.Delete, "Delete message", true, viewModel::deleteMessage)
         }
     }
 
@@ -423,12 +425,12 @@ private fun PinnedBar(m: Message, canUnpin: Boolean, onJump: () -> Unit, onUnpin
             Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Jump to pinned message", onClick = onJump).padding(start = Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Outlined.PushPin, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
+            Icon(VibeIcons.Pin, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
             Column(Modifier.weight(1f).padding(horizontal = Spacing.sm + 4.dp, vertical = 6.dp)) {
                 Text("Pinned message", style = MaterialTheme.typography.labelMedium, color = colors.primary)
                 Text(replyPreview(m), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (canUnpin) IconButton(onClick = onUnpin) { Icon(Icons.Outlined.Close, contentDescription = "Unpin message") }
+            if (canUnpin) IconButton(onClick = onUnpin) { Icon(VibeIcons.Close, contentDescription = "Unpin message") }
         }
     }
 }
@@ -437,12 +439,12 @@ private fun PinnedBar(m: Message, canUnpin: Boolean, onJump: () -> Unit, onUnpin
 private fun EditBar(m: Message, onCancel: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().padding(start = Spacing.md, top = Spacing.sm, end = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
+        Icon(VibeIcons.Edit, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
         Column(Modifier.weight(1f).padding(start = Spacing.sm + 4.dp)) {
             Text("Editing message", style = MaterialTheme.typography.labelLarge, color = colors.primary)
             Text(replyPreview(m), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = "Cancel edit") }
+        IconButton(onClick = onCancel) { Icon(VibeIcons.Close, contentDescription = "Cancel edit") }
     }
 }
 
@@ -466,11 +468,11 @@ private fun messageText(text: String, mine: Boolean): AnnotatedString {
 }
 
 private fun Reaction.icon(): ImageVector = when (this) {
-    Reaction.Heart -> Icons.Filled.Favorite
-    Reaction.Like -> Icons.Outlined.ThumbUp
-    Reaction.Laugh -> Icons.Outlined.SentimentVerySatisfied
-    Reaction.Fire -> Icons.Outlined.LocalFireDepartment
-    Reaction.Sad -> Icons.Outlined.SentimentDissatisfied
+    Reaction.Heart -> VibeIcons.HeartFilled
+    Reaction.Like -> VibeIcons.ThumbUp
+    Reaction.Laugh -> VibeIcons.Laugh
+    Reaction.Fire -> VibeIcons.Fire
+    Reaction.Sad -> VibeIcons.Sad
 }
 
 private fun Reaction.label(): String = when (this) {
@@ -502,7 +504,7 @@ private fun ReplyBar(m: Message, onCancel: () -> Unit) {
             Text("Replying to ${if (m.isMine) "yourself" else m.senderName}", style = MaterialTheme.typography.labelLarge, color = colors.primary)
             Text(replyPreview(m), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = "Cancel reply") }
+        IconButton(onClick = onCancel) { Icon(VibeIcons.Close, contentDescription = "Cancel reply") }
     }
 }
 
@@ -525,7 +527,7 @@ private fun SwipeToReply(onReply: () -> Unit, content: @Composable () -> Unit) {
         ),
     ) {
         Icon(
-            Icons.AutoMirrored.Outlined.Reply, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+            VibeIcons.Reply, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.align(Alignment.CenterStart).padding(start = Spacing.sm).alpha((offset.value / trigger).coerceIn(0f, 1f)),
         )
         Box(Modifier.offset { IntOffset(offset.value.roundToInt(), 0) }) { content() }
@@ -601,7 +603,7 @@ private fun MessageItem(
                                 Spacer(Modifier.width(4.dp))
                                 val seen = showReceipts && m.status == MessageStatus.Seen
                                 Icon(
-                                    imageVector = when { m.status == MessageStatus.Sending -> Icons.Outlined.Schedule; seen -> Icons.Outlined.DoneAll; else -> Icons.Outlined.Check },
+                                    imageVector = when { m.status == MessageStatus.Sending -> VibeIcons.Clock; seen -> VibeIcons.DoubleCheck; else -> VibeIcons.Check },
                                     contentDescription = when { m.status == MessageStatus.Sending -> "Sending"; seen -> "Seen"; else -> "Sent" },
                                     modifier = Modifier.size(14.dp).alpha(if (seen) 1f else 0.8f),
                                 )

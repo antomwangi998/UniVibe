@@ -74,7 +74,7 @@ fun VibePasswordField(
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
                 Icon(
-                    imageVector = if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    imageVector = if (visible) VibeIcons.VisibilityOff else VibeIcons.Visibility,
                     contentDescription = if (visible) "Hide password" else "Show password",
                 )
             }
@@ -122,7 +122,7 @@ fun MessageBanner(text: String, kind: BannerKind, modifier: Modifier = Modifier)
     ) {
         Row(Modifier.padding(Spacing.md), verticalAlignment = Alignment.Top) {
             Icon(
-                if (kind == BannerKind.Error) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
+                if (kind == BannerKind.Error) VibeIcons.Info else VibeIcons.Info,
                 contentDescription = null, modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(Spacing.sm + 4.dp))

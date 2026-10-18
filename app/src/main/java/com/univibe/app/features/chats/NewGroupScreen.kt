@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -84,7 +85,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
         if (s.step == 1) {
             VibeTopBar(
                 "New group", compactTitle = true,
-                navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
+                navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
                 actions = { VibeButton("Next", viewModel::next, enabled = s.canNext, compact = true) },
             )
             if (s.selectedStudents.isNotEmpty()) {
@@ -100,7 +101,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
                             Row(Modifier.padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 StudentAvatar(st.name, size = 28.dp, accent = st.accent, imagePath = st.avatarUrl)
                                 Text(st.name.substringBefore(' '), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp))
-                                Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(VibeIcons.Close, contentDescription = null, modifier = Modifier.size(14.dp))
                             }
                         }
                     }
@@ -114,7 +115,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
             )
             when {
                 s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 4)
-                s.visible.isEmpty() -> EmptyState(Icons.Outlined.Groups, "No students found", "Try a different name.")
+                s.visible.isEmpty() -> EmptyState(VibeIcons.Groups, "No students found", "Try a different name.")
                 else -> LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                     items(s.visible, key = { it.id }) { st ->
                         val picked = st.id in s.selected
@@ -135,7 +136,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
         } else {
             VibeTopBar(
                 "Group details", compactTitle = true,
-                navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", viewModel::backStep) },
+                navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", viewModel::backStep) },
             )
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.md),
@@ -148,7 +149,7 @@ fun NewGroupScreen(onBack: () -> Unit, onCreated: (chatId: String) -> Unit) {
                 ) {
                     GroupAvatar(s.photoPath, 104.dp)
                     Surface(shape = CircleShape, color = colors.primary, contentColor = colors.onPrimary, modifier = Modifier.align(Alignment.BottomEnd).size(36.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        Box(contentAlignment = Alignment.Center) { Icon(VibeIcons.Photo, contentDescription = null, modifier = Modifier.size(18.dp)) }
                     }
                 }
                 if (s.photoPath != null) TextButton(onClick = viewModel::removePhoto) { Text("Remove photo") }

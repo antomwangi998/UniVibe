@@ -1,5 +1,6 @@
 package com.univibe.app.features.auth
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -82,7 +83,7 @@ fun OnboardingScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (state.step > 0) {
-                IconButton(onClick = viewModel::back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") }
+                IconButton(onClick = viewModel::back) { Icon(VibeIcons.Back, contentDescription = "Back") }
             } else Spacer(Modifier.width(48.dp))
             LinearProgressIndicator(
                 progress = { progress },
@@ -115,9 +116,9 @@ fun OnboardingScreen(
                         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm + 4.dp)) {
                                 StatusRow(Icons.Outlined.School, "University", user.universityName, done = true)
-                                StatusRow(Icons.Outlined.CheckCircle, "Email", if (user.emailVerified) "Verified" else "Not verified", user.emailVerified)
+                                StatusRow(VibeIcons.CheckCircle, "Email", if (user.emailVerified) "Verified" else "Not verified", user.emailVerified)
                                 StatusRow(
-                                    if (user.studentVerified) Icons.Outlined.CheckCircle else Icons.Outlined.HourglassEmpty,
+                                    if (user.studentVerified) VibeIcons.CheckCircle else Icons.Outlined.HourglassEmpty,
                                     "Student status", if (user.studentVerified) "Verified student" else "Not verified yet", user.studentVerified,
                                 )
                             }
@@ -152,7 +153,7 @@ fun OnboardingScreen(
                             VibeButton(
                                 if (state.hasPhoto) "Photo selected" else "Choose photo",
                                 onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.PhotoCamera,
+                                style = VibeButtonStyle.Secondary, compact = true, leadingIcon = VibeIcons.Camera,
                             )
                         }
                         VibeTextField(

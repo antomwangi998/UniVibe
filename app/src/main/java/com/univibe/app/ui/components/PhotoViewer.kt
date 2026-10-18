@@ -46,7 +46,7 @@ fun PhotoViewerDialog(path: String, onDismiss: () -> Unit) {
                 contentScale = ContentScale.Fit,
             )
             IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp)) {
-                Icon(Icons.Outlined.Close, contentDescription = "Close photo", tint = Color.White)
+                Icon(VibeIcons.Close, contentDescription = "Close photo", tint = Color.White)
             }
         }
     }

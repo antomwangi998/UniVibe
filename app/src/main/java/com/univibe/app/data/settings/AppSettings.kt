@@ -1,5 +1,7 @@
 package com.univibe.app.data.settings
 
+import com.univibe.app.data.model.FeedFilter
+
 enum class MessagePolicy(val label: String, val description: String) {
     Everyone("Everyone", "Any student can message you"),
     Following("People I follow", "Only students you follow can message you"),
@@ -35,4 +37,6 @@ data class AppSettings(
     // Accessibility
     val reduceMotion: Boolean = false,
     val textScale: TextScale = TextScale.Default,
+    // Home feed
+    val feedFilter: FeedFilter = FeedFilter.Campus,
 )

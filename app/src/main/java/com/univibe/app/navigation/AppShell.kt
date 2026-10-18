@@ -90,6 +90,7 @@ import com.univibe.app.features.settings.PrivacyScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
 import com.univibe.app.features.settings.SettingsScreen
+import com.univibe.app.ui.components.LocalChromeHidden
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.VibeBottomBar
 
@@ -161,7 +162,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
             // Content runs edge to edge; the bar hovers above it.
-            CompositionLocalProvider(LocalFloatingBarVisible provides barVisible) {
+            CompositionLocalProvider(LocalFloatingBarVisible provides barVisible, LocalChromeHidden provides hiddenByScroll.value) {
                 NavHost(
                     navController = navController,
                     startDestination = TopLevelDestination.Home.route,

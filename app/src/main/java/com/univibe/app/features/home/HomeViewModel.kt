@@ -17,6 +17,7 @@ import com.univibe.app.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -54,7 +55,12 @@ class HomeViewModel(
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     init {
-        load()
+        viewModelScope.launch {
+            // Open on the feed the student chose last time; fall back to the default if settings can't be read.
+            val saved = runCatching { settings.settings.first().feedFilter }.getOrNull()
+            if (saved != null) _state.update { it.copy(filter = saved) }
+            load()
+        }
         viewModelScope.launch {
             settings.settings.collect { s -> _state.update { it.copy(blocked = s.blocked.map { b -> b.id }.toSet()) } }
         }
@@ -81,6 +87,7 @@ class HomeViewModel(
     fun setFilter(filter: FeedFilter) {
         if (filter == _state.value.filter) return
         _state.update { it.copy(filter = filter) }
+        viewModelScope.launch { runCatching { settings.update { it.copy(feedFilter = filter) } } }
         load()
     }
 

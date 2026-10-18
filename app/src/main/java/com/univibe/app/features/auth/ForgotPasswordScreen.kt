@@ -1,5 +1,6 @@
 package com.univibe.app.features.auth
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -72,7 +73,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         state.error?.let { MessageBanner(it, BannerKind.Error) }
                         VibeTextField(
                             value = state.email, onValueChange = viewModel::onEmail, label = "Email",
-                            leadingIcon = Icons.Outlined.MailOutline,
+                            leadingIcon = VibeIcons.Mail,
                             isError = state.emailError != null, supportingText = state.emailError,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.requestCode() }),
@@ -106,7 +107,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         TextButton(onClick = viewModel::backToEmail, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Use a different email") }
                     }
                     ResetStep.Done -> {
-                        Icon(Icons.Outlined.CheckCircleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.CenterHorizontally))
+                        Icon(VibeIcons.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.CenterHorizontally))
                         Text(
                             "Your password has been changed. Log in with your new password.",
                             style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,

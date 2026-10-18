@@ -1,5 +1,6 @@
 package com.univibe.app.features.settings
 
+import com.univibe.app.ui.components.VibeIcons
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -62,7 +63,7 @@ fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGu
                 RowDivider()
                 SettingsNavRow(Icons.Outlined.Gavel, "Community guidelines", onGuidelines)
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Info, "About UniVibe", onAbout)
+                SettingsNavRow(VibeIcons.Info, "About UniVibe", onAbout)
             }
         }
     }
@@ -92,7 +93,7 @@ fun FaqScreen(onBack: () -> Unit) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(q, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                             Icon(
-                                if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                if (open) VibeIcons.ChevronUp else VibeIcons.ChevronDown,
                                 contentDescription = if (open) "Collapse" else "Expand",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
