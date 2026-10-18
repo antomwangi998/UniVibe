@@ -97,6 +97,19 @@ interface ChatRepository {
     suspend fun getChat(chatId: String): Chat?
     suspend fun setMuted(chatId: String, muted: Boolean)
     suspend fun archive(chatId: String)
+    /** Archived conversations (the main list never includes them). */
+    suspend fun getArchivedChats(): List<Chat> = throw UnsupportedOperationException("Archived chats aren't available.")
+    suspend fun unarchive(chatId: String): Unit = throw UnsupportedOperationException("Unarchiving isn't available.")
+    /** Per-person pin of the conversation in the list. Throws where the implementation cannot do it (never pretends). */
+    suspend fun setPinned(chatId: String, pinned: Boolean): Unit = throw UnsupportedOperationException("Pinning isn't available.")
+    /** Sets the server's "marked unread" flag. It does not touch read receipts; the next read clears it. */
+    suspend fun markUnread(chatId: String): Unit = throw UnsupportedOperationException("Marking unread isn't available.")
+    /** Same effect as opening the chat: clears the flag and moves the read cursor to the latest message. */
+    suspend fun markRead(chatId: String): Unit = throw UnsupportedOperationException("Marking read isn't available.")
+    /** Who is typing right now, per conversation (other people only). Entries expire by themselves. */
+    fun typingByChat(): Flow<Map<String, Set<String>>> = kotlinx.coroutines.flow.emptyFlow()
+    /** Whether the live connection is up. Implementations without one report true (nothing to be offline from). */
+    fun connected(): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true)
     /** Fires when the server says something changed in the chat list (new message, read elsewhere, reconnect). */
     fun changes(): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
 }

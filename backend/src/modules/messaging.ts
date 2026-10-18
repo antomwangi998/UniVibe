@@ -25,7 +25,7 @@ export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null }[];
   forwarded: boolean;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
@@ -63,13 +63,13 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
   const byMessage = new Map<string, MessageView['media']>();
   await Promise.all(media.map(async (m) => {
     const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key) });
+    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null });
     byMessage.set(m.message_id, list);
   }));
   return rows.map((r) => {
@@ -272,7 +272,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
            from conversations c where c.id = $1`, [id])).rows[0];
       const mine = (await pool.query('select muted_until, archived, pinned from conversation_members where conversation_id = $1 and user_id = $2', [id, me.id])).rows[0];
       const { rows } = await pool.query(
-        `select m.role, m.last_read_seq, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
+        `select m.role, m.last_read_seq, m.last_delivered_seq, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
            join users u on u.id = m.user_id ${cardJoin('u')} left join privacy_settings ps on ps.user_id = u.id
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
       return {
@@ -280,7 +280,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         // The viewer's own settings for this conversation.
         mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned, pinnedMessageId: conv.pinned_message_id,
         members: await Promise.all(rows.map(async (r) => ({
-          ...(await toCard(ctx, r as CardRow)), role: r.role, lastReadSeq: Number(r.last_read_seq),
+          ...(await toCard(ctx, r as CardRow)), role: r.role, lastReadSeq: Number(r.last_read_seq), lastDeliveredSeq: Number(r.last_delivered_seq),
           // Online state is shown only for people who allow it (always to themselves).
           online: r.card_id === me.id ? hub.isOnline(me.id) : r.show_online ? hub.isOnline(r.card_id) : null,
         }))),
@@ -301,6 +301,18 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                 (select count(*) from messages x where x.conversation_id = c.id and x.seq > cm.last_read_seq
                     and x.sender_id is distinct from $1 and x.status = 'active') as unread,
                 lm.id as lm_id, lm.sender_id as lm_sender, lm.content as lm_content, lm.status as lm_status, lm.created_at as lm_created,
+                (select count(*) from media md where md.message_id = lm.id and md.status = 'ready') as lm_media,
+                (select su.full_name from users su where su.id = lm.sender_id) as lm_sender_name,
+                (select count(*) from conversation_members mc where mc.conversation_id = c.id) as member_count,
+                -- Up to six other members of a group (names only): used for typing labels, collage avatars and untitled groups.
+                (select coalesce(json_agg(json_build_object('id', t.id, 'name', t.name)), '[]'::json)
+                   from (select u2.id, u2.full_name as name from conversation_members m3 join users u2 on u2.id = m3.user_id
+                          where m3.conversation_id = c.id and m3.user_id <> $1 and c.kind = 'group'
+                          order by m3.joined_at, u2.id limit 6) t) as members_preview,
+                -- Only for our own last message: how far it got, from the other members' delivery and read cursors.
+                case when lm.sender_id = $1 then (select case when bool_and(m5.last_read_seq >= lm.seq) then 'read'
+                                                              when bool_and(m5.last_delivered_seq >= lm.seq) then 'delivered' else 'sent' end
+                                                    from conversation_members m5 where m5.conversation_id = c.id and m5.user_id <> $1) end as lm_delivery,
                 ${cardColumns('o')}
            from conversation_members cm join conversations c on c.id = cm.conversation_id
            left join lateral (select * from messages x where x.conversation_id = c.id and x.seq > cm.cleared_seq order by x.seq desc limit 1) lm on true
@@ -320,8 +332,12 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         items: await Promise.all(page.map(async (r) => ({
           id: r.id, kind: r.kind, title: r.title, lastMessageAt: r.last_message_at, unreadCount: Number(r.unread),
           mutedUntil: r.muted_until, archived: r.archived, pinned: r.pinned, markedUnread: r.marked_unread,
+          memberCount: Number(r.member_count), members: r.members_preview,
           with: r.card_id ? await toCard(ctx, r as CardRow) : null,
-          lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created } : null,
+          lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
+          // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
+          mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, senderName: r.lm_sender_name ?? null,
+          delivery: r.lm_delivery ?? null } : null,
         }))),
         nextCursor: more && last ? Buffer.from(JSON.stringify({ t: last.cursor_t, id: last.id })).toString('base64url') : null,
       };

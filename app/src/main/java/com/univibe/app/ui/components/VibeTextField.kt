@@ -29,6 +29,8 @@ fun VibeTextField(
     supportingText: String? = null,
     singleLine: Boolean = true,
     minLines: Int = 1,
+    /** Longest the field grows before it scrolls inside itself. */
+    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
@@ -48,6 +50,7 @@ fun VibeTextField(
         supportingText = supportingText?.let { { Text(it) } },
         singleLine = singleLine,
         minLines = minLines,
+        maxLines = maxLines,
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,

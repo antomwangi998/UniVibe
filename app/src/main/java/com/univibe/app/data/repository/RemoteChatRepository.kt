@@ -1,6 +1,9 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.Chat
+import com.univibe.app.data.model.ChatMember
+import com.univibe.app.data.model.Delivery
+import com.univibe.app.data.model.LastKind
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.ChatEvent
@@ -8,7 +11,11 @@ import com.univibe.app.data.net.LiveConnection
 import com.univibe.app.data.net.parseStudent
 import com.univibe.app.data.net.send
 import com.univibe.app.data.net.timeAgo
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -29,12 +36,22 @@ class RemoteChatRepository(
         ?.map { }
         ?: emptyFlow()
 
-    override suspend fun getChats(): List<Chat> {
+    override suspend fun getChats(): List<Chat> = fetchList(archived = false)
+
+    override suspend fun getArchivedChats(): List<Chat> = fetchList(archived = true)
+
+    override suspend fun unarchive(chatId: String) {
+        api.send("PUT", "/api/v1/conversations/${enc(chatId)}/settings", JSONObject().put("archived", false))
+    }
+
+    override fun connected(): Flow<Boolean> = live?.connected ?: kotlinx.coroutines.flow.flowOf(true)
+
+    private suspend fun fetchList(archived: Boolean): List<Chat> {
         val chats = mutableListOf<Chat>()
         var cursor: String? = null
         // The server pages the list; five pages of 50 is far more than a student needs on one screen.
         repeat(MAX_PAGES) {
-            val query = "limit=50" + (cursor?.let { "&cursor=" + URLEncoder.encode(it, "UTF-8") } ?: "")
+            val query = "limit=50" + (if (archived) "&archived=true" else "") + (cursor?.let { "&cursor=" + URLEncoder.encode(it, "UTF-8") } ?: "")
             val json = JSONObject(api.send("GET", "/api/v1/conversations?$query"))
             val items = json.getJSONArray("items")
             for (i in 0 until items.length()) chats += parseListItem(items.getJSONObject(i))
@@ -67,6 +84,7 @@ class RemoteChatRepository(
             timeLabel = "",
             isGroup = isGroup,
             online = other?.takeIf { !it.isNull("online") }?.optBoolean("online", false) ?: false,
+            avatarUrl = student?.avatarUrl,
             pinned = json.optBoolean("pinned", false),
             muted = isMuted(json.strOrNull("mutedUntil")),
             studentId = student?.id,
@@ -79,6 +97,54 @@ class RemoteChatRepository(
         api.send("PUT", "/api/v1/conversations/${enc(chatId)}/settings", body)
     }
 
+    override suspend fun setPinned(chatId: String, pinned: Boolean) {
+        api.send("PUT", "/api/v1/conversations/${enc(chatId)}/settings", JSONObject().put("pinned", pinned))
+    }
+
+    override suspend fun markUnread(chatId: String) {
+        api.send("POST", "/api/v1/conversations/${enc(chatId)}/mark-unread", JSONObject(), ok = setOf(204))
+    }
+
+    override suspend fun markRead(chatId: String) {
+        api.send("POST", "/api/v1/conversations/${enc(chatId)}/read", JSONObject(), ok = setOf(204))
+    }
+
+    /**
+     * Typing, per conversation, from live events. A "typing" entry lasts at most [TYPING_EXPIRY_MS] unless refreshed, so a
+     * lost "stopped" event can never leave "typing…" on screen. Without a live connection nothing is ever emitted.
+     */
+    override fun typingByChat(): Flow<Map<String, Set<String>>> {
+        val link = live ?: return emptyFlow()
+        return channelFlow {
+            val me = myId()
+            val current = HashMap<String, Set<String>>()
+            val timers = HashMap<String, Job>()
+            fun publish() = trySend(synchronized(current) { HashMap(current) })
+            fun set(chat: String, user: String, on: Boolean) {
+                synchronized(current) {
+                    val users = current[chat].orEmpty()
+                    val next = if (on) users + user else users - user
+                    if (next.isEmpty()) current.remove(chat) else current[chat] = next
+                }
+                publish()
+            }
+            trySend(emptyMap())
+            link.events.collect { e ->
+                // A reconnect may have swallowed "stopped" events, so start clean.
+                if (e is ChatEvent.Connected) {
+                    timers.values.forEach { it.cancel() }; timers.clear()
+                    synchronized(current) { current.clear() }; publish()
+                }
+                if (e is ChatEvent.Typing && e.userId != me) {
+                    val key = e.conversationId + "|" + e.userId
+                    timers.remove(key)?.cancel()
+                    set(e.conversationId, e.userId, e.typing)
+                    if (e.typing) timers[key] = launch { delay(TYPING_EXPIRY_MS); set(e.conversationId, e.userId, false) }
+                }
+            }
+        }
+    }
+
     override suspend fun archive(chatId: String) {
         api.send("PUT", "/api/v1/conversations/${enc(chatId)}/settings", JSONObject().put("archived", true))
     }
@@ -87,22 +153,67 @@ class RemoteChatRepository(
         val isGroup = o.getString("kind") == "group"
         val with = o.optJSONObject("with")?.let(::parseStudent)
         val last = o.optJSONObject("lastMessage")
-        val preview = when {
-            last == null -> ""
-            last.optBoolean("deleted", false) -> "Message deleted"
-            else -> last.strOrNull("content")?.takeIf { it.isNotBlank() } ?: "Photo"
+        val deleted = last?.optBoolean("deleted", false) == true
+        val text = last?.strOrNull("content")?.takeIf { it.isNotBlank() }
+        // `mediaCount` is newer than some servers: when it is missing, an empty message is treated as a photo, as before.
+        val photos = if (last == null || deleted) 0 else if (last.has("mediaCount")) last.optInt("mediaCount", 0) else if (text == null) 1 else 0
+        val kind = when {
+            last == null -> LastKind.None
+            deleted -> LastKind.Deleted
+            photos > 0 -> LastKind.Photo
+            else -> LastKind.Text
         }
+        val preview = when (kind) {
+            LastKind.None -> ""
+            LastKind.Deleted -> "Message deleted"
+            LastKind.Photo -> text ?: if (photos > 1) "$photos photos" else "Photo"
+            LastKind.Text -> text ?: ""
+        }
+        val memberArr = o.optJSONArray("members")
+        val members = buildList {
+            if (memberArr != null) for (i in 0 until memberArr.length()) {
+                val m = memberArr.getJSONObject(i)
+                add(ChatMember(m.getString("id"), m.optString("name")))
+            }
+        }
+        val delivery = when (last?.strOrNull("delivery")) {
+            "read" -> Delivery.Read
+            "delivered" -> Delivery.Delivered
+            "sent" -> Delivery.Sent
+            else -> Delivery.None
+        }
+        val realUnread = o.optInt("unreadCount", 0)
+        val marked = o.optBoolean("markedUnread", false)
         return Chat(
             id = o.getString("id"),
-            title = if (isGroup) o.strOrNull("title") ?: "Group" else with?.name ?: o.strOrNull("title") ?: "Chat",
+            title = if (isGroup) o.strOrNull("title")?.takeIf { it.isNotBlank() } ?: untitledGroup(members) else with?.name ?: o.strOrNull("title") ?: "Chat",
             lastMessage = preview,
             timeLabel = ageLabel(o.strOrNull("lastMessageAt")),
-            unread = if (o.optBoolean("markedUnread", false)) maxOf(1, o.optInt("unreadCount", 0)) else o.optInt("unreadCount", 0),
+            unread = if (marked) maxOf(1, realUnread) else realUnread,
             isGroup = isGroup,
             pinned = o.optBoolean("pinned", false),
             muted = isMuted(o.strOrNull("mutedUntil")),
             studentId = with?.id,
+            lastKind = kind,
+            lastFromMe = last != null && last.strOrNull("senderId") == myId(),
+            lastSenderName = last?.strOrNull("senderName"),
+            photoCount = photos,
+            markedOnly = marked && realUnread == 0,
+            members = members,
+            memberCount = o.optInt("memberCount", 0),
+            lastDelivery = delivery,
+            avatarUrl = with?.avatarUrl,
         )
+    }
+
+    /** A group with no name is called after its members, like "Jane, Sam and 2 others". */
+    private fun untitledGroup(members: List<ChatMember>): String {
+        val names = members.map { it.name.substringBefore(' ') }.filter { it.isNotBlank() }
+        return when {
+            names.isEmpty() -> "Group"
+            names.size <= 2 -> names.joinToString(" and ")
+            else -> "${names[0]}, ${names[1]} and ${names.size - 2} other" + if (names.size - 2 == 1) "" else "s"
+        }
     }
 
     private fun isMuted(until: String?): Boolean =
@@ -115,6 +226,7 @@ class RemoteChatRepository(
 
     private companion object {
         const val MAX_PAGES = 5
+        const val TYPING_EXPIRY_MS = 7_000L
         const val FOREVER = "2099-01-01T00:00:00.000Z"
     }
 }

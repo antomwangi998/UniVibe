@@ -99,6 +99,29 @@ describe.skipIf(!url)('messaging (needs TEST_DATABASE_URL)', () => {
     expect((await call('GET', `${V1}/conversations`, outsider.token)).body.items).toHaveLength(0);
   });
 
+  it('chat list carries group members, member count and how far my last message got', async () => {
+    const a = await h.student();
+    const b = await h.student();
+    const c = await h.student();
+    const conv = await direct(a, b);
+    const sent = await call('POST', `${V1}/conversations/${conv}/messages`, a.token, { content: 'hi' });
+    const row = async (who: Student, id: string) => (await call('GET', `${V1}/conversations`, who.token)).body.items.find((x: { id: string }) => x.id === id);
+    expect((await row(a, conv)).lastMessage.delivery).toBe('sent');
+    expect((await row(b, conv)).lastMessage.delivery).toBeNull(); // only the sender sees progress
+    expect((await call('POST', `${V1}/conversations/${conv}/delivered`, b.token, { upToSeq: 1_000_000 })).status).toBeLessThan(300);
+    expect((await row(a, conv)).lastMessage.delivery).toBe('delivered');
+    await call('POST', `${V1}/conversations/${conv}/read`, b.token, {});
+    expect((await row(a, conv)).lastMessage.delivery).toBe('read');
+    expect(sent.status).toBe(201);
+    const g = await call('POST', `${V1}/conversations`, a.token, { type: 'group', title: 'Study group', memberIds: [b.id, c.id] });
+    const gr = await row(a, g.body.id);
+    expect(gr.memberCount).toBe(3);
+    expect(gr.members.map((m: { id: string }) => m.id).sort()).toEqual([b.id, c.id].sort()); // never includes me
+    expect((await row(a, conv)).members).toEqual([]); // direct chats carry no member list
+    const view = await call('GET', `${V1}/conversations/${g.body.id}`, a.token);
+    expect(view.body.members.every((m: { lastDeliveredSeq: number }) => typeof m.lastDeliveredSeq === 'number')).toBe(true);
+  });
+
   it('a retried send with the same clientId creates one message', async () => {
     const a = await h.student();
     const b = await h.student();

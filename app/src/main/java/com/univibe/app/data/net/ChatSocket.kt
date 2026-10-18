@@ -56,6 +56,7 @@ sealed interface ChatEvent {
     /** Edited, unsent, reacted to, pinned, or otherwise changed. */
     data class MessageChanged(override val conversationId: String) : ChatEvent
     data class Read(override val conversationId: String, val userId: String, val upToSeq: Long) : ChatEvent
+    data class Delivered(override val conversationId: String, val userId: String, val upToSeq: Long) : ChatEvent
     data class Typing(override val conversationId: String, val userId: String, val typing: Boolean) : ChatEvent
     data class Presence(val userId: String, val online: Boolean) : ChatEvent
     /** A notification arrived, or was read or removed on another device. The server's count is the truth. */
@@ -66,6 +67,7 @@ sealed interface ChatEvent {
             "message:new" -> MessageNew(o.getString("conversationId"))
             "message:updated", "message:deleted", "message:reaction", "conversation:updated" -> MessageChanged(o.getString("conversationId"))
             "message:read" -> Read(o.getString("conversationId"), o.getString("userId"), o.getLong("upToSeq"))
+            "message:delivered" -> Delivered(o.getString("conversationId"), o.getString("userId"), o.getLong("upToSeq"))
             "typing:update" -> Typing(o.getString("conversationId"), o.getString("userId"), o.getBoolean("typing"))
             "presence:update" -> Presence(o.getString("userId"), o.getBoolean("online"))
             "notification:created", "notification:unread" -> NotificationsChanged(o.optInt("unreadCount", 0))
