@@ -24,6 +24,7 @@ object SettingsCategories {
     const val SECURITY = "Security"
     const val PRIVACY = "Privacy & safety"
     const val NOTIFICATIONS = "Notifications"
+    const val MESSAGES = "Messages"
     const val APPEARANCE = "Appearance"
     const val ACCESSIBILITY = "Accessibility"
     const val PERMISSIONS = "Permissions"
@@ -52,7 +53,7 @@ object SettingsRegistry {
         e("discoverable", "Appear in Discover", "Let other students find you in Discover", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Appear in Discover", keywords = listOf("discoverable", "visibility", "find me", "hide profile")),
         e("who-can-message", "Who can message you", "Everyone, people you follow, or nobody", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Who can message you", keywords = listOf("message requests", "dm", "direct messages")),
         e("online-status", "Online status", "Show when you're online", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Online status", keywords = listOf("active", "last seen", "activity status")),
-        e("read-receipts", "Read receipts", "Show when you've read a message", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Read receipts", keywords = listOf("seen", "typing")),
+        e("read-receipts", "Read receipts", "Show when you've read a message", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Read receipts", keywords = listOf("seen", "read status")),
         e("blocked", "Blocked students", "Students you've blocked", SettingsRoutes.BLOCKED, SettingsCategories.PRIVACY, "Blocked students", keywords = listOf("block", "unblock", "blocked users", "blocked accounts")),
         e("discover-profile", "Discover profile", "Your card photo, preview and who sees it", SettingsRoutes.DISCOVER_PROFILE, SettingsCategories.PRIVACY, "Discover profile", keywords = listOf("card", "photo", "preview")),
         e("safety", "Safety tips", "Staying safe on campus and online", SettingsRoutes.SAFETY, SettingsCategories.PRIVACY, "Safety tips"),
@@ -60,6 +61,12 @@ object SettingsRegistry {
         e("notifications", "Notifications", "Choose which alerts you get", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, keywords = listOf("alerts", "push", "mute notifications")),
         e("notify-types", "Likes, comments, messages and events", "Pick which activity notifies you and which alerts reach your phone", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Alert types", keywords = listOf("likes", "comments", "messages", "events", "communities")),
         e("quiet-hours", "Quiet hours", "No alerts on this phone from 10 PM to 7 AM", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Quiet hours", keywords = listOf("do not disturb", "silence", "night")),
+        // Messages
+        e("messages", "Messages", "Chat privacy, alerts and writing", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, keywords = listOf("chat", "chats", "dm", "direct messages", "conversations")),
+        e("enter-to-send", "Enter key sends", "Send with the keyboard's Enter key", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, "Enter key sends", keywords = listOf("enter key", "send key", "new line", "keyboard")),
+        e("message-preview", "Message previews", "Show or hide message text in alerts", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, "Message previews", keywords = listOf("preview", "alert text", "hide message", "lock screen")),
+        e("typing-indicators", "Typing indicators", "Show when you're typing", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, "Typing indicators", keywords = listOf("typing", "is typing")),
+        e("muted-chats", "Muted conversations", "Chats whose alerts you turned off", SettingsRoutes.MUTED_CHATS, SettingsCategories.MESSAGES, "Muted conversations", keywords = listOf("mute", "unmute", "muted chats", "silence chat")),
         // Appearance
         e("appearance", "Appearance", "Light, dark or match your phone", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, keywords = listOf("theme")),
         e("theme", "Theme", "System, Light or Dark", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, "Theme", keywords = listOf("dark mode", "light mode", "night mode", "system default")),

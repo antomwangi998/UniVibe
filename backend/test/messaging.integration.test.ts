@@ -382,6 +382,24 @@ describe.skipIf(!url)('messaging (needs TEST_DATABASE_URL)', () => {
       await waitFor(aSocket.events, 'error', (e) => e.code === 'validation' || e.code === 'bad_request');
     });
 
+    it('typing indicators off: the other person is never told', async () => {
+      const a = await h.student();
+      const b = await h.student();
+      expect((await call('GET', `${V1}/me/privacy`, a.token)).body.typingIndicators).toBe(true);
+      expect((await call('PUT', `${V1}/me/privacy`, a.token, { typingIndicators: false })).body.typingIndicators).toBe(false);
+      expect((await call('PUT', `${V1}/me/privacy`, a.token, { typingIndicators: 'no' })).status).toBe(400);
+      const conv = await direct(a, b);
+      const aSocket = await connect(a.token);
+      const bSocket = await connect(b.token);
+      aSocket.send({ type: 'typing:start', conversationId: conv });
+      await quiet();
+      expect(bSocket.events.some((e) => e.type === 'typing:update')).toBe(false);
+      await call('PUT', `${V1}/me/privacy`, a.token, { typingIndicators: true });
+      await new Promise((r) => setTimeout(r, 2100)); // past the 2 s typing rate limit
+      aSocket.send({ type: 'typing:start', conversationId: conv });
+      await waitFor(bSocket.events, 'typing:update', (e) => e.typing === true);
+    });
+
     it('typing is temporary, rate limited, scoped to members, and cleared on disconnect', async () => {
       const a = await h.student();
       const b = await h.student();
@@ -395,7 +413,7 @@ describe.skipIf(!url)('messaging (needs TEST_DATABASE_URL)', () => {
       expect(bSocket.events.filter((e) => e.type === 'typing:update' && e.typing === true)).toHaveLength(1);
       aSocket.ws.close();
       await waitFor(bSocket.events, 'typing:update', (e) => e.typing === false);
-      expect((await pool.query("select count(*) from information_schema.columns where column_name like '%typing%'")).rows[0].count).toBe('0'); // never persisted
+      expect((await pool.query("select count(*) from information_schema.columns where column_name like '%typing%' and column_name <> 'typing_indicators'")).rows[0].count).toBe('0'); // typing itself is never persisted (only the privacy setting)
     });
 
     it('presence: multiple devices, offline only after the last one, and respects the privacy switch', async () => {

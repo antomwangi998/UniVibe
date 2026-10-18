@@ -35,6 +35,9 @@ data class ConversationUiState(
     val typing: Boolean = false,
     val input: String = "",
     val showReceipts: Boolean = true,
+    /** Mirrors the typing-indicator setting: when off, you neither send nor see typing. */
+    val showTyping: Boolean = true,
+    val enterToSend: Boolean = false,
     val menuMessage: Message? = null,
     val replyTo: Message? = null,
     val editing: Message? = null,
@@ -115,12 +118,12 @@ class ConversationViewModel(
             _state.update { it.copy(loading = false, chat = chat, group = group) }
             runCatching { messages.markRead(chatId) }
             launch { messages.messages(chatId).collect { list -> _state.update { it.copy(messages = list) } } }
-            launch { messages.typing(chatId).collect { t -> _state.update { it.copy(typing = t) } } }
+            launch { messages.typing(chatId).collect { t -> _state.update { it.copy(typing = t && it.showTyping) } } }
             launch { messages.pinnedMessageId(chatId).collect { id -> _state.update { it.copy(pinnedId = id) } } }
             launch { messages.hasOlder(chatId).collect { more -> _state.update { it.copy(canLoadOlder = more) } } }
             // Down for more than a moment before we say so; a reconnect within that time is invisible.
             launch { chats.connected().collectLatest { up -> if (up) _state.update { it.copy(offline = false) } else { delay(2_500); _state.update { it.copy(offline = true) } } } }
-            launch { settings.settings.collect { s -> _state.update { it.copy(showReceipts = s.showReadReceipts) } } }
+            launch { settings.settings.collect { s -> _state.update { it.copy(showReceipts = s.showReadReceipts, showTyping = s.showTyping, enterToSend = s.enterToSend, typing = it.typing && s.showTyping) } } }
         }
     }
 
@@ -146,6 +149,7 @@ class ConversationViewModel(
 
     /** Tells the others we are typing at most every 3 seconds, and once when we stop. The server expires it by itself too. */
     private fun notifyTyping(typing: Boolean) {
+        if (!_state.value.showTyping) return
         val now = System.currentTimeMillis()
         if (typing) { if (now - lastTypingPing < 3_000) return } else if (lastTypingPing == 0L) return
         lastTypingPing = if (typing) now else 0L

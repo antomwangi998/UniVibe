@@ -82,6 +82,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -493,6 +496,9 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                 value = s.input, onValueChange = viewModel::onInput, modifier = Modifier.weight(1f).focusRequester(composerFocus),
                                 placeholder = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }, singleLine = false, maxLines = 6,
                                 isError = s.input.length > MAX_MESSAGE,
+                                // Settings → Messages → "Enter key sends": the keyboard shows a Send key instead of a new-line key.
+                                keyboardOptions = if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
+                                keyboardActions = KeyboardActions(onSend = { if (s.canSend) viewModel.send() }),
                             )
                             Spacer(Modifier.width(Spacing.sm))
                             Surface(

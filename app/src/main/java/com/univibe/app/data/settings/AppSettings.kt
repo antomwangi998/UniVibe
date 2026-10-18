@@ -23,6 +23,13 @@ data class AppSettings(
     val discoverable: Boolean = true,
     val showOnline: Boolean = true,
     val showReadReceipts: Boolean = true,
+    /** Cached copy of the server's typing-indicator setting (see PrivacyRepository). */
+    val showTyping: Boolean = true,
+    // Messages (this device only)
+    /** The keyboard's Enter key sends the message instead of starting a new line. */
+    val enterToSend: Boolean = false,
+    /** Whether message alerts show the message text. Off shows "New message" instead. */
+    val showMessagePreview: Boolean = true,
     val messagePolicy: MessagePolicy = MessagePolicy.Everyone,
     val blocked: List<BlockedUser> = emptyList(),
     // Notifications

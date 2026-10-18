@@ -208,6 +208,9 @@ export async function markRead(ctx: Ctx, hub: Hub, me: AuthUser, conversationId:
 
 export async function typingSignal(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, on: boolean) {
   await membership(ctx.pool, conversationId, me.id);
+  // With typing indicators off, other people are never told this person is typing.
+  const allowed = (await ctx.pool.query('select coalesce((select typing_indicators from privacy_settings where user_id = $1), true) as enabled', [me.id])).rows[0].enabled as boolean;
+  if (!allowed) return;
   const targets = (await audience(ctx.pool, conversationId, me.id)).filter((u) => u !== me.id);
   hub.typing(conversationId, me.id, on, (typing) => hub.sendMany(targets, { type: 'typing:update', conversationId, userId: me.id, typing }));
 }
