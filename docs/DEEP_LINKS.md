@@ -22,6 +22,7 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://settings/help/guidelines` | Community guidelines |
 | `univibe://settings/help/about` | About |
 | `univibe://settings/help/terms` | Terms of Service |
+| `univibe://settings/help/privacy-policy` | Privacy Policy |
 | `univibe://chats/{chatId}` | A conversation (e.g. `univibe://chats/c1`) |
 | `univibe://post/{postId}/comments` | Comments on a post |
 | `univibe://student/{studentId}` | Another student's full profile (opened from Discover cards; links on to chat, communities and post comments) |

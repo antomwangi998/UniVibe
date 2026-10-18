@@ -57,7 +57,7 @@ fun LazyListScope.termsOfServiceItems() {
 }
 
 @Composable
-private fun ClauseText(clause: LegalClause) {
+internal fun ClauseText(clause: LegalClause) {
     if (clause.label == "•") {
         Row(Modifier.fillMaxWidth().padding(start = Spacing.sm), verticalAlignment = Alignment.Top) {
             Text("•", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = Spacing.sm))

@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.univibe.app.BuildConfig
 import com.univibe.app.features.legal.LegalContact
+import com.univibe.app.features.legal.privacyPolicyItems
 import com.univibe.app.features.legal.termsOfServiceItems
 import com.univibe.app.features.auth.LegalDoc
 import com.univibe.app.features.auth.LegalSheet
@@ -55,7 +56,7 @@ import com.univibe.app.ui.theme.Spacing
 private const val SUPPORT_EMAIL = LegalContact.EMAIL
 
 @Composable
-fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGuidelines: () -> Unit, onAbout: () -> Unit, onTerms: () -> Unit) {
+fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGuidelines: () -> Unit, onAbout: () -> Unit, onTerms: () -> Unit, onPrivacyPolicy: () -> Unit) {
     SettingsPage("Help & support", onBack) {
         item {
             SettingsGroup {
@@ -66,6 +67,8 @@ fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGu
                 SettingsNavRow(Icons.Outlined.Gavel, "Community guidelines", onGuidelines)
                 RowDivider()
                 SettingsNavRow(Icons.Outlined.Description, "Terms of Service", onTerms)
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Policy, "Privacy Policy", onPrivacyPolicy)
                 RowDivider()
                 SettingsNavRow(VibeIcons.Info, "About UniVibe", onAbout)
             }
@@ -221,4 +224,10 @@ private fun AboutLine(label: String, value: String) {
 @Composable
 fun TermsScreen(onBack: () -> Unit) {
     SettingsPage("Terms of Service", onBack) { termsOfServiceItems() }
+}
+
+/** Settings → Help & support → Privacy Policy. The same text is shown from the sign-up screen and About. */
+@Composable
+fun PrivacyPolicyScreen(onBack: () -> Unit) {
+    SettingsPage("Privacy Policy", onBack) { privacyPolicyItems() }
 }
