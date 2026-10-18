@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -146,6 +147,16 @@ fun HomeScreen(
         val headerItems = (if (state.visibleStories.isNotEmpty()) 1 else 0) + 3
         val pastHeader by remember(headerItems) { derivedStateOf { listState.firstVisibleItemIndex >= headerItems } }
 
+        // Ask for the next page when the last few posts come into view.
+        val nearEnd by remember {
+            derivedStateOf {
+                val info = listState.layoutInfo
+                val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                info.totalItemsCount > 0 && last >= info.totalItemsCount - 4
+            }
+        }
+        LaunchedEffect(nearEnd, state.posts.size) { if (nearEnd) viewModel.loadMore() }
+
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -210,6 +221,11 @@ fun HomeScreen(
                         },
                         onVote = { index -> viewModel.vote(post.id, index) },
                     )
+                }
+            }
+            if (state.loadingMore) item(key = "more") {
+                Box(Modifier.fillMaxWidth().padding(Spacing.md), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             }
         }

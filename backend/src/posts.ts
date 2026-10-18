@@ -28,7 +28,13 @@ const createSchema = z.object({
 const editSchema = z.object({ text: maybeText });
 const voteSchema = z.object({ optionIndex: z.number().int().min(0).max(3) });
 const reportSchema = z.object({ reason: z.string().trim().min(1).max(200) });
-const feedQuery = z.object({ filter: z.enum(['campus', 'following']).default('campus') });
+const feedQuery = z.object({
+  filter: z.enum(['campus', 'following']).default('campus'),
+  /** Page size. Without it the feed behaves as before (up to 100 posts at once). */
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  /** Id of the last post the app already has; the page continues with the posts just older than it. */
+  before: z.string().uuid().optional(),
+});
 const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() });
 
 /**
@@ -67,7 +73,7 @@ type PostRow = AuthorCols & {
   my_vote: number | null; vote_counts: Record<string, number> | null;
 };
 
-type MediaOut = { id: string; kind: string; url: string };
+type MediaOut = { id: string; kind: string; url: string; thumbUrl: string | null; width: number | null; height: number | null };
 
 function postJson(r: PostRow, media: MediaOut[]) {
   const counts = r.vote_counts ?? {};
@@ -141,13 +147,14 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     await signAuthors(ctx.storage, rows);
     const byPost = new Map<string, MediaOut[]>();
     if (ctx.storage) {
-      const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string }>(
-        "select post_id, id, kind, object_key from media where post_id = any($1::uuid[]) and status = 'ready' order by position",
+      const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string; thumb_key: string | null; width: number | null; height: number | null }>(
+        "select post_id, id, kind, object_key, thumb_key, width, height from media where post_id = any($1::uuid[]) and status = 'ready' order by position",
         [rows.map((r) => r.id)],
       );
       for (const f of files) {
         const url = await ctx.storage.signedUrl(f.object_key, READ_LINK_SECONDS);
-        byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url }]);
+        const thumbUrl = f.thumb_key ? await ctx.storage.signedUrl(f.thumb_key, READ_LINK_SECONDS) : null;
+        byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url, thumbUrl, width: f.width, height: f.height }]);
       }
     }
     return rows.map((r) => postJson(r, byPost.get(r.id) ?? []));
@@ -190,14 +197,23 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   // ---- reading
   app.get('/posts', async (req) => {
     const user = await ctx.requireUser(req);
-    const { filter } = feedQuery.parse(req.query ?? {});
+    const { filter, limit, before } = feedQuery.parse(req.query ?? {});
     const following =
       filter === 'following'
         ? 'and exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = p.author_id)'
         : '';
+    const params: unknown[] = [user.id, user.university_id];
+    let older = '';
+    if (before) {
+      const anchor = await pool.query('select 1 from posts where id = $1', [before]);
+      if (!anchor.rows[0]) throw new HttpError(404, 'not_found', 'That page of the feed is no longer available.');
+      params.push(before);
+      older = `and (p.created_at, p.id) < (select c.created_at, c.id from posts c where c.id = $${params.length})`;
+    }
+    params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
-      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${following} order by p.created_at desc, p.id desc limit 100`,
-      [user.id, user.university_id],
+      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
+      params,
     );
     return present(rows);
   });
@@ -273,14 +289,14 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const id = paramId(req);
     const post = await visiblePost(user, id);
     if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only delete your own posts.');
-    const files = await pool.query<{ object_key: string }>('select object_key from media where post_id = $1', [id]);
+    const files = await pool.query<{ object_key: string; thumb_key: string | null }>('select object_key, thumb_key from media where post_id = $1', [id]);
     await withTx(pool, async (client) => {
       await client.query(
         `delete from notifications where (entity_type = 'post' and entity_id = $1)
             or (entity_type = 'comment' and entity_id in (select id from comments where post_id = $1))`, [id]);
       await client.query('delete from posts where id = $1', [id]); // likes, saves, votes, comments and media records cascade
     });
-    if (ctx.storage && files.rowCount) await ctx.storage.remove(files.rows.map((r) => r.object_key)).catch(() => undefined);
+    if (ctx.storage && files.rowCount) await ctx.storage.remove(files.rows.flatMap((r) => (r.thumb_key ? [r.object_key, r.thumb_key] : [r.object_key]))).catch(() => undefined);
     return reply.status(204).send();
   });
 

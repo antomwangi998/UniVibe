@@ -9,7 +9,8 @@ import { deliveryHandlers } from './modules/delivery';
 import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
 import { purgeExpiredEvents, sendEventReminders } from './modules/events';
-import { cleanupPendingMedia } from './media';
+import { createSharpProcessor } from './imaging';
+import { MEDIA_LIMITS, cleanupPendingMedia } from './media';
 import { createR2Storage } from './storage';
 
 async function main() {
@@ -21,7 +22,8 @@ async function main() {
   const storage = r2 ? createR2Storage(r2) : undefined;
   if (!storage) console.warn(`R2 is not configured, so photo and video uploads are switched off. Missing: ${missingR2Settings(config).join(', ')}`);
   const hub = new Hub();
-  const app = buildApp({ pool, mailer, config, storage, hub });
+  const images = createSharpProcessor({ maxPixels: MEDIA_LIMITS.maxPixels });
+  const app = buildApp({ pool, mailer, config, storage, images, hub });
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
 
   if (storage) {

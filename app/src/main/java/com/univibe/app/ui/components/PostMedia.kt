@@ -76,8 +76,10 @@ fun AdaptivePhoto(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Width / height from the server, when it has it: the right space is reserved before the photo loads. */
+    knownRatio: Float? = null,
 ) {
-    var ratio by remember(path) { mutableStateOf(PhotoAspects.get(path)) }
+    var ratio by remember(path) { mutableStateOf(PhotoAspects.get(path) ?: knownRatio) }
     var failed by remember(path) { mutableStateOf(false) }
     val real = ratio
     val shown = (real ?: DEFAULT_RATIO).coerceIn(MIN_RATIO, MAX_RATIO)
@@ -140,11 +142,17 @@ private fun MediaTag(text: String, modifier: Modifier = Modifier) {
  * (cells are intentional crops, tapping any of them opens the full photos). More than four show "+N" on the last cell.
  */
 @Composable
-fun PostGallery(paths: List<String>, authorName: String, onOpen: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun PostGallery(
+    paths: List<String>,
+    authorName: String,
+    onOpen: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    ratios: List<Float?> = emptyList(),
+) {
     if (paths.isEmpty()) return
     fun description(i: Int) = if (paths.size == 1) "Photo attached to $authorName's post" else "Photo ${i + 1} of ${paths.size} attached to $authorName's post"
     if (paths.size == 1) {
-        AdaptivePhoto(paths[0], description(0), onClick = { onOpen(0) }, modifier = modifier)
+        AdaptivePhoto(paths[0], description(0), onClick = { onOpen(0) }, modifier = modifier, knownRatio = ratios.firstOrNull())
         return
     }
     val shown = paths.take(4)

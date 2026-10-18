@@ -4,12 +4,21 @@ import type { Pool } from 'pg';
 import { z } from 'zod';
 import { withTx } from './db';
 import { HttpError } from './errors';
+import { ImageRejected, type ImagePurpose, type ProcessedImage } from './imaging';
 import { RouteContext, paramId } from './shared';
 import type { Storage } from './storage';
 
+/**
+ * What may be uploaded. These are ceilings for the file as sent; photos are then re-encoded smaller (see imaging.ts).
+ * The app checks the same numbers before it starts uploading, so a too-big file fails at once instead of after the upload.
+ */
 export const MEDIA_LIMITS = {
   image: { maxBytes: 8 * 1024 * 1024, types: ['image/jpeg', 'image/png', 'image/webp'] },
   video: { maxBytes: 50 * 1024 * 1024, types: ['video/mp4', 'video/quicktime', 'video/webm'] },
+  /** Photos above this many pixels (width x height) are refused, however small the file is. */
+  maxPixels: 30_000_000,
+  /** Everything one student has stored (photos, videos, profile pictures), counted after processing. */
+  perUserBytes: 300 * 1024 * 1024,
 } as const;
 
 const EXTENSIONS: Record<string, string> = {
@@ -36,7 +45,10 @@ const uploadSchema = z.object({
   purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
-});
+  // Pixel size, when the app knows it. Both or neither; used only to lay out the feed.
+  width: z.number().int().positive().max(20000).optional(),
+  height: z.number().int().positive().max(20000).optional(),
+}).refine((v) => (v.width === undefined) === (v.height === undefined), { message: 'Send both width and height, or neither.' });
 const photosSchema = z.object({
   avatarMediaId: z.string().uuid().nullable().optional(),
   coverMediaId: z.string().uuid().nullable().optional(),
@@ -78,10 +90,17 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (b.kind === 'video' && b.purpose !== 'post') {
       throw new HttpError(400, 'validation', 'Profile and cover photos must be images.');
     }
+    const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
+    if (Number(used.rows[0].total) + b.size > MEDIA_LIMITS.perUserBytes) {
+      throw new HttpError(
+        400, 'storage_full',
+        `You have reached your storage limit of ${MEDIA_LIMITS.perUserBytes / (1024 * 1024)} MB. Delete some older posts with photos or videos to make room.`,
+      );
+    }
     const key = `${user.id}/${randomUUID()}.${EXTENSIONS[b.contentType]}`;
     const created = await pool.query<{ id: string }>(
-      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key) values ($1, $2, $3, $4, $5, $6) returning id',
-      [user.id, b.kind, b.purpose, b.contentType, b.size, key],
+      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id',
+      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null],
     );
     const uploadUrl = await storage.presignUpload(key, b.contentType, UPLOAD_LINK_SECONDS);
     return reply.status(201).send({
@@ -97,8 +116,8 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     const user = await ctx.requireUser(req);
     const storage = needStorage(ctx);
     const id = paramId(req);
-    const { rows } = await pool.query<{ kind: 'image' | 'video'; content_type: string; object_key: string; status: string }>(
-      'select kind, content_type, object_key, status from media where id = $1 and owner_id = $2',
+    const { rows } = await pool.query<{ kind: 'image' | 'video'; purpose: ImagePurpose; content_type: string; object_key: string; status: string }>(
+      'select kind, purpose, content_type, object_key, status from media where id = $1 and owner_id = $2',
       [id, user.id],
     );
     const m = rows[0];
@@ -116,6 +135,34 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (head.size <= 0 || head.size > MEDIA_LIMITS[m.kind].maxBytes) return reject('That file is too large.');
     if ((head.contentType ?? '').split(';')[0].trim() !== m.content_type) return reject('The file type does not match.');
     if (!looksLike(m.content_type, await storage.peek(m.object_key, 16))) return reject('That is not a valid photo or video.');
+
+    if (m.kind === 'image' && ctx.images) {
+      // Re-encode what arrived: upright, no metadata (location!), bounded size, plus a feed thumbnail for post photos.
+      const original = await storage.read(m.object_key);
+      let done: ProcessedImage;
+      try {
+        done = await ctx.images.process(original, m.content_type, m.purpose);
+      } catch (e) {
+        if (e instanceof ImageRejected) return reject(e.message);
+        throw e;
+      }
+      const base = m.object_key.replace(/\.[^./]+$/, '');
+      const fullKey = `${base}.webp`;
+      const thumbKey = done.thumb ? `${base}-t.webp` : null;
+      await storage.write(fullKey, done.full.bytes, done.full.contentType);
+      if (done.thumb && thumbKey) await storage.write(thumbKey, done.thumb.bytes, done.thumb.contentType);
+      try {
+        await pool.query(
+          "update media set status = 'ready', content_type = $2, object_key = $3, thumb_key = $4, size_bytes = $5, width = $6, height = $7 where id = $1",
+          [id, done.full.contentType, fullKey, thumbKey, done.full.bytes.length + (done.thumb?.bytes.length ?? 0), done.full.width, done.full.height],
+        );
+      } catch (e) {
+        await storage.remove([fullKey, ...(thumbKey ? [thumbKey] : [])].filter((k) => k !== m.object_key)).catch(() => undefined);
+        throw e;
+      }
+      if (fullKey !== m.object_key) await storage.remove([m.object_key]).catch(() => undefined);
+      return { id, kind: m.kind };
+    }
 
     await pool.query("update media set status = 'ready', size_bytes = $2 where id = $1", [id, head.size]);
     return { id, kind: m.kind };

@@ -1,5 +1,6 @@
 package com.univibe.app.data.net
 
+import com.univibe.app.data.model.PostLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -45,9 +46,14 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
     suspend fun upload(path: String, kind: String, purpose: String): String {
         val file = File(path)
         if (!file.isFile || file.length() == 0L) throw IOException("The file is missing")
+        // Fail at once, before using any data, when the server would refuse the file anyway.
+        val limit = if (kind == "video") PostLimits.MAX_VIDEO_BYTES else PostLimits.MAX_IMAGE_UPLOAD_BYTES
+        if (file.length() > limit) throw IOException("That file is too large (the limit is ${limit / (1024 * 1024)} MB).")
         val contentType = contentTypeOf(file, kind)
         val request = JSONObject()
             .put("kind", kind).put("purpose", purpose).put("contentType", contentType).put("size", file.length())
+        // Pixel size lets the feed reserve the right space before the file loads. Best effort: skipped if unreadable.
+        MediaDimensions.read(file, kind)?.let { (w, h) -> request.put("width", w).put("height", h) }
         val created = JSONObject(api.send("POST", "/media/uploads", request, setOf(201)))
         files.put(created.getString("uploadUrl"), contentType, file)
         val id = created.getString("mediaId")
@@ -64,5 +70,33 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
         "mov" -> "video/quicktime"
         "webm" -> "video/webm"
         else -> if (kind == "video") "video/mp4" else "image/jpeg"
+    }
+}
+
+/** Reads the pixel size of a local photo or video without decoding it fully. Null when it can't be read. */
+internal object MediaDimensions {
+    fun read(file: File, kind: String): Pair<Int, Int>? = runCatching {
+        val (w, h) = if (kind == "video") readVideo(file) else readImage(file)
+        if (w > 0 && h > 0 && w <= 20_000 && h <= 20_000) w to h else null
+    }.getOrNull()
+
+    private fun readImage(file: File): Pair<Int, Int> {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.path, bounds)
+        return bounds.outWidth to bounds.outHeight
+    }
+
+    private fun readVideo(file: File): Pair<Int, Int> {
+        val retriever = android.media.MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.path)
+            val w = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val rotation = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            // A phone video recorded upright is stored sideways with a rotation flag.
+            return if (rotation == 90 || rotation == 270) h to w else w to h
+        } finally {
+            retriever.release()
+        }
     }
 }

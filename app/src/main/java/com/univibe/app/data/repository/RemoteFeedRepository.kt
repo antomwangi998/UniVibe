@@ -23,18 +23,41 @@ private val NO_CONTENT = setOf(204)
 fun parsePost(o: JSONObject, fromFollowing: Boolean = false): Post {
     // Photos and videos arrive as short-lived links; the screens load them like local files.
     val images = mutableListOf<String>()
+    val ratios = mutableListOf<Float?>()
+    val thumbs = mutableListOf<String?>()
     var video: String? = null
+    var videoRatio: Float? = null
     val media = o.optJSONArray("media")
     if (media != null) {
         for (i in 0 until media.length()) {
             val item = media.getJSONObject(i)
-            if (item.getString("kind") == "video") video = item.getString("url") else images += item.getString("url")
+            val w = item.optInt("width", 0)
+            val h = item.optInt("height", 0)
+            val ratio = if (w > 0 && h > 0) w.toFloat() / h else null
+            if (item.getString("kind") == "video") {
+                video = item.getString("url")
+                videoRatio = ratio
+            } else {
+                images += item.getString("url")
+                ratios += ratio
+                thumbs += if (item.isNull("thumbUrl")) null else item.optString("thumbUrl").ifBlank { null }
+            }
         }
     }
-    return buildPost(o, fromFollowing, images, video)
+    // Thumbnails are used only when every photo of the post has one, so the lists stay in step.
+    val thumbPaths = if (thumbs.isNotEmpty() && thumbs.all { it != null }) thumbs.filterNotNull() else emptyList()
+    return buildPost(o, fromFollowing, images, video, ratios, videoRatio, thumbPaths)
 }
 
-private fun buildPost(o: JSONObject, fromFollowing: Boolean, images: List<String>, video: String?): Post = Post(
+private fun buildPost(
+    o: JSONObject,
+    fromFollowing: Boolean,
+    images: List<String>,
+    video: String?,
+    ratios: List<Float?> = emptyList(),
+    videoRatio: Float? = null,
+    thumbPaths: List<String> = emptyList(),
+): Post = Post(
     id = o.getString("id"),
     author = parseStudent(o.getJSONObject("author")),
     timeAgo = timeAgo(o.optLong("ageSeconds", 0L)),
@@ -51,6 +74,9 @@ private fun buildPost(o: JSONObject, fromFollowing: Boolean, images: List<String
     imagePath = images.firstOrNull(),
     imagePaths = images,
     videoPath = video,
+    mediaRatios = ratios,
+    videoRatio = videoRatio,
+    thumbPaths = thumbPaths,
 )
 
 private fun parsePosts(body: String, fromFollowing: Boolean = false): List<Post> {
@@ -81,6 +107,12 @@ class RemoteFeedRepository(
     override suspend fun getPosts(filter: FeedFilter): List<Post> {
         val following = filter == FeedFilter.Following
         return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}"), following)
+    }
+
+    override suspend fun getPostsPage(filter: FeedFilter, beforeId: String?, limit: Int): List<Post> {
+        val following = filter == FeedFilter.Following
+        val before = if (beforeId != null) "&before=$beforeId" else ""
+        return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}&limit=$limit$before"), following)
     }
 
     /** Stories are not built yet, so there is nothing to show (and nothing invented). */
