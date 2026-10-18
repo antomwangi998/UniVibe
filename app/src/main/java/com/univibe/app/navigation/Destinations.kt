@@ -13,6 +13,10 @@ object SettingsRoutes {
     const val ROOT = "settings"
     const val ACCOUNT = "settings/account"
     const val PASSWORD = "settings/account/password"
+    const val SECURITY = "settings/security"
+    const val LOGIN_ACTIVITY = "settings/security/login-activity"
+    const val APPEARANCE = "settings/appearance"
+    const val STATUS = "settings/status"
     const val DELETE = "settings/account/delete"
     const val PRIVACY = "settings/privacy"
     const val BLOCKED = "settings/privacy/blocked"
@@ -25,6 +29,7 @@ object SettingsRoutes {
     const val REPORT = "settings/help/report"
     const val GUIDELINES = "settings/help/guidelines"
     const val ABOUT = "settings/help/about"
+    const val TERMS = "settings/help/terms"
 }
 
 /** Routes with arguments. Each is also a deep link: `univibe://<route>`. */

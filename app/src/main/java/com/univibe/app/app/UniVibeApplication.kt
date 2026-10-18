@@ -6,7 +6,10 @@ import com.univibe.app.data.auth.KeystoreSecureStore
 import com.univibe.app.data.auth.MockAuthRepository
 import com.univibe.app.data.auth.RemoteAuthRepository
 import com.univibe.app.data.net.UrlConnectionTransport
+import com.univibe.app.data.settings.AccountSecurityRepository
 import com.univibe.app.data.settings.DataStoreSettingsRepository
+import com.univibe.app.data.settings.RemoteAccountSecurityRepository
+import com.univibe.app.data.settings.UnavailableAccountSecurityRepository
 import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.profile.DataStoreProfileLocalStore
 import com.univibe.app.data.repository.ChatRepository
@@ -156,6 +159,9 @@ object AppContainer {
     }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
+
+    /** Login sessions and account status. Real server only: the offline preview build reports them as unavailable. */
+    val accountSecurity: AccountSecurityRepository by lazy { api?.let { RemoteAccountSecurityRepository(it) } ?: UnavailableAccountSecurityRepository }
 
     val authRepository: AuthRepository by lazy {
         if (BuildConfig.API_BASE_URL.isBlank()) {

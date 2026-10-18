@@ -4,6 +4,7 @@ import type { Config } from './config';
 import { HttpError } from './errors';
 import type { RateLimiter } from './limiter';
 import * as sec from './security';
+import { sessionIsLive } from './sessions';
 import type { Storage } from './storage';
 
 /** The signed-in student as every v1 module sees them. Identity only ever comes from the verified access token. */
@@ -13,6 +14,8 @@ export interface AuthUser {
   role: 'user' | 'moderator' | 'admin';
   handle: string;
   fullName: string;
+  /** The login this request belongs to; null for tokens issued before sessions were tracked. */
+  sessionId: string | null;
 }
 
 export interface Ctx {
@@ -35,7 +38,8 @@ export function makeCtx(pool: Pool, config: Config, limiter: RateLimiter, storag
       return ctx.authToken(header && header.startsWith('Bearer ') ? header.slice(7) : null);
     },
     async authToken(token) {
-      const id = token ? await sec.verifyAccessToken(token, config.JWT_SECRET) : null;
+      const claims = token ? await sec.verifyAccessClaims(token, config.JWT_SECRET) : null;
+      const id = claims?.userId ?? null;
       const row = id
         ? (await pool.query<{
             id: string; university_id: string; role: AuthUser['role']; handle: string; full_name: string;
@@ -48,7 +52,8 @@ export function makeCtx(pool: Pool, config: Config, limiter: RateLimiter, storag
         : undefined;
       if (!row || !row.email_verified_at) throw new HttpError(401, 'unauthorized', 'Please log in again.');
       if (row.suspended) throw new HttpError(403, 'account_suspended', 'This account is suspended.');
-      return { id: row.id, universityId: row.university_id, role: row.role, handle: row.handle, fullName: row.full_name };
+      if (claims?.sessionId && !(await sessionIsLive(pool, claims.sessionId))) throw new HttpError(401, 'unauthorized', 'Please log in again.');
+      return { id: row.id, universityId: row.university_id, role: row.role, handle: row.handle, fullName: row.full_name, sessionId: claims?.sessionId ?? null };
     },
     limit(key, max, windowSeconds) {
       const wait = limiter.hit(key, max, windowSeconds);

@@ -148,7 +148,7 @@ class RemoteAuthRepository(
 
     override suspend fun logIn(email: String, password: String, rememberMe: Boolean): AuthResult<Unit> {
         val key = normalize(email)
-        val response = when (val r = publicCall("POST", "/auth/login", JSONObject().put("email", key).put("password", password))) {
+        val response = when (val r = publicCall("POST", "/auth/login", JSONObject().put("email", key).put("password", password).withDevice())) {
             is AuthResult.Failure -> return r
             is AuthResult.Success -> r.value
         }
@@ -171,7 +171,7 @@ class RemoteAuthRepository(
 
     override suspend fun verifyEmail(code: String): AuthResult<Unit> {
         val email = pendingEmail ?: return fail(AuthError.SessionExpired)
-        val response = when (val r = publicCall("POST", "/auth/verify-email", JSONObject().put("email", email).put("code", code.trim()))) {
+        val response = when (val r = publicCall("POST", "/auth/verify-email", JSONObject().put("email", email).put("code", code.trim()).withDevice())) {
             is AuthResult.Failure -> return r
             is AuthResult.Success -> r.value
         }
@@ -304,7 +304,7 @@ class RemoteAuthRepository(
         if (response.status != 204 && response.status != 200) return fail(mapError(response))
 
         // The server ended all sessions, this device's included. Sign back in quietly with the new password.
-        val relogin = publicCall("POST", "/auth/login", JSONObject().put("email", email).put("password", newPassword))
+        val relogin = publicCall("POST", "/auth/login", JSONObject().put("email", email).put("password", newPassword).withDevice())
         val parsed = (relogin as? AuthResult.Success)?.value?.takeIf { it.status == 200 }?.let { parseSession(it.body) }
         if (parsed != null) {
             adopt(parsed.first)
@@ -485,6 +485,12 @@ class RemoteAuthRepository(
     }
 
     private fun normalize(email: String) = email.trim().lowercase()
+
+    /** Adds a readable device name ("Pixel 8") for the Login activity list. It is a label only; the server never trusts it. */
+    private fun JSONObject.withDevice(): JSONObject = apply {
+        val name = deviceLabel()
+        if (name.isNotEmpty()) put("deviceName", name)
+    }
     private fun fail(error: AuthError) = AuthResult.Failure(error)
 
     private companion object {
@@ -492,4 +498,13 @@ class RemoteAuthRepository(
         const val USER_KEY = "remote_user"
         const val EXPIRY_MARGIN_MS = 30_000L
     }
+}
+
+/** "Google Pixel 8", or empty when the platform doesn't say (such as in JVM unit tests). */
+internal fun deviceLabel(manufacturer: String? = android.os.Build.MANUFACTURER, model: String? = android.os.Build.MODEL): String {
+    val m = model?.trim().orEmpty()
+    val maker = manufacturer?.trim().orEmpty()
+    if (m.isEmpty()) return ""
+    val label = if (maker.isEmpty() || m.startsWith(maker, ignoreCase = true)) m else "${maker.replaceFirstChar { it.uppercase() }} $m"
+    return label.take(80)
 }

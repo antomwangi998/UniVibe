@@ -14,6 +14,8 @@ Messages page with `?before=<seq>` and return `{ items, nextBefore }`.
 | Area | Routes |
 |---|---|
 | Privacy / blocking | `GET/PUT /me/privacy` (discoverable, showOnline, messagePermission) · `POST/DELETE /users/:id/block` · `GET /me/blocked-users` |
+| Sessions | `GET /me/sessions` → `{currentSessionId, items:[{id, deviceLabel, createdAt, lastActiveAt, current}]}` · `DELETE /me/sessions/:id` · `POST /me/sessions/revoke-others` → `{revoked}`. A session is one login (refresh-token family). Login and verify-email accept an optional `deviceName` label. No IP or location is stored. Ending a session also stops its access token immediately. |
+| Account status | `GET /me/account-status` → `{standing: good\|suspended, restrictions, removedContent, campusVerification, notices, appeals:{supported:false}}`. Readable while suspended (nothing else is). Moderator `note` is never returned; notices carry only the `userMessage` a moderator wrote for the person. |
 | Notifications | `GET /notifications[?unread=true]` · `GET /notifications/unread-count` · `POST /notifications/:id/read` · `POST /notifications/read-all` · `DELETE /notifications/:id` · `GET/PUT /me/notification-preferences` |
 | Discover | `GET /discover[?course&faculty&yearOfStudy&interest]` · `POST /discover/:id/pass` · `POST /discover/:id/like` (a follow) · `GET/PUT /me/discover/preferences` |
 | Conversations | `POST/GET /conversations` · `GET /conversations/:id` · `GET/POST /conversations/:id/messages` · `POST /conversations/:id/read` · `POST /conversations/:id/members` · `DELETE /conversations/:id/members/:userId` · `PATCH/DELETE /messages/:id` |
