@@ -23,6 +23,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -488,29 +491,12 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                     } else if (recordingStartedAt != null) {
                         RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) })
                     } else {
-                        Row(Modifier.fillMaxWidth().padding(Spacing.sm), verticalAlignment = Alignment.Bottom) {
-                            IconButton(onClick = pickPhoto, modifier = Modifier.size(52.dp)) {
-                                Icon(VibeIcons.Photo, contentDescription = "Send a photo", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(VibeIconSize.Action))
-                            }
-                            VibeTextField(
-                                value = s.input, onValueChange = viewModel::onInput, modifier = Modifier.weight(1f).focusRequester(composerFocus),
-                                placeholder = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }, singleLine = false, maxLines = 6,
-                                isError = s.input.length > MAX_MESSAGE,
-                                // Settings → Messages → "Enter key sends": the keyboard shows a Send key instead of a new-line key.
-                                keyboardOptions = if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
-                                keyboardActions = KeyboardActions(onSend = { if (s.canSend) viewModel.send() }),
-                            )
-                            Spacer(Modifier.width(Spacing.sm))
-                            Surface(
-                                shape = CircleShape,
-                                color = if (s.canSend || showMic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                contentColor = if (s.canSend || showMic) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            ) {
-                                IconButton(onClick = { if (showMic) onMic() else viewModel.send() }, enabled = s.canSend || showMic, modifier = Modifier.size(52.dp)) {
-                                    Icon(if (showMic) VibeIcons.Mic else if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send, contentDescription = if (showMic) "Record a voice message" else if (s.editing != null) "Save edit" else "Send message", modifier = Modifier.size(VibeIconSize.Action))
-                                }
-                            }
-                        }
+                        MessageComposerCard(
+                            s = s, showMic = showMic, focus = composerFocus,
+                            onInput = viewModel::onInput, onPhoto = pickPhoto,
+                            onAction = { if (showMic) onMic() else viewModel.send() },
+                            onImeSend = { if (s.canSend) viewModel.send() },
+                        )
                     }
                 }
             }
@@ -554,6 +540,70 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         val start = all.indexOf(open)
         if (start >= 0) PhotoGalleryViewerDialog(all, start) { viewModel.openViewer(null) }
         else PhotoViewerDialog(open) { viewModel.openViewer(null) }
+    }
+}
+
+/** The message box: a rounded card with the text on top and the photo and send/mic buttons underneath. */
+@Composable
+private fun MessageComposerCard(
+    s: ConversationUiState,
+    showMic: Boolean,
+    focus: FocusRequester,
+    onInput: (String) -> Unit,
+    onPhoto: () -> Unit,
+    onAction: () -> Unit,
+    onImeSend: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val tooLong = s.input.length > MAX_MESSAGE
+    val active = s.canSend || showMic
+    val hint = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = colors.surfaceContainerHigh,
+        border = BorderStroke(1.dp, if (tooLong) colors.error else colors.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+    ) {
+        Column(Modifier.padding(start = Spacing.md, end = Spacing.sm, top = Spacing.sm + 4.dp, bottom = Spacing.sm)) {
+            Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.CenterStart) {
+                if (s.input.isEmpty()) {
+                    Text(hint, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                }
+                BasicTextField(
+                    value = s.input,
+                    onValueChange = onInput,
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+                    cursorBrush = SolidColor(colors.primary),
+                    maxLines = 6,
+                    // Settings -> Messages -> "Enter key sends": the keyboard shows a Send key instead of a new-line key.
+                    keyboardOptions = if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
+                    keyboardActions = KeyboardActions(onSend = { onImeSend() }),
+                )
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPhoto, modifier = Modifier.size(44.dp)) {
+                    Icon(VibeIcons.Photo, contentDescription = "Send a photo", tint = colors.primary, modifier = Modifier.size(VibeIconSize.Action))
+                }
+                Spacer(Modifier.weight(1f))
+                if (tooLong) {
+                    Text("${s.input.length}/$MAX_MESSAGE", style = MaterialTheme.typography.labelSmall, color = colors.error, modifier = Modifier.padding(end = Spacing.sm))
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = if (active) colors.primary else colors.surfaceContainerHighest,
+                    contentColor = if (active) colors.onPrimary else colors.onSurfaceVariant,
+                ) {
+                    IconButton(onClick = onAction, enabled = active, modifier = Modifier.size(44.dp)) {
+                        Icon(
+                            if (showMic) VibeIcons.Mic else if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send,
+                            contentDescription = if (showMic) "Record a voice message" else if (s.editing != null) "Save edit" else "Send message",
+                            modifier = Modifier.size(VibeIconSize.Action),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
