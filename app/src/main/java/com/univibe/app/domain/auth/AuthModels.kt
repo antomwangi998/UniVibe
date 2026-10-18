@@ -56,6 +56,8 @@ data class SignUpRequest(
     val universityId: String,
     val password: String,
     val acceptedTerms: Boolean,
+    /** The version of the Terms the person was shown (see TermsOfService.VERSION); sent so the server records what was accepted. */
+    val termsVersion: String = "",
 )
 
 data class OnboardingProfile(

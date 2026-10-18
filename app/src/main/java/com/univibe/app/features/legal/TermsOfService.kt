@@ -53,7 +53,7 @@ object TermsOfService {
             c("4.3", "No false representation.", "Do not impersonate staff or falsely claim to represent a university, college, club or student body."),
         )),
         LegalSection(5, "The Service and changes to it", listOf(
-            c("5.1", "Features.", "Depending on availability, UniVibe provides profiles, posts with photos, feeds, follows, comments, reactions, polls, search, Discover, communities, events, direct and group messages, notifications, and safety tools such as blocking and reporting."),
+            c("5.1", "Features.", "Depending on availability, UniVibe provides profiles, posts with photos, feeds, follows, comments, reactions, polls, search, Discover, communities, events, direct and group messages (including voice messages), notifications, and safety tools such as blocking and reporting."),
             c("5.2", "Availability and changes.", "We may maintain, improve, test, suspend or stop features for security, legal, technical or operational reasons. Where reasonably possible we will tell you about material changes that significantly affect you."),
             c("5.3", "Preview features.", "Anything labelled beta, preview or experimental may be incomplete or change without notice. Do not rely on it as the only place you keep something important."),
             c("5.4", "Reach.", "We do not promise that a post will reach a particular number of people, appear in a feed, get engagement, or stay available for a particular time."),
@@ -92,7 +92,7 @@ object TermsOfService {
             c("8.4", "Reporting and emergencies.", "Use in-app reporting, or email ${LegalContact.EMAIL}, to report possible breaches. If someone is in immediate danger, contact local emergency services (in Kenya, 999 or 112) instead of relying on an in-app report."),
         )),
         LegalSection(9, "Messages and groups", listOf(
-            c("9.1", "Messaging.", "UniVibe offers direct and group messages, photos, reactions, typing indicators and push notifications. Check who you are sending to, and who is in a group, before you send anything sensitive."),
+            c("9.1", "Messaging.", "UniVibe offers direct and group messages, photos, voice messages, reactions, typing indicators and push notifications. Check who you are sending to, and who is in a group, before you send anything sensitive."),
             c("9.2", "Controls.", "You can choose who can message you, block people and report messages. These controls do not take back messages already delivered or copies others have kept."),
             c("9.3", "Storage.", "Messages are stored so we can deliver them, show them on your devices, prevent abuse, look into reports and comply with the law, as described in our Privacy Policy. Deleting a message from your view may not delete other people’s copies or our backups."),
             c("9.4", "Not end-to-end encrypted.", "UniVibe messages are not end-to-end encrypted. They are stored on our servers, and we take reasonable measures to protect them (see Section 10). Please do not send passwords or highly sensitive information in messages."),
@@ -103,7 +103,7 @@ object TermsOfService {
         LegalSection(10, "Privacy, data and permissions", listOf(
             c("10.1", "Privacy Policy.", "Our Privacy Policy explains what personal data we collect, why, who receives it, how long we keep it, how we protect it, and how you can use your rights."),
             c("10.2", "What we process.", "We process information needed to create and secure accounts, deliver posts and messages, show feeds, send notifications, prevent abuse, fix errors and run the Service."),
-            c("10.3", "Permissions.", "The app may ask for permission to send notifications and to access your photos when you choose to attach one. You can say no or withdraw a permission in Android settings, though some features may then stop working. We ask only when a feature needs it."),
+            c("10.3", "Permissions.", "The app may ask for permission to send notifications and, the first time you record a voice message, to use your microphone. It does not need permission to read your photos, because you pick each photo yourself. You can say no or withdraw a permission in Android settings, though some features may then stop working. We ask only when a feature needs it."),
             c("10.4", "Location and contacts.", "UniVibe does not collect your precise location and does not upload your phone contacts. Event venues you see on a map are places that organisers entered, not your location."),
             c("10.5", "Security.", "We use reasonable technical and organisational measures to protect personal data. No system is completely secure, and we cannot promise absolute security."),
             c("10.6", "Legal requests.", "We may keep or share information where the law requires, or where reasonably necessary to protect users, enforce these Terms, investigate fraud or protect the Service, subject to legal requirements."),

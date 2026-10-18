@@ -122,6 +122,8 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Shield, "Permissions", { onNavigate(SettingsRoutes.PERMISSIONS) })
+                    RowDivider()
+                    SettingsNavRow(VibeIcons.Archive, "Data & storage", { onNavigate(SettingsRoutes.DATA_STORAGE) })
                 }
             }
             item {
@@ -160,6 +162,7 @@ private fun iconFor(category: String): ImageVector = when (category) {
     SettingsCategories.APPEARANCE -> VibeIcons.Palette
     SettingsCategories.ACCESSIBILITY -> VibeIcons.Accessibility
     SettingsCategories.PERMISSIONS -> VibeIcons.Shield
+    SettingsCategories.DATA -> VibeIcons.Archive
     SettingsCategories.STATUS -> VibeIcons.Document
     else -> VibeIcons.Help
 }

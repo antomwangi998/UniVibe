@@ -81,6 +81,8 @@ const registerSchema = z.object({
   universityId: z.string().min(1, 'Choose your university.').max(64),
   password,
   acceptedTerms: z.boolean().refine((v) => v === true, 'Accept the terms to continue.'),
+  // The Terms version the app showed (for example "0.1"); stored so we know exactly what was accepted.
+  termsVersion: z.string().trim().regex(/^[A-Za-z0-9._-]{1,20}$/).optional(),
 });
 // deviceName is only a label for the sessions list ("Pixel 8"); it is never used to make a decision.
 const deviceName = z.string().trim().max(80).optional();
@@ -314,9 +316,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     let name = b.fullName;
     try {
       const created = await pool.query<{ id: string }>(
-        'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at) ' +
-          'values ($1, $2, $3, $4, $5, $6, now()) returning id',
-        [b.email, b.fullName, await uniqueHandle(b.fullName), hash, b.universityId, b.admissionNumber || null],
+        'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at, accepted_terms_version) ' +
+          'values ($1, $2, $3, $4, $5, $6, now(), $7) returning id',
+        [b.email, b.fullName, await uniqueHandle(b.fullName), hash, b.universityId, b.admissionNumber || null, b.termsVersion ?? ''],
       );
       userId = created.rows[0].id;
     } catch (e) {
