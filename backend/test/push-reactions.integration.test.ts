@@ -351,6 +351,78 @@ describe.skipIf(!url)('push, jobs, reactions, settings, sync, search (needs TEST
     });
   });
 
+  // ---------------------------------------------------------------- clear, pin, forward
+  describe('clear chat, pinned message, forwarding', () => {
+    it('clearing hides history for you only, including search and the list preview', async () => {
+      const { a, b, conv } = await pair();
+      await say(a, conv, 'old one');
+      await say(b, conv, 'old two');
+      expect((await call('POST', `${V1}/conversations/${conv}/clear`, b.token)).status).toBe(204);
+      expect((await call('GET', `${V1}/conversations/${conv}/messages`, b.token)).body.items).toHaveLength(0);
+      expect((await call('GET', `${V1}/messages/search?q=old`, b.token)).body.items).toHaveLength(0);
+      expect((await call('GET', `${V1}/conversations`, b.token)).body.items[0].lastMessage).toBeNull();
+      // A still has everything, and new messages reach B again.
+      expect((await call('GET', `${V1}/conversations/${conv}/messages`, a.token)).body.items).toHaveLength(2);
+      await say(a, conv, 'fresh');
+      const after = await call('GET', `${V1}/conversations/${conv}/messages`, b.token);
+      expect(after.body.items.map((i: { content: string }) => i.content)).toEqual(['fresh']);
+      expect((await call('POST', `${V1}/conversations/${conv}/clear`, (await h.student()).token)).status).toBe(404);
+    });
+
+    it('anyone can pin in a direct chat; the pin shows up in the window and detail, and unsending drops it', async () => {
+      const { a, b, conv } = await pair();
+      const m = await say(a, conv, 'important');
+      expect((await call('PUT', `${V1}/conversations/${conv}/pin`, b.token, { messageId: m.id })).status).toBe(204);
+      expect((await call('GET', `${V1}/conversations/${conv}/messages`, a.token)).body.pinnedMessageId).toBe(m.id);
+      expect((await call('GET', `${V1}/conversations/${conv}`, a.token)).body.pinnedMessageId).toBe(m.id);
+      await call('DELETE', `${V1}/messages/${m.id}`, a.token);
+      expect((await call('GET', `${V1}/conversations/${conv}/messages`, a.token)).body.pinnedMessageId).toBeNull();
+      const m2 = await say(a, conv, 'second');
+      await call('PUT', `${V1}/conversations/${conv}/pin`, a.token, { messageId: m2.id });
+      expect((await call('DELETE', `${V1}/conversations/${conv}/pin`, b.token)).status).toBe(204);
+      expect((await call('GET', `${V1}/conversations/${conv}`, a.token)).body.pinnedMessageId).toBeNull();
+    });
+
+    it('only owner and admins pin in a group, and only messages of that conversation', async () => {
+      const [owner, member] = [await h.student(), await h.student()];
+      const g = await call('POST', `${V1}/conversations`, owner.token, { type: 'group', title: 'Study', memberIds: [member.id] });
+      expect([200, 201]).toContain(g.status);
+      const m = await say(owner, g.body.id, 'rules');
+      expect((await call('PUT', `${V1}/conversations/${g.body.id}/pin`, member.token, { messageId: m.id })).status).toBe(403);
+      expect((await call('PUT', `${V1}/conversations/${g.body.id}/pin`, owner.token, { messageId: m.id })).status).toBe(204);
+      const { a, conv: other } = await pair();
+      const foreign = await say(a, other, 'elsewhere');
+      expect((await call('PUT', `${V1}/conversations/${g.body.id}/pin`, owner.token, { messageId: foreign.id })).status).toBe(404);
+    });
+
+    it('forwards text as a new flagged message with no reply quote or reactions', async () => {
+      const { a, b, conv } = await pair();
+      const c = await h.student();
+      const other = await call('POST', `${V1}/conversations`, b.token, { type: 'direct', userId: c.id });
+      const m = await say(a, conv, 'share this');
+      await call('PUT', `${V1}/messages/${m.id}/reaction`, b.token, { reaction: 'heart' });
+      const res = await call('POST', `${V1}/messages/${m.id}/forward`, b.token, { conversationIds: [other.body.id] });
+      expect(res.status).toBe(200);
+      expect(res.body.forwarded).toBe(1);
+      const history = await call('GET', `${V1}/conversations/${other.body.id}/messages`, c.token);
+      expect(history.body.items).toHaveLength(1);
+      expect(history.body.items[0]).toMatchObject({ content: 'share this', senderId: b.id, forwarded: true, replyTo: null, reactions: {} });
+    });
+
+    it('sends nothing when any target is not yours, and refuses messages you cannot see', async () => {
+      const { a, b, conv } = await pair();
+      const { conv: stranger } = await pair();
+      const mine = await call('POST', `${V1}/conversations`, b.token, { type: 'direct', userId: (await h.student()).id });
+      const m = await say(a, conv, 'hello');
+      const res = await call('POST', `${V1}/messages/${m.id}/forward`, b.token, { conversationIds: [mine.body.id, stranger] });
+      expect(res.status).toBe(404);
+      expect((await call('GET', `${V1}/conversations/${mine.body.id}/messages`, b.token)).body.items).toHaveLength(0);
+      const outsider = await h.student();
+      expect((await call('POST', `${V1}/messages/${m.id}/forward`, outsider.token, { conversationIds: [mine.body.id] })).status).toBe(404);
+      expect((await call('POST', `${V1}/messages/${m.id}/forward`, b.token, { conversationIds: [] })).status).toBe(400);
+    });
+  });
+
   // ---------------------------------------------------------------- Android-friendly routes
   describe('routes the Android app relies on', () => {
     it('accepts PUT as well as PATCH for editing a message and for conversation settings', async () => {

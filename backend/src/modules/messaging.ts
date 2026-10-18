@@ -26,6 +26,7 @@ export interface MessageView {
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
   media: { id: string; kind: string; contentType: string; url: string | null }[];
+  forwarded: boolean;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
   myReaction?: string | null;
@@ -81,6 +82,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
         preview: r.reply_status === 'active' ? String(r.reply_content).slice(0, 80) : null,
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
+      forwarded: Boolean(r.forwarded),
       reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
       ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
@@ -88,7 +90,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
 }
 
 const MESSAGE_SELECT = `
-  select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at,
+  select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded,
          r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content
     from messages m left join messages r on r.id = m.reply_to_id`;
 
@@ -102,7 +104,7 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
  * It is stored first and announced second, so nobody is told about a message that failed to save.
  * A retry with the same clientId returns the stored message and creates nothing new.
  */
-export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown) {
+export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
   if (!input.content && !input.mediaIds.length) throw new HttpError(400, 'validation', 'Write a message or attach a photo.');
@@ -127,9 +129,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       if (!ok.rowCount) throw new HttpError(422, 'validation', 'The message you are replying to is not in this conversation.');
     }
     const inserted = await client.query<{ id: string; seq: string }>(
-      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id) values ($1, $2, $3, $4, $5)
+      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded) values ($1, $2, $3, $4, $5, $6)
        on conflict (conversation_id, sender_id, client_id) where client_id is not null do nothing returning id, seq`,
-      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null],
+      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false],
     );
     if (!inserted.rowCount) {
       const existing = await client.query<{ id: string }>(
@@ -264,7 +266,10 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
 
     async function conversationView(me: AuthUser, id: string) {
       await membership(pool, id, me.id);
-      const conv = (await pool.query('select id, kind, title, created_at, last_message_at from conversations where id = $1', [id])).rows[0];
+      const conv = (await pool.query(
+        `select c.id, c.kind, c.title, c.created_at, c.last_message_at,
+                (select p.id from messages p where p.id = c.pinned_message_id and p.status = 'active') as pinned_message_id
+           from conversations c where c.id = $1`, [id])).rows[0];
       const mine = (await pool.query('select muted_until, archived, pinned from conversation_members where conversation_id = $1 and user_id = $2', [id, me.id])).rows[0];
       const { rows } = await pool.query(
         `select m.role, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
@@ -273,7 +278,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       return {
         id: conv.id, kind: conv.kind, title: conv.title, createdAt: conv.created_at, lastMessageAt: conv.last_message_at,
         // The viewer's own settings for this conversation.
-        mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned,
+        mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned, pinnedMessageId: conv.pinned_message_id,
         members: await Promise.all(rows.map(async (r) => ({
           ...(await toCard(ctx, r as CardRow)), role: r.role,
           // Online state is shown only for people who allow it (always to themselves).
@@ -298,7 +303,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                 lm.id as lm_id, lm.sender_id as lm_sender, lm.content as lm_content, lm.status as lm_status, lm.created_at as lm_created,
                 ${cardColumns('o')}
            from conversation_members cm join conversations c on c.id = cm.conversation_id
-           left join lateral (select * from messages x where x.conversation_id = c.id order by x.seq desc limit 1) lm on true
+           left join lateral (select * from messages x where x.conversation_id = c.id and x.seq > cm.cleared_seq order by x.seq desc limit 1) lm on true
            left join lateral (select u.* from conversation_members m2 join users u on u.id = m2.user_id
                                where m2.conversation_id = c.id and m2.user_id <> $1 and c.kind = 'direct' limit 1) o on true
            ${cardJoin('o')}
@@ -336,7 +341,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       await membership(pool, id, me.id);
       if (q.after !== undefined) {
         const { rows: newer } = await pool.query(
-          `${MESSAGE_SELECT} where m.conversation_id = $1 and m.seq > $2
+          `${MESSAGE_SELECT} where m.conversation_id = $1 and m.seq > $2 and m.seq > (select cleared_seq from conversation_members where conversation_id = $1 and user_id = $3)
               and (m.sender_id is null or m.sender_id = $3 or not ${blockedBetween('$3', 'm.sender_id')})
             order by m.seq asc limit $4`, [id, q.after, me.id, q.limit + 1]);
         const hasMore = newer.length > q.limit;
@@ -345,7 +350,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       }
       // Newest first; `before` is the seq of the oldest message already loaded. Messages from blocked people are hidden.
       const { rows } = await pool.query(
-        `${MESSAGE_SELECT} where m.conversation_id = $1 and ($2::bigint is null or m.seq < $2)
+        `${MESSAGE_SELECT} where m.conversation_id = $1 and ($2::bigint is null or m.seq < $2) and m.seq > (select cleared_seq from conversation_members where conversation_id = $1 and user_id = $3)
             and (m.sender_id is null or m.sender_id = $3 or not ${blockedBetween('$3', 'm.sender_id')})
           order by m.seq desc limit $4`,
         [id, q.before ?? null, me.id, q.limit + 1],
@@ -353,7 +358,10 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
       const items = await toMessageViews(ctx, page, me.id);
-      return { items, nextBefore: more && items.length ? items[items.length - 1].seq : null };
+      const pinned = (await pool.query(
+        `select p.id from conversations c join messages p on p.id = c.pinned_message_id and p.status = 'active'
+          where c.id = $1 and p.seq > (select cleared_seq from conversation_members where conversation_id = c.id and user_id = $2)`, [id, me.id])).rows[0];
+      return { items, nextBefore: more && items.length ? items[items.length - 1].seq : null, pinnedMessageId: pinned?.id ?? null };
     });
 
     app.post('/conversations/:id/messages', async (req, reply) => {

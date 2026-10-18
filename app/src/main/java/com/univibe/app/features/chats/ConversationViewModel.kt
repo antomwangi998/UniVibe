@@ -37,6 +37,8 @@ data class ConversationUiState(
     val replyTo: Message? = null,
     val editing: Message? = null,
     val pinnedId: String? = null,
+    /** Earlier messages exist on the server that are not loaded yet. */
+    val canLoadOlder: Boolean = false,
     val highlightId: String? = null,
     /** One-shot: the screen scrolls to this message, then calls consumeJump. */
     val jumpTo: String? = null,
@@ -107,6 +109,7 @@ class ConversationViewModel(
             launch { messages.messages(chatId).collect { list -> _state.update { it.copy(messages = list) } } }
             launch { messages.typing(chatId).collect { t -> _state.update { it.copy(typing = t) } } }
             launch { messages.pinnedMessageId(chatId).collect { id -> _state.update { it.copy(pinnedId = id) } } }
+            launch { messages.hasOlder(chatId).collect { more -> _state.update { it.copy(canLoadOlder = more) } } }
             launch { settings.settings.collect { s -> _state.update { it.copy(showReceipts = s.showReadReceipts) } } }
         }
     }
@@ -125,6 +128,12 @@ class ConversationViewModel(
         _state.update { it.copy(notice = e.message?.takeIf { m -> m.length < 90 } ?: fallback) }
 
     fun onInput(v: String) = _state.update { it.copy(input = v) }
+
+    fun loadOlder() {
+        viewModelScope.launch {
+            try { messages.loadOlder(chatId) } catch (e: Exception) { fail(e, "Couldn't load earlier messages.") }
+        }
+    }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
 
     // ---- sending, replying, editing -------------------------------------------------------------

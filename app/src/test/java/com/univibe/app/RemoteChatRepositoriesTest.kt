@@ -9,6 +9,7 @@ import com.univibe.app.data.repository.RemoteChatRepository
 import com.univibe.app.data.repository.RemoteMessageRepository
 import com.univibe.app.domain.auth.AuthResult
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -178,10 +179,68 @@ class RemoteChatRepositoriesTest {
         assertEquals("fixed", list.single().text)
     }
 
-    @Test fun notYetBuiltFeaturesFailClearlyInsteadOfPretending() = runBlocking {
-        val repo = RemoteMessageRepository(serverFor()) { me }
-        for (action in listOf<suspend () -> Unit>({ repo.forward("c1", "m1", listOf("c2")) }, { repo.pin("c1", "m1") }, { repo.clearChat("c1") })) {
-            try { action(); fail("should not silently succeed") } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("available yet")) }
+    @Test fun forwardingPostsToTheForwardEndpoint() = runBlocking {
+        val api = FakeApi { _, _, _ -> ok("""{"forwarded":2}""") }
+        RemoteMessageRepository(api) { me }.forward("c1", "m1", listOf("c2", "c3"))
+        val (method, path, body) = api.calls.single()
+        assertEquals("POST", method)
+        assertEquals("/api/v1/messages/m1/forward", path)
+        assertEquals(2, body!!.getJSONArray("conversationIds").length())
+    }
+
+    @Test fun pinAndUnpinUseThePinEndpoint() = runBlocking {
+        val api = FakeApi { _, _, _ -> HttpResponse(204, "") }
+        val repo = RemoteMessageRepository(api) { me }
+        repo.pin("c1", "m1")
+        assertEquals("m1", repo.pinnedMessageId("c1").first())
+        repo.pin("c1", null)
+        assertNull(repo.pinnedMessageId("c1").first())
+        assertEquals(listOf("PUT", "DELETE"), api.calls.map { it.first })
+        assertEquals("m1", api.calls[0].third!!.getString("messageId"))
+    }
+
+    @Test fun theServersPinShowsUp() = runBlocking {
+        val api = FakeApi { _, path, _ ->
+            if (path.contains("/messages")) ok("""{"items":[${message("m1", 1, "u2", "rules")}],"nextBefore":null,"pinnedMessageId":"m1"}""") else ok(membersJson)
         }
+        val repo = RemoteMessageRepository(api) { me }
+        val job = launch { repo.messages("c1").collect { } }
+        val pinned = withTimeout(5_000) { repo.pinnedMessageId("c1").first { it != null } }
+        job.cancel()
+        assertEquals("m1", pinned)
+    }
+
+    @Test fun clearChatEmptiesTheConversationOnThisPhone() = runBlocking {
+        val api = FakeApi { method, path, _ ->
+            when {
+                method == "POST" && path.endsWith("/messages") -> ok(message("m1", 1, me, "hi"), 201)
+                method == "POST" && path.endsWith("/clear") -> HttpResponse(204, "")
+                path.contains("/messages") -> ok("""{"items":[],"nextBefore":null,"pinnedMessageId":null}""")
+                else -> ok(membersJson)
+            }
+        }
+        val repo = RemoteMessageRepository(api) { me }
+        repo.send("c1", "hi", null, null)
+        assertEquals(1, repo.messages("c1").first { it.isNotEmpty() }.size)
+        repo.clearChat("c1")
+        assertTrue(repo.messages("c1").first().isEmpty())
+        assertTrue(api.calls.any { it.second == "/api/v1/conversations/c1/clear" })
+    }
+
+    @Test fun earlierMessagesLoadInPagesAndStopWhenThereAreNone() = runBlocking {
+        val api = FakeApi { _, path, _ ->
+            when {
+                path.contains("before=2") -> ok("""{"items":[${message("m1", 1, "u2", "first")}],"nextBefore":null,"pinnedMessageId":null}""")
+                path.contains("/messages") -> ok("""{"items":[${message("m2", 2, "u2", "second")}],"nextBefore":2,"pinnedMessageId":null}""")
+                else -> ok(membersJson)
+            }
+        }
+        val repo = RemoteMessageRepository(api) { me }
+        val firstPage = withTimeout(5_000) { repo.messages("c1").first { it.isNotEmpty() } }
+        assertEquals(listOf("m2"), firstPage.map { it.id })
+        assertTrue(repo.hasOlder("c1").first())
+        repo.loadOlder("c1")
+        assertEquals(listOf("m1", "m2"), repo.messages("c1").first().map { it.id })
+        assertFalse(repo.hasOlder("c1").first())
     }
 }
