@@ -395,6 +395,8 @@ class RemoteAuthRepository(
         return fail(AuthError.Unknown)
     }
 
+    override suspend fun currentAccessToken(stale: String?): String? = (accessToken(stale) as? AuthResult.Success)?.value
+
     private suspend fun sessionFailure(error: AuthError): AuthResult.Failure {
         if (error == AuthError.SessionExpired) handleSessionExpired()
         return AuthResult.Failure(error)

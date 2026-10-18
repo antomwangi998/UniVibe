@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.app.AppContainer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -42,7 +44,11 @@ class ChatsViewModel(
     private val _state = MutableStateFlow(ChatsUiState())
     val state: StateFlow<ChatsUiState> = _state.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        // The server says when something changed; a short pause lets a burst of events become one reload.
+        viewModelScope.launch { repository.changes().conflate().collect { delay(300); load(silent = true) } }
+    }
 
     fun load(silent: Boolean = false) {
         viewModelScope.launch {

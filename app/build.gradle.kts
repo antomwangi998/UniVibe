@@ -19,8 +19,8 @@ android {
         applicationId = "com.univibe.app" // placeholder: change before publishing
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.1.5-chat"
+        versionCode = 7
+        versionName = "0.1.6-live"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
@@ -59,6 +59,7 @@ dependencies {
     implementation(libs.coil.compose) // loads picked photos from app storage
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging) // push (FCM); inert until google-services.json is added
+    implementation(libs.okhttp) // live chat connection (WebSocket) only; ordinary requests still use HttpURLConnection
     implementation(libs.osmdroid.android) // venue map preview; OpenStreetMap tiles, no API key (see docs/MAPS.md)
 
     debugImplementation(libs.androidx.compose.ui.tooling)

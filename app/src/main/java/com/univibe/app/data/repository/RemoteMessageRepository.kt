@@ -6,8 +6,11 @@ import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.model.ReplyRef
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.ChatEvent
+import com.univibe.app.data.net.LiveConnection
 import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.send
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -26,14 +30,17 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Chat messages from the server (`/api/v1/conversations/{id}/messages`).
  *
- * While a conversation is open the latest messages are re-fetched every few seconds. That also picks up edits,
- * unsends and reactions. A live WebSocket connection will replace the polling; the server already speaks it.
- * Not available yet (they fail with a clear message): photos in chat, forwarding, pinning, "clear chat", typing.
+ * While a conversation is open the latest messages are re-fetched from the server. The live connection ([live]) makes
+ * that happen the moment something changes (new message, edit, unsend, reaction, pin) and carries typing and "seen";
+ * without it, or while it is down, the app falls back to polling every few seconds. The server is always the source of
+ * truth: an event only tells us to look again, so a missed event can never leave the screen wrong for long.
  */
 class RemoteMessageRepository(
     private val api: AuthedApi,
     /** Sends photos. Without it, sending a photo fails with a clear message. */
     private val uploader: MediaUploader? = null,
+    /** Live events (new messages, typing, seen). Optional: without it the repository polls. */
+    private val live: LiveConnection? = null,
     private val myId: () -> String?,
 ) : MessageRepository {
 
@@ -48,6 +55,10 @@ class RemoteMessageRepository(
         /** Lowest seq seen so far, unsent messages included, so paging back always makes progress. */
         var oldestSeq = Long.MAX_VALUE
         @Volatile var names: Map<String, String> = emptyMap()
+        /** How far each other member has read (seq). Drives the "seen" tick; a group counts as seen once everyone has read. */
+        val readCursors = HashMap<String, Long>()
+        @Volatile var reloadMembers = false
+        var polls = 0
     }
 
     private val states = ConcurrentHashMap<String, ChatState>()
@@ -56,17 +67,78 @@ class RemoteMessageRepository(
     override fun messages(chatId: String): Flow<List<Message>> = channelFlow {
         val s = state(chatId)
         launch { s.messages.collect { trySend(it) } }
+        // Anything that says "look again" wakes the loop below at once; several at the same moment count as one.
+        val nudge = Channel<Unit>(Channel.CONFLATED)
+        live?.let { link ->
+            launch {
+                link.events.collect { e ->
+                    when {
+                        e is ChatEvent.Read && e.conversationId == chatId -> onRead(chatId, e)
+                        e is ChatEvent.MessageNew && e.conversationId == chatId -> nudge.trySend(Unit)
+                        e is ChatEvent.MessageChanged && e.conversationId == chatId -> nudge.trySend(Unit)
+                    }
+                }
+            }
+            // After a reconnect we may have missed events: reload messages and who has read what.
+            launch { link.connected.collect { up -> if (up) { s.reloadMembers = true; nudge.trySend(Unit) } } }
+        }
         while (isActive) {
             runCatching { refresh(chatId) } // offline or a server hiccup: try again at the next tick
-            delay(POLL_MS)
+            // With the live link up, polling is only a safety net; without it, it is how new messages arrive.
+            withTimeoutOrNull(if (live?.connected?.value == true) LIVE_POLL_MS else POLL_MS) { nudge.receive() }
         }
     }
 
-    override fun typing(chatId: String): Flow<Boolean> = flowOf(false)
+    override fun typing(chatId: String): Flow<Boolean> {
+        val link = live ?: return flowOf(false)
+        return channelFlow {
+            trySend(false)
+            val me = myId()
+            var expire: kotlinx.coroutines.Job? = null
+            link.events.collect { e ->
+                if (e is ChatEvent.Typing && e.conversationId == chatId && e.userId != me) {
+                    expire?.cancel()
+                    trySend(e.typing)
+                    // The server stops typing by itself too; this guards against a stop event we never received.
+                    if (e.typing) expire = launch { delay(TYPING_EXPIRY_MS); trySend(false) }
+                }
+            }
+        }
+    }
+
+    override suspend fun typingChanged(chatId: String, typing: Boolean) {
+        live?.send(JSONObject().put("type", if (typing) "typing:start" else "typing:stop").put("conversationId", chatId))
+    }
+
+    private fun onRead(chatId: String, e: ChatEvent.Read) {
+        if (e.userId == myId()) return
+        val s = state(chatId)
+        synchronized(s) { s.readCursors[e.userId] = maxOf(s.readCursors[e.userId] ?: 0L, e.upToSeq) }
+        applySeen(s)
+    }
+
+    /** Re-marks our own messages as Seen or Sent from the read cursors. */
+    private fun applySeen(s: ChatState) {
+        synchronized(s) {
+            val seen = seenUpTo(s)
+            s.messages.value = s.messages.value.map { m ->
+                val seq = s.seqById[m.id]
+                if (!m.isMine || seq == null) m
+                else {
+                    val status = if (seen > 0 && seq <= seen) MessageStatus.Seen else MessageStatus.Sent
+                    if (status == m.status) m else m.copy(status = status)
+                }
+            }
+        }
+    }
+
+    private fun seenUpTo(s: ChatState): Long = if (s.readCursors.isEmpty()) 0L else s.readCursors.values.min()
 
     private suspend fun refresh(chatId: String) {
         val s = state(chatId)
-        if (s.names.isEmpty()) loadNames(chatId)
+        // Members (names and read cursors) load once, again after a reconnect, and now and then while offline.
+        val reload = s.names.isEmpty() || s.reloadMembers || (live?.connected?.value != true && ++s.polls % 5 == 0)
+        if (reload) { s.reloadMembers = false; loadNames(chatId) }
         val json = JSONObject(api.send("GET", "/api/v1/conversations/${enc(chatId)}/messages?limit=$WINDOW"))
         val items = json.getJSONArray("items")
         val incoming = (0 until items.length()).map { items.getJSONObject(it) }
@@ -81,10 +153,19 @@ class RemoteMessageRepository(
     private suspend fun loadNames(chatId: String) {
         val json = JSONObject(api.send("GET", "/api/v1/conversations/${enc(chatId)}"))
         val members = json.getJSONArray("members")
-        state(chatId).names = (0 until members.length()).associate {
-            val m = members.getJSONObject(it)
-            m.getString("id") to m.getString("fullName")
+        val s = state(chatId)
+        val me = myId()
+        val names = HashMap<String, String>()
+        for (i in 0 until members.length()) {
+            val m = members.getJSONObject(i)
+            val id = m.getString("id")
+            names[id] = m.getString("fullName")
+            if (id != me && !m.isNull("lastReadSeq")) {
+                synchronized(s) { s.readCursors[id] = maxOf(s.readCursors[id] ?: 0L, m.getLong("lastReadSeq")) }
+            }
         }
+        synchronized(s) { s.readCursors.keys.retainAll(names.keys) } // someone who left no longer counts
+        s.names = names
     }
 
     /** Folds server messages into the list: replaces by id, drops unsent ones and our unconfirmed copies, keeps server order. */
@@ -210,6 +291,8 @@ class RemoteMessageRepository(
         val media = o.optJSONArray("media")
         val content = o.strOrNull("content").orEmpty()
         val id = o.getString("id")
+        val st = state(chatId)
+        val seen = synchronized(st) { seenUpTo(st) }
         // Our own photos open from the local copy; everyone else's from the server's temporary link.
         val photo = synchronized(state(chatId)) { state(chatId).localPhotos[id] }?.takeIf { File(it).isFile }
             ?: media?.takeIf { it.length() > 0 }?.getJSONObject(0)?.strOrNull("url")
@@ -231,7 +314,7 @@ class RemoteMessageRepository(
             imagePath = photo,
             timeMillis = runCatching { Instant.parse(o.getString("createdAt")).toEpochMilli() }.getOrDefault(0L),
             isMine = mine,
-            status = MessageStatus.Sent,
+            status = if (mine && seen > 0 && o.getLong("seq") <= seen) MessageStatus.Seen else MessageStatus.Sent,
             replyTo = reply,
             reactions = parseReactions(o.optJSONObject("reactions")),
             myReaction = o.strOrNull("myReaction")?.let(::reactionOf),
@@ -252,6 +335,8 @@ class RemoteMessageRepository(
     private companion object {
         const val LOCAL = "local-"
         const val POLL_MS = 3_000L
+        const val LIVE_POLL_MS = 20_000L
+        const val TYPING_EXPIRY_MS = 7_000L
         const val WINDOW = 50
     }
 }

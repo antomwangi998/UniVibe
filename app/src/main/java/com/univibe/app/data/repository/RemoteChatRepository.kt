@@ -3,9 +3,15 @@ package com.univibe.app.data.repository
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.ChatEvent
+import com.univibe.app.data.net.LiveConnection
 import com.univibe.app.data.net.parseStudent
 import com.univibe.app.data.net.send
 import com.univibe.app.data.net.timeAgo
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.time.Instant
@@ -13,8 +19,15 @@ import java.time.Instant
 /** The signed-in student's chat list, from the server (`/api/v1/conversations`). */
 class RemoteChatRepository(
     private val api: AuthedApi,
+    /** Live events, so the list updates by itself. Optional. */
+    private val live: LiveConnection? = null,
     private val myId: () -> String?,
 ) : ChatRepository {
+
+    override fun changes(): Flow<Unit> = live?.events
+        ?.filter { it is ChatEvent.MessageNew || it is ChatEvent.MessageChanged || it is ChatEvent.Connected }
+        ?.map { }
+        ?: emptyFlow()
 
     override suspend fun getChats(): List<Chat> {
         val chats = mutableListOf<Chat>()
