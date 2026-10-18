@@ -149,6 +149,10 @@ interface MessageRepository {
     suspend fun markRead(chatId: String)
     /** Returns the id of the existing or newly created 1:1 chat. */
     suspend fun openChatWith(student: Student): String
+    /** True while earlier messages exist on the server that are not loaded yet. */
+    fun hasOlder(chatId: String): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
+    /** Loads the next page of earlier messages. */
+    suspend fun loadOlder(chatId: String) {}
 }
 
 interface GroupRepository {

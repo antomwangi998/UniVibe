@@ -35,6 +35,11 @@ class RemoteMessageRepository(
     private class ChatState {
         val messages = MutableStateFlow<List<Message>>(emptyList())
         val seqById = HashMap<String, Long>()
+        val pinned = MutableStateFlow<String?>(null)
+        val hasOlder = MutableStateFlow(false)
+        @Volatile var windowSeen = false
+        /** Lowest seq seen so far, unsent messages included, so paging back always makes progress. */
+        var oldestSeq = Long.MAX_VALUE
         @Volatile var names: Map<String, String> = emptyMap()
     }
 
@@ -58,6 +63,8 @@ class RemoteMessageRepository(
         val json = JSONObject(api.send("GET", "/api/v1/conversations/${enc(chatId)}/messages?limit=$WINDOW"))
         val items = json.getJSONArray("items")
         val incoming = (0 until items.length()).map { items.getJSONObject(it) }
+        s.pinned.value = json.strOrNull("pinnedMessageId")
+        if (!s.windowSeen) { s.windowSeen = true; s.hasOlder.value = !json.isNull("nextBefore") }
         // A sender we have no name for yet (someone joined): reload the member list once.
         val me = myId()
         if (incoming.any { m -> m.strOrNull("senderId").let { it != null && it != me && it !in s.names } }) loadNames(chatId)
@@ -81,6 +88,7 @@ class RemoteMessageRepository(
             s.messages.value.filter { !it.id.startsWith(LOCAL) }.forEach { byId[it.id] = it }
             for (o in incoming) {
                 val id = o.getString("id")
+                s.oldestSeq = minOf(s.oldestSeq, o.getLong("seq"))
                 if (o.optBoolean("deleted", false)) { byId.remove(id); s.seqById.remove(id); continue }
                 s.seqById[id] = o.getLong("seq")
                 byId[id] = toMessage(o, chatId, s.names)
@@ -134,7 +142,11 @@ class RemoteMessageRepository(
     }
 
     override suspend fun clearChat(chatId: String) {
-        throw IllegalStateException("Clearing a chat isn't available yet.")
+        api.send("POST", "/api/v1/conversations/${enc(chatId)}/clear", JSONObject(), ok = setOf(204))
+        val s = state(chatId)
+        synchronized(s) { s.seqById.clear(); s.oldestSeq = Long.MAX_VALUE }
+        s.messages.value = emptyList()
+        s.hasOlder.value = false
     }
 
     override suspend fun editMessage(chatId: String, messageId: String, text: String) {
@@ -145,13 +157,29 @@ class RemoteMessageRepository(
     }
 
     override suspend fun forward(fromChatId: String, messageId: String, toChatIds: List<String>) {
-        throw IllegalStateException("Forwarding isn't available yet.")
+        val body = JSONObject().put("conversationIds", org.json.JSONArray(toChatIds))
+        api.send("POST", "/api/v1/messages/${enc(messageId)}/forward", body)
     }
 
-    override fun pinnedMessageId(chatId: String): Flow<String?> = flowOf(null)
+    override fun pinnedMessageId(chatId: String): Flow<String?> = state(chatId).pinned
 
     override suspend fun pin(chatId: String, messageId: String?) {
-        throw IllegalStateException("Pinned messages aren't available yet.")
+        val path = "/api/v1/conversations/${enc(chatId)}/pin"
+        if (messageId == null) api.send("DELETE", path, ok = setOf(204))
+        else api.send("PUT", path, JSONObject().put("messageId", messageId), ok = setOf(204))
+        state(chatId).pinned.value = messageId
+    }
+
+    override fun hasOlder(chatId: String): Flow<Boolean> = state(chatId).hasOlder
+
+    override suspend fun loadOlder(chatId: String) {
+        val s = state(chatId)
+        val oldest = synchronized(s) { s.oldestSeq }
+        if (oldest == Long.MAX_VALUE) return
+        val json = JSONObject(api.send("GET", "/api/v1/conversations/${enc(chatId)}/messages?limit=$WINDOW&before=$oldest"))
+        val items = json.getJSONArray("items")
+        merge(chatId, (0 until items.length()).map { items.getJSONObject(it) })
+        s.hasOlder.value = !json.isNull("nextBefore")
     }
 
     override suspend fun markRead(chatId: String) {
@@ -189,6 +217,7 @@ class RemoteMessageRepository(
             replyTo = reply,
             reactions = parseReactions(o.optJSONObject("reactions")),
             myReaction = o.strOrNull("myReaction")?.let(::reactionOf),
+            forwarded = o.optBoolean("forwarded", false),
             edited = !o.isNull("editedAt"),
         )
     }

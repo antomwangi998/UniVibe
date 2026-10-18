@@ -7,7 +7,7 @@ import { HttpError } from '../errors';
 import { idParam } from '../http';
 import { jobStats } from '../jobs';
 import type { Hub } from '../realtime';
-import { audience, loadMessage, membership } from './messaging';
+import { audience, loadMessage, membership, sendMessage } from './messaging';
 
 export const REACTIONS = ['heart', 'like', 'laugh', 'fire', 'sad'] as const;
 
@@ -186,7 +186,7 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
       const { rows } = await pool.query(
         `select m.id from messages m
            join conversation_members cm on cm.conversation_id = m.conversation_id and cm.user_id = $1
-          where m.status = 'active' and m.content ilike $2 escape '\\'
+          where m.status = 'active' and m.seq > cm.cleared_seq and m.content ilike $2 escape '\\'
             and ($3::uuid is null or m.conversation_id = $3)
             and ($4::bigint is null or m.seq < $4)
             and (m.sender_id is null or m.sender_id = $1 or not ${blockedBetween('$1', 'm.sender_id')})
@@ -196,6 +196,72 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
       const ids = (more ? rows.slice(0, q.limit) : rows).map((r) => r.id as string);
       const items = await Promise.all(ids.map((id) => loadMessage(ctx, id, me.id)));
       return { items, nextBefore: more && items.length ? items[items.length - 1].seq : null };
+    });
+
+    // ---- clear chat: hides the history for this person only
+    app.post('/conversations/:id/clear', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      await membership(pool, id, me.id);
+      await pool.query(
+        `update conversation_members set
+            cleared_seq = (select coalesce(max(seq), 0) from messages where conversation_id = $1),
+            last_read_seq = greatest(last_read_seq, (select coalesce(max(seq), 0) from messages where conversation_id = $1)),
+            marked_unread = false
+          where conversation_id = $1 and user_id = $2`, [id, me.id]);
+      await pool.query("delete from notifications where recipient_id = $1 and type = 'message' and entity_id = $2", [me.id, id]);
+      hub.send(me.id, { type: 'conversation:updated', conversationId: id });
+      return reply.status(204).send();
+    });
+
+    // ---- pinned message: anyone in a 1:1 chat, only owner/admins in a group
+    async function pinPermission(conversationId: string, me: AuthUser) {
+      const m = await membership(pool, conversationId, me.id);
+      if (m.kind === 'group' && m.role !== 'owner' && m.role !== 'admin') {
+        throw new HttpError(403, 'forbidden', 'Only group admins can pin messages.');
+      }
+    }
+    app.put('/conversations/:id/pin', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const b = z.object({ messageId: z.string().uuid() }).strict().parse(req.body ?? {});
+      await pinPermission(id, me);
+      const ok = await pool.query("select 1 from messages where id = $1 and conversation_id = $2 and status = 'active'", [b.messageId, id]);
+      if (!ok.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
+      await pool.query('update conversations set pinned_message_id = $2 where id = $1', [id, b.messageId]);
+      hub.sendMany(await audience(pool, id, me.id), { type: 'conversation:updated', conversationId: id });
+      return reply.status(204).send();
+    });
+    app.delete('/conversations/:id/pin', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      await pinPermission(id, me);
+      await pool.query('update conversations set pinned_message_id = null where id = $1', [id]);
+      hub.sendMany(await audience(pool, id, me.id), { type: 'conversation:updated', conversationId: id });
+      return reply.status(204).send();
+    });
+
+    // ---- forward text to 1-5 of your own conversations. Every target must be yours or nothing is sent.
+    app.post('/messages/:id/forward', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const b = z.object({ conversationIds: z.array(z.string().uuid()).min(1).max(5) }).strict().parse(req.body ?? {});
+      ctx.limit(`fwd:${me.id}`, 20, 60);
+      const src = (await pool.query<{ content: string; sender_id: string | null }>(
+        `select m.content, m.sender_id from messages m
+           join conversation_members cm on cm.conversation_id = m.conversation_id and cm.user_id = $2
+          where m.id = $1 and m.status = 'active' and m.seq > cm.cleared_seq`, [id, me.id])).rows[0];
+      if (!src) throw new HttpError(404, 'not_found', 'Not found.');
+      if (src.sender_id && src.sender_id !== me.id
+        && (await pool.query(`select ${blockedBetween('$1::uuid', '$2::uuid')} as b`, [me.id, src.sender_id])).rows[0].b) {
+        throw new HttpError(404, 'not_found', 'Not found.');
+      }
+      if (!src.content) throw new HttpError(422, 'validation', "Photos can't be forwarded yet.");
+      const targets = [...new Set(b.conversationIds)];
+      for (const t of targets) await membership(pool, t, me.id);
+      // The copy is a new message from you: no reply quote, no reactions, no link to where it came from.
+      for (const t of targets) await sendMessage(ctx, hub, me, t, { content: src.content }, { forwarded: true });
+      return { forwarded: targets.length };
     });
 
     // ---- operations: queue depth, failures and lag (admins only; everyone else sees "not found")

@@ -274,6 +274,11 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             }
                         }
                     }
+                    if (s.canLoadOlder) item(key = "older") {
+                        androidx.compose.material3.TextButton(onClick = viewModel::loadOlder, modifier = Modifier.fillMaxWidth()) {
+                            Text("Load earlier messages")
+                        }
+                    }
                     if (s.messages.isEmpty()) item(key = "empty") {
                         Text(
                             "Say hello to ${s.title}.", style = MaterialTheme.typography.bodyMedium,
