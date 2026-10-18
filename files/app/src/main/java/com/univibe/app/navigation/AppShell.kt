@@ -94,6 +94,7 @@ import com.univibe.app.features.settings.PrivacyScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
 import com.univibe.app.features.settings.SettingsScreen
+import com.univibe.app.features.settings.TermsScreen
 import com.univibe.app.ui.components.LocalChromeHidden
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.VibeBottomBar
@@ -343,9 +344,11 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onBack = back,
                             onFaq = { open(SettingsRoutes.FAQ) }, onReport = { open(SettingsRoutes.REPORT) },
                             onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onAbout = { open(SettingsRoutes.ABOUT) },
+                            onTerms = { open(SettingsRoutes.TERMS) },
                         )
                     }
                     subScreen(SettingsRoutes.FAQ) { FaqScreen(onBack = back) }
+                    subScreen(SettingsRoutes.TERMS) { TermsScreen(onBack = back) }
                     subScreen(SettingsRoutes.REPORT) { ReportProblemScreen(onBack = back) }
                     subScreen(SettingsRoutes.GUIDELINES) { GuidelinesScreen(onBack = back) }
                     subScreen(SettingsRoutes.ABOUT) { AboutScreen(onBack = back) }
