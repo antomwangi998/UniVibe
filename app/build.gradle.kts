@@ -19,8 +19,8 @@ android {
         applicationId = "com.univibe.app" // placeholder: change before publishing
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.1.2-push"
+        versionCode = 4
+        versionName = "0.1.3-chat"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 

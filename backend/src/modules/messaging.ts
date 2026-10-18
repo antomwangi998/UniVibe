@@ -265,12 +265,15 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     async function conversationView(me: AuthUser, id: string) {
       await membership(pool, id, me.id);
       const conv = (await pool.query('select id, kind, title, created_at, last_message_at from conversations where id = $1', [id])).rows[0];
+      const mine = (await pool.query('select muted_until, archived, pinned from conversation_members where conversation_id = $1 and user_id = $2', [id, me.id])).rows[0];
       const { rows } = await pool.query(
         `select m.role, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
            join users u on u.id = m.user_id ${cardJoin('u')} left join privacy_settings ps on ps.user_id = u.id
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
       return {
         id: conv.id, kind: conv.kind, title: conv.title, createdAt: conv.created_at, lastMessageAt: conv.last_message_at,
+        // The viewer's own settings for this conversation.
+        mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned,
         members: await Promise.all(rows.map(async (r) => ({
           ...(await toCard(ctx, r as CardRow)), role: r.role,
           // Online state is shown only for people who allow it (always to themselves).
@@ -366,7 +369,8 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       return reply.status(204).send();
     });
 
-    app.patch('/messages/:id', async (req) => {
+    // PUT is accepted too: some HTTP stacks (older Android clients) cannot send PATCH.
+    app.route({ method: ['PATCH', 'PUT'], url: '/messages/:id', handler: async (req) => {
       const me = await ctx.auth(req);
       const id = param(req);
       const b = z.object({ content: z.string().trim().min(1).max(4000) }).strict().parse(req.body ?? {});
@@ -380,7 +384,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       const message = await loadMessage(ctx, id);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
       return message;
-    });
+    } });
 
     // Delete means "unsend for everyone": the text and attachments are removed, a tombstone stays so threads keep their shape.
     app.delete('/messages/:id', async (req, reply) => {

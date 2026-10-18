@@ -351,6 +351,25 @@ describe.skipIf(!url)('push, jobs, reactions, settings, sync, search (needs TEST
     });
   });
 
+  // ---------------------------------------------------------------- Android-friendly routes
+  describe('routes the Android app relies on', () => {
+    it('accepts PUT as well as PATCH for editing a message and for conversation settings', async () => {
+      const { a, b, conv } = await pair();
+      const m = await say(a, conv, 'typo');
+      const edited = await call('PUT', `${V1}/messages/${m.id}`, a.token, { content: 'fixed' });
+      expect(edited.status).toBe(200);
+      expect(edited.body.content).toBe('fixed');
+      expect((await call('PATCH', `${V1}/messages/${m.id}`, a.token, { content: 'fixed again' })).status).toBe(200);
+      expect((await call('PUT', `${V1}/conversations/${conv}/settings`, b.token, { pinned: true })).body.pinned).toBe(true);
+    });
+    it('the conversation detail carries the viewer\'s own settings', async () => {
+      const { b, conv } = await pair();
+      await call('PATCH', `${V1}/conversations/${conv}/settings`, b.token, { pinned: true });
+      const detail = await call('GET', `${V1}/conversations/${conv}`, b.token);
+      expect(detail.body).toMatchObject({ pinned: true, archived: false, mutedUntil: null });
+    });
+  });
+
   // ---------------------------------------------------------------- reconnect sync and delivery
   describe('sync and delivery', () => {
     it('returns everything after a seq, oldest first, in pages', async () => {
