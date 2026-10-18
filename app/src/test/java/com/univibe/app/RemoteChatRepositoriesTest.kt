@@ -131,6 +131,66 @@ class RemoteChatRepositoriesTest {
         assertNull(group.studentId)
     }
 
+    @Test fun chatListReadsPhotoSenderAndManualUnread() = runBlocking {
+        val api = FakeApi { _, _, _ ->
+            ok("""{"items":[
+              {"id":"g1","kind":"group","title":"Law 2026","lastMessageAt":"2026-10-17T09:00:00.000Z","unreadCount":0,"mutedUntil":null,"archived":false,"pinned":false,"markedUnread":true,
+               "with":null,"lastMessage":{"id":"m1","senderId":"u2","senderName":"Jane Doe","content":null,"deleted":false,"mediaCount":3,"createdAt":"2026-10-17T09:00:00.000Z"}},
+              {"id":"g2","kind":"group","title":"Mine","lastMessageAt":"2026-10-17T08:00:00.000Z","unreadCount":0,"mutedUntil":null,"archived":false,"pinned":false,"markedUnread":false,
+               "with":null,"lastMessage":{"id":"m2","senderId":"$me","senderName":"Me","content":"hi","deleted":false,"mediaCount":0,"createdAt":"2026-10-17T08:00:00.000Z"}}
+            ],"nextCursor":null}""")
+        }
+        val (photo, mine) = RemoteChatRepository(api) { me }.getChats()
+        assertEquals(com.univibe.app.data.model.LastKind.Photo, photo.lastKind)
+        assertEquals(3, photo.photoCount)
+        assertEquals("3 photos", photo.lastMessage)
+        assertEquals("Jane Doe", photo.lastSenderName)
+        assertFalse(photo.lastFromMe)
+        // Marked unread by hand: shows as unread, but it is flagged as having no real unread messages.
+        assertTrue(photo.hasUnread); assertTrue(photo.markedOnly)
+        assertEquals(com.univibe.app.data.model.LastKind.Text, mine.lastKind)
+        assertTrue(mine.lastFromMe)
+        assertFalse(mine.hasUnread)
+    }
+
+    @Test fun chatListReadsGroupMembersDeliveryAndUntitledGroups() = runBlocking {
+        val api = FakeApi { _, _, _ ->
+            ok("""{"items":[
+              {"id":"g1","kind":"group","title":null,"lastMessageAt":"2026-10-17T09:00:00.000Z","unreadCount":0,"mutedUntil":null,"archived":false,"pinned":false,"markedUnread":false,
+               "memberCount":4,"members":[{"id":"u2","name":"Jane Doe"},{"id":"u3","name":"Sam Ong"},{"id":"u4","name":"Lee Wu"}],"with":null,
+               "lastMessage":{"id":"m1","senderId":"$me","senderName":"Me","content":"yo","deleted":false,"mediaCount":0,"delivery":"delivered","createdAt":"2026-10-17T09:00:00.000Z"}}
+            ],"nextCursor":null}""")
+        }
+        val g = RemoteChatRepository(api) { me }.getChats().single()
+        assertEquals("Jane, Sam and 1 other", g.title)
+        assertEquals(4, g.memberCount)
+        assertEquals(listOf("u2", "u3", "u4"), g.members.map { it.id })
+        assertEquals(com.univibe.app.data.model.Delivery.Delivered, g.lastDelivery)
+    }
+
+    @Test fun archivedChatsAreAskedForAndUnarchivedWithTheSettingsCall() = runBlocking {
+        val api = FakeApi { _, _, _ -> ok("""{"items":[],"nextCursor":null}""") }
+        val repo = RemoteChatRepository(api) { me }
+        repo.getArchivedChats()
+        assertTrue(api.calls[0].second.contains("archived=true"))
+        repo.unarchive("c1")
+        assertEquals(false, api.calls[1].third!!.getBoolean("archived"))
+    }
+
+    @Test fun pinMarkUnreadAndMarkReadCallTheServer() = runBlocking {
+        val api = FakeApi { _, _, _ -> HttpResponse(204, "") }
+        val repo = RemoteChatRepository(api) { me }
+        repo.setPinned("c1", true)
+        repo.markUnread("c1")
+        repo.markRead("c1")
+        assertEquals("PUT", api.calls[0].first)
+        assertEquals("/api/v1/conversations/c1/settings", api.calls[0].second)
+        assertEquals(true, api.calls[0].third!!.getBoolean("pinned"))
+        assertEquals("POST", api.calls[1].first)
+        assertEquals("/api/v1/conversations/c1/mark-unread", api.calls[1].second)
+        assertEquals("/api/v1/conversations/c1/read", api.calls[2].second)
+    }
+
     @Test fun aChatYouAreNotInIsNull() = runBlocking {
         val api = FakeApi { _, _, _ -> HttpResponse(404, """{"error":"not_found","message":"Not found."}""") }
         assertNull(RemoteChatRepository(api) { me }.getChat("nope"))
@@ -190,6 +250,18 @@ class RemoteChatRepositoriesTest {
             assertEquals("You cannot message this person.", e.message)
         }
         assertTrue(repo.messages("c1").first().isEmpty())
+    }
+
+    @Test fun aMessageWithSeveralPhotosKeepsAllOfThemAndTheServersPhotoShape() = runBlocking {
+        val json = JSONObject(message("m9", 9, "u2", "")).apply {
+            put("media", org.json.JSONArray()
+                .put(JSONObject().put("id", "a").put("kind", "image").put("contentType", "image/jpeg").put("url", "https://cdn.test/a.jpg").put("width", 800).put("height", 400))
+                .put(JSONObject().put("id", "b").put("kind", "image").put("contentType", "image/jpeg").put("url", "https://cdn.test/b.jpg").put("width", 400).put("height", 800)))
+        }
+        val repo = RemoteMessageRepository(serverFor(window = "[$json]")) { me }
+        val m = withTimeout(5_000) { repo.messages("c1").first { l -> l.any { it.id == "m9" } } }.single()
+        assertEquals(listOf("https://cdn.test/a.jpg", "https://cdn.test/b.jpg"), m.photos)
+        assertEquals(2.0f, m.imageRatio!!, 0.001f) // the first photo's shape, known before anything loads
     }
 
     @Test fun withoutAnUploaderPhotosFailClearly() = runBlocking {

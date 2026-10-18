@@ -58,7 +58,7 @@ private const val MIN_RATIO = 0.62f         // tallest a feed photo may be (abou
 private const val MAX_RATIO = 2.0f          // widest a feed photo may be
 
 /** Remembers each photo's real width/height so scrolling back never re-measures it or makes the list jump. */
-private object PhotoAspects {
+internal object PhotoAspects {
     private val cache = LruCache<String, Float>(400)
     private fun key(path: String) = path.substringBefore('?')
     fun get(path: String): Float? = cache.get(key(path))

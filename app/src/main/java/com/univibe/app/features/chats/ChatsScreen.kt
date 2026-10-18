@@ -1,13 +1,13 @@
+@file:OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+
 package com.univibe.app.features.chats
 
-import com.univibe.app.ui.components.VibeIcons
-import com.univibe.app.ui.components.rememberBottomClearance
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.lifecycle.compose.LifecycleEventEffect
-import com.univibe.app.ui.components.VibeIconButton
-import androidx.compose.material.icons.outlined.GroupAdd
-import androidx.lifecycle.Lifecycle
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,17 +18,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.FilterList
-import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.NotificationsOff
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.MarkChatRead
+import androidx.compose.material.icons.outlined.MarkChatUnread
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,30 +37,50 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.model.Chat
+import com.univibe.app.data.model.Delivery
+import com.univibe.app.data.model.LastKind
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.StudentAvatar
+import com.univibe.app.ui.components.VibeBottomSheet
+import com.univibe.app.ui.components.VibeIconButton
+import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
+import com.univibe.app.ui.components.rememberBottomClearance
 import com.univibe.app.ui.theme.Spacing
+
+private val AvatarSize = 52.dp
 
 @Composable
 fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, viewModel: ChatsViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
+    LaunchedEffect(state.notice) { state.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
 
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Chats", actions = { VibeIconButton(VibeIcons.PersonAdd, "New group", onNewGroup) })
@@ -92,33 +110,74 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
                 }
             }
         }
+        val nothingYet = state.query.isBlank() && state.filter == ChatFilter.All
         when {
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
             state.error != null -> ErrorState(state.error!!, onRetry = viewModel::load)
             state.visible.isEmpty() -> EmptyState(
                 icon = VibeIcons.Comment,
-                title = if (state.query.isBlank() && state.filter == ChatFilter.All) "No conversations yet" else "No matches",
-                message = if (state.query.isBlank() && state.filter == ChatFilter.All) "Start a chat from a student's profile."
-                else "Try a different name, word or filter.",
+                title = when { state.filter == ChatFilter.Archived && state.query.isBlank() -> "Nothing archived"; nothingYet -> "No conversations yet"; else -> "No matches" },
+                message = when {
+                    state.filter == ChatFilter.Archived && state.query.isBlank() -> "Chats you archive show up here. Swipe a chat left to archive it."
+                    nothingYet -> "Start a chat from a student's profile, or create a group."
+                    else -> "Try a different name, word or filter."
+                },
+                actionLabel = if (nothingYet) "New group" else null,
+                onAction = if (nothingYet) onNewGroup else null,
             )
-            else -> LazyColumn(
-                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.sm, bottom = rememberBottomClearance()),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                if (state.pinned.isNotEmpty()) {
-                    item(key = "hdr-pinned") { SectionLabel("Pinned") }
-                    items(state.pinned, key = { it.id }) { chat ->
-                        SwipeableChatRow(chat, { onOpenChat(chat.id) }, { viewModel.toggleMute(chat.id) }, { viewModel.archive(chat.id) })
+            else -> {
+                val pinned = state.pinned
+                val others = state.others
+                LazyColumn(
+                    contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.xs, bottom = rememberBottomClearance()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (pinned.isNotEmpty()) {
+                        item(key = "hdr-pinned", contentType = "header") { SectionLabel("Pinned") }
+                        items(pinned, key = { it.id }, contentType = { "chat" }) { chat ->
+                            ChatListItem(chat, state, viewModel, onOpenChat)
+                        }
                     }
-                }
-                if (state.others.isNotEmpty()) {
-                    item(key = "hdr-all") { SectionLabel("All chats") }
-                    items(state.others, key = { it.id }) { chat ->
-                        SwipeableChatRow(chat, { onOpenChat(chat.id) }, { viewModel.toggleMute(chat.id) }, { viewModel.archive(chat.id) })
+                    if (others.isNotEmpty()) {
+                        item(key = "hdr-all", contentType = "header") { SectionLabel("All chats") }
+                        items(others, key = { it.id }, contentType = { "chat" }) { chat ->
+                            ChatListItem(chat, state, viewModel, onOpenChat)
+                        }
                     }
                 }
             }
         }
+    }
+
+    state.menuChat?.let { chat ->
+        ChatActionsSheet(
+            chat = chat,
+            onPin = { viewModel.togglePinned(chat.id) },
+            onUnread = { viewModel.toggleUnread(chat.id) },
+            onMute = { viewModel.toggleMute(chat.id) },
+            onArchive = { viewModel.archive(chat.id) },
+            archived = state.filter == ChatFilter.Archived,
+            onUnarchive = { viewModel.unarchive(chat.id) },
+            onDismiss = viewModel::closeMenu,
+        )
+    }
+}
+
+@Composable
+private fun ChatListItem(chat: Chat, state: ChatsUiState, viewModel: ChatsViewModel, onOpenChat: (String) -> Unit) {
+    val typingIds = state.typing[chat.id].orEmpty()
+    val selected = state.menuChatId == chat.id
+    if (state.filter == ChatFilter.Archived) {
+        // Archived chats open and offer "Unarchive" in the menu; no swipe gestures here.
+        ChatRow(chat, typingIds, selected, { onOpenChat(chat.id) }, { viewModel.openMenu(chat.id) })
+    } else {
+        SwipeableChatRow(
+            chat = chat, typingIds = typingIds, selected = selected,
+            onOpen = { onOpenChat(chat.id) },
+            onMenu = { viewModel.openMenu(chat.id) },
+            onMute = { viewModel.toggleMute(chat.id) },
+            onArchive = { viewModel.archive(chat.id) },
+        )
     }
 }
 
@@ -132,10 +191,12 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/** Swipe right to mute/unmute (snaps back), swipe left to archive. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Swipe right to mute/unmute (snaps back), swipe left to archive. Long-press opens the full menu. */
 @Composable
-private fun SwipeableChatRow(chat: Chat, onOpen: () -> Unit, onMute: () -> Unit, onArchive: () -> Unit) {
+private fun SwipeableChatRow(
+    chat: Chat, typingIds: Set<String>, selected: Boolean,
+    onOpen: () -> Unit, onMenu: () -> Unit, onMute: () -> Unit, onArchive: () -> Unit,
+) {
     val state = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
@@ -162,79 +223,193 @@ private fun SwipeableChatRow(chat: Chat, onOpen: () -> Unit, onMute: () -> Unit,
             ) {
                 Icon(
                     if (muteSide) VibeIcons.BellOff else Icons.Outlined.Archive,
-                    contentDescription = if (muteSide) "Mute" else "Archive",
+                    contentDescription = if (muteSide) (if (chat.muted) "Unmute" else "Mute") else "Archive",
                 )
             }
         },
     ) {
-        Surface(color = MaterialTheme.colorScheme.background, onClick = onOpen) { ChatRow(chat) }
+        ChatRow(chat, typingIds, selected, onOpen, onMenu)
     }
 }
 
 @Composable
-private fun ChatRow(chat: Chat) {
+private fun ChatRow(chat: Chat, typingIds: Set<String>, selected: Boolean, onOpen: () -> Unit, onMenu: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    val unread = chat.hasUnread
+    val typingText = typingLabel(chat, typingIds)
+    val previewText = remember(chat) { previewDescription(chat) }
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 76.dp)
-            .padding(vertical = Spacing.sm)
+            .background(if (selected) colors.surfaceContainerHigh else colors.background, MaterialTheme.shapes.medium)
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = "Open conversation",
+                onClick = onOpen,
+                onLongClickLabel = "More options",
+                onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onMenu() },
+            )
+            .heightIn(min = 68.dp)
+            .padding(vertical = Spacing.sm, horizontal = 2.dp)
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
-                    append(chat.title); append(". "); append(chat.lastMessage)
-                    if (chat.unread > 0) append(". ${chat.unread} unread")
+                    append(chat.title); append(". ")
+                    append(typingText ?: previewText)
+                    if (unread) append(if (chat.markedOnly) ". Marked as unread" else ". ${chat.unread} unread")
+                    if (chat.pinned) append(". Pinned")
                     if (chat.muted) append(". Muted")
                 }
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (chat.isGroup) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(56.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(VibeIcons.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
-        } else {
-            StudentAvatar(chat.title, size = 56.dp, accent = chat.id.hashCode(), online = chat.online)
-        }
-        Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
+        if (chat.isGroup) GroupAvatar(null, AvatarSize, name = chat.title, memberNames = chat.members.map { it.name })
+        else StudentAvatar(chat.title, size = AvatarSize, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
+
+        Column(Modifier.weight(1f).padding(start = Spacing.md)) {
+            // Name and time share a row; the name takes what is left and truncates, so it can never run into the time.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     chat.title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = if (chat.unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
-                if (chat.pinned) {
-                    Icon(VibeIcons.Pin, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (chat.muted) {
-                    Icon(VibeIcons.BellOff, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Text(
+                    chat.timeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (unread && !chat.muted) colors.primary else colors.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = Spacing.sm),
+                )
             }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                if (typingText != null) {
+                    Text(typingText, style = MaterialTheme.typography.bodyMedium, color = colors.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                } else {
+                    PreviewLine(chat, unread, Modifier.weight(1f))
+                }
+                if (chat.muted) Icon(VibeIcons.BellOff, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = colors.onSurfaceVariant)
+                if (chat.pinned) Icon(VibeIcons.Pin, contentDescription = null, modifier = Modifier.padding(start = 6.dp).size(14.dp), tint = colors.onSurfaceVariant)
+                if (unread) UnreadBadge(chat)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnreadBadge(chat: Chat) {
+    val colors = MaterialTheme.colorScheme
+    val tint = if (chat.muted) colors.outline else colors.primary
+    if (chat.markedOnly) {
+        // Marked unread by hand: a plain dot, since there is no count to show.
+        Surface(shape = CircleShape, color = tint, modifier = Modifier.padding(start = 8.dp).size(10.dp)) {}
+    } else {
+        Surface(shape = CircleShape, color = tint, modifier = Modifier.padding(start = 8.dp)) {
             Text(
-                chat.lastMessage.ifBlank { "Say hello" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                if (chat.unread > 99) "99+" else chat.unread.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onPrimary,
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 18.dp).padding(horizontal = 6.dp, vertical = 1.dp),
             )
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(chat.timeLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (chat.unread > 0) {
-                Surface(
-                    shape = CircleShape,
-                    color = if (chat.muted) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 6.dp),
-                ) {
-                    Text(
-                        chat.unread.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                }
-            }
+    }
+}
+
+/** "You: Photo", "Jane: See you tomorrow", or just the text in a 1:1 chat from the other person. */
+@Composable
+private fun PreviewLine(chat: Chat, unread: Boolean, modifier: Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val tint = if (unread) colors.onSurface else colors.onSurfaceVariant
+    val prefix = previewPrefix(chat)
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (prefix != null) {
+            Text(prefix, style = MaterialTheme.typography.bodyMedium, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
         }
+        if (chat.lastFromMe && chat.lastDelivery != Delivery.None && chat.lastKind != LastKind.Deleted) {
+            // Our own last message: one tick sent, two delivered, two in the accent colour read (the icon differs, not just the colour).
+            Icon(
+                if (chat.lastDelivery == Delivery.Sent) VibeIcons.Check else VibeIcons.DoubleCheck,
+                contentDescription = when (chat.lastDelivery) { Delivery.Read -> "Read"; Delivery.Delivered -> "Delivered"; else -> "Sent" },
+                tint = if (chat.lastDelivery == Delivery.Read) colors.primary else tint,
+                modifier = Modifier.padding(end = 4.dp).size(14.dp),
+            )
+        }
+        if (chat.lastKind == LastKind.Photo) {
+            Icon(VibeIcons.Photo, contentDescription = null, tint = tint, modifier = Modifier.padding(end = 4.dp).size(16.dp))
+        }
+        Text(
+            chat.lastMessage.ifBlank { "Say hello" },
+            style = MaterialTheme.typography.bodyMedium,
+            fontStyle = if (chat.lastKind == LastKind.Deleted) FontStyle.Italic else FontStyle.Normal,
+            fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal,
+            color = tint,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+    }
+}
+
+private fun previewPrefix(chat: Chat): String? = when {
+    chat.lastKind == LastKind.None || chat.lastKind == LastKind.Deleted -> null
+    chat.lastFromMe -> "You: "
+    chat.isGroup -> chat.lastSenderName?.trim()?.substringBefore(' ')?.takeIf { it.isNotBlank() }?.let { "$it: " }
+    else -> null
+}
+
+private fun previewDescription(chat: Chat): String = buildString {
+    previewPrefix(chat)?.let { append(it) }
+    if (chat.lastKind == LastKind.Photo) append("Photo. ")
+    append(chat.lastMessage.ifBlank { "No messages yet" })
+}
+
+/** Direct chat: "typing…". Group: names come from the chat list's member preview; anyone not in it is "Someone". */
+private fun typingLabel(chat: Chat, ids: Set<String>): String? {
+    if (ids.isEmpty()) return null
+    if (!chat.isGroup) return "typing…"
+    val names = ids.mapNotNull { id -> chat.members.firstOrNull { it.id == id }?.name?.substringBefore(' ')?.takeIf { it.isNotBlank() } }
+    return when {
+        ids.size == 1 -> (names.firstOrNull() ?: "Someone") + " is typing…"
+        ids.size == 2 && names.size == 2 -> "${names[0]} and ${names[1]} are typing…"
+        else -> "Several people are typing…"
+    }
+}
+
+@Composable
+private fun ChatActionsSheet(
+    chat: Chat, onPin: () -> Unit, onUnread: () -> Unit, onMute: () -> Unit, onArchive: () -> Unit,
+    archived: Boolean, onUnarchive: () -> Unit, onDismiss: () -> Unit,
+) {
+    VibeBottomSheet(onDismiss = onDismiss) {
+        Row(Modifier.fillMaxWidth().padding(bottom = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            if (chat.isGroup) GroupAvatar(null, 40.dp, name = chat.title, memberNames = chat.members.map { it.name }) else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl)
+            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Spacing.md))
+        }
+        if (archived) {
+            // Pin, mute and read state belong to the main list; from the archive the one action is to bring the chat back.
+            SheetAction(Icons.Outlined.Archive, "Unarchive conversation", onUnarchive)
+            return@VibeBottomSheet
+        }
+        SheetAction(VibeIcons.Pin, if (chat.pinned) "Unpin conversation" else "Pin conversation", onPin)
+        SheetAction(
+            if (chat.hasUnread) Icons.Outlined.MarkChatRead else Icons.Outlined.MarkChatUnread,
+            if (chat.hasUnread) "Mark as read" else "Mark as unread", onUnread,
+        )
+        SheetAction(VibeIcons.BellOff, if (chat.muted) "Unmute notifications" else "Mute notifications", onMute)
+        SheetAction(Icons.Outlined.Archive, "Archive conversation", onArchive)
+    }
+}
+
+@Composable
+private fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = Spacing.md))
     }
 }
