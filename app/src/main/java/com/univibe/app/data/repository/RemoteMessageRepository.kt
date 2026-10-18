@@ -6,6 +6,7 @@ import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.model.ReplyRef
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.send
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -15,7 +16,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -29,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class RemoteMessageRepository(
     private val api: AuthedApi,
+    /** Sends photos. Without it, sending a photo fails with a clear message. */
+    private val uploader: MediaUploader? = null,
     private val myId: () -> String?,
 ) : MessageRepository {
 
@@ -36,6 +41,8 @@ class RemoteMessageRepository(
         val messages = MutableStateFlow<List<Message>>(emptyList())
         val seqById = HashMap<String, Long>()
         val pinned = MutableStateFlow<String?>(null)
+        /** Photos this phone sent: shown from the local file (instant, works offline) instead of a temporary download link. */
+        val localPhotos = HashMap<String, String>()
         val hasOlder = MutableStateFlow(false)
         @Volatile var windowSeen = false
         /** Lowest seq seen so far, unsent messages included, so paging back always makes progress. */
@@ -101,19 +108,24 @@ class RemoteMessageRepository(
     }
 
     override suspend fun send(chatId: String, text: String, imagePath: String?, replyTo: ReplyRef?) {
-        if (imagePath != null) throw IllegalStateException("Photos in chat aren't available yet.")
         val clean = text.trim()
-        if (clean.isEmpty()) return
+        if (clean.isEmpty() && imagePath == null) return
         val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
         val s = state(chatId)
         // The same id is sent with every retry, so a flaky connection can never create two copies.
         val clientId = UUID.randomUUID().toString()
-        val local = Message("$LOCAL$clientId", chatId, me, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sending, replyTo = replyTo)
+        val local = Message("$LOCAL$clientId", chatId, me, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sending, imagePath = imagePath, replyTo = replyTo)
         s.messages.update { it + local }
         try {
+            // The photo goes up first (ask for a link, send the file, confirm); the message then just points at it.
+            val mediaId = imagePath?.let { path ->
+                (uploader ?: throw IllegalStateException("Photos aren't available right now.")).upload(path, "image", "message")
+            }
             val body = JSONObject().put("content", clean).put("clientId", clientId)
+            mediaId?.let { body.put("mediaIds", JSONArray().put(it)) }
             replyTo?.let { body.put("replyToId", it.messageId) }
             val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            if (imagePath != null) synchronized(s) { s.localPhotos[sent.getString("id")] = imagePath }
             s.messages.update { list -> list.filterNot { it.id == local.id } }
             merge(chatId, listOf(sent))
         } catch (e: Exception) {
@@ -197,6 +209,10 @@ class RemoteMessageRepository(
         val mine = senderId == me
         val media = o.optJSONArray("media")
         val content = o.strOrNull("content").orEmpty()
+        val id = o.getString("id")
+        // Our own photos open from the local copy; everyone else's from the server's temporary link.
+        val photo = synchronized(state(chatId)) { state(chatId).localPhotos[id] }?.takeIf { File(it).isFile }
+            ?: media?.takeIf { it.length() > 0 }?.getJSONObject(0)?.strOrNull("url")
         val reply = o.optJSONObject("replyTo")?.let { r ->
             val author = r.strOrNull("senderId")
             ReplyRef(
@@ -206,11 +222,13 @@ class RemoteMessageRepository(
             )
         }
         return Message(
-            id = o.getString("id"),
+            id = id,
             chatId = chatId,
             senderId = senderId,
             senderName = if (mine) "You" else names[senderId] ?: "Student",
-            text = if (content.isBlank() && media != null && media.length() > 0) "Photo" else content,
+            // A photo with no caption shows as the picture alone; the word is only a fallback when no link is available.
+            text = if (content.isBlank() && photo == null && media != null && media.length() > 0) "Photo" else content,
+            imagePath = photo,
             timeMillis = runCatching { Instant.parse(o.getString("createdAt")).toEpochMilli() }.getOrDefault(0L),
             isMine = mine,
             status = MessageStatus.Sent,

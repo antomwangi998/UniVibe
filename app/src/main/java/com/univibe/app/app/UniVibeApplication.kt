@@ -102,7 +102,8 @@ object AppContainer {
         api?.let { RemoteChatRepository(it) { accountOf(authRepository.session.value)?.id } } ?: MockChatRepository(mockStore)
     }
     val messageRepository: MessageRepository by lazy {
-        api?.let { RemoteMessageRepository(it) { accountOf(authRepository.session.value)?.id } } ?: MockMessageRepository(mockStore)
+        api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value)?.id } }
+            ?: MockMessageRepository(mockStore)
     }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
     /** One shared instance so RSVPs made on the details screen show up in the list. */
