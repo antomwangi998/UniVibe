@@ -74,6 +74,8 @@ interface NotificationRepository {
     suspend fun markAllRead()
     /** Asks the server for the current unread count (the badge). The mock keeps its own count, so this does nothing there. */
     suspend fun refreshUnread() {}
+    /** Fires when the server says notifications changed (a new one arrived, or one was read elsewhere) or the link came back. */
+    fun changes(): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
 }
 
 interface DiscoverRepository {
@@ -87,6 +89,8 @@ interface ChatRepository {
     suspend fun getChat(chatId: String): Chat?
     suspend fun setMuted(chatId: String, muted: Boolean)
     suspend fun archive(chatId: String)
+    /** Fires when the server says something changed in the chat list (new message, read elsewhere, reconnect). */
+    fun changes(): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
 }
 
 interface EventRepository {
@@ -153,6 +157,8 @@ interface MessageRepository {
     fun hasOlder(chatId: String): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
     /** Loads the next page of earlier messages. */
     suspend fun loadOlder(chatId: String) {}
+    /** Tells the other people in the chat that this person started or stopped typing. */
+    suspend fun typingChanged(chatId: String, typing: Boolean) {}
 }
 
 interface GroupRepository {
