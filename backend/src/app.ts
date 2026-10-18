@@ -8,6 +8,7 @@ import type { Mailer } from './email';
 import { HttpError } from './errors';
 import { makeCtx } from './context';
 import { RateLimiter } from './limiter';
+import { sessionIsLive } from './sessions';
 import { READ_LINK_SECONDS, registerMediaRoutes } from './media';
 import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
@@ -78,9 +79,11 @@ const registerSchema = z.object({
   password,
   acceptedTerms: z.boolean().refine((v) => v === true, 'Accept the terms to continue.'),
 });
-const verifySchema = z.object({ email, code });
+// deviceName is only a label for the sessions list ("Pixel 8"); it is never used to make a decision.
+const deviceName = z.string().trim().max(80).optional();
+const verifySchema = z.object({ email, code, deviceName });
 const emailOnlySchema = z.object({ email });
-const loginSchema = z.object({ email, password: z.string().min(1).max(128) });
+const loginSchema = z.object({ email, password: z.string().min(1).max(128), deviceName });
 const refreshSchema = z.object({ refreshToken: z.string().min(20).max(200) });
 const resetConfirmSchema = z.object({ email, code, newPassword: password });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: password });
@@ -184,9 +187,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   async function requireUser(req: FastifyRequest): Promise<UserRow> {
     const header = req.headers.authorization;
     const token = header && header.startsWith('Bearer ') ? header.slice(7) : null;
-    const id = token ? await sec.verifyAccessToken(token, config.JWT_SECRET) : null;
-    const user = id ? await findUserById(id) : undefined;
+    const claims = token ? await sec.verifyAccessClaims(token, config.JWT_SECRET) : null;
+    const user = claims ? await findUserById(claims.userId) : undefined;
     if (!user || !user.email_verified_at) throw new HttpError(401, 'unauthorized', 'Please log in again.');
+    // A login that was ended from "Log out other devices" stops working at once, not when its access token expires.
+    if (claims?.sessionId && !(await sessionIsLive(pool, claims.sessionId))) throw new HttpError(401, 'unauthorized', 'Please log in again.');
     if (user.suspended_until && user.suspended_until.getTime() > Date.now()) {
       throw new HttpError(403, 'account_suspended', 'This account is suspended.');
     }
@@ -204,14 +209,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return `${base}${randomInt(100000, 1000000)}`;
   }
 
-  async function createSession(query: Query, userId: string, familyId: string = randomUUID()) {
+  async function createSession(query: Query, userId: string, familyId: string = randomUUID(), deviceLabel = '') {
     const refreshToken = sec.newRefreshToken();
     await query(
-      'insert into refresh_tokens (user_id, family_id, token_hash, expires_at) ' +
-        'values ($1, $2, $3, now() + make_interval(days => $4::int))',
-      [userId, familyId, sec.hashToken(refreshToken), sec.REFRESH_TTL_DAYS],
+      'insert into refresh_tokens (user_id, family_id, token_hash, expires_at, device_label) ' +
+        'values ($1, $2, $3, now() + make_interval(days => $4::int), $5)',
+      [userId, familyId, sec.hashToken(refreshToken), sec.REFRESH_TTL_DAYS, deviceLabel],
     );
-    const accessToken = await sec.signAccessToken(userId, config.JWT_SECRET);
+    const accessToken = await sec.signAccessToken(userId, config.JWT_SECRET, familyId);
     return { accessToken, refreshToken, expiresIn: sec.ACCESS_TTL_SECONDS };
   }
 
@@ -345,7 +350,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         'update users set email_verified_at = now(), student_verified = $2, password_hash = coalesce($3, password_hash) where id = $1',
         [user.id, student, row.pending_password_hash],
       );
-      return createSession(run, user.id);
+      return createSession(run, user.id, undefined, b.deviceName ?? '');
     });
     const fresh = await findUserById(user.id);
     return { ...session, user: await toUser(fresh as UserRow) };
@@ -384,7 +389,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
     // Only said after the password is right, so it does not reveal which emails have accounts.
     if (!user.email_verified_at) throw new HttpError(403, 'email_not_verified', 'Please verify your email to continue.');
-    const session = await createSession((t, p) => pool.query(t, p), user.id);
+    const session = await createSession((t, p) => pool.query(t, p), user.id, undefined, b.deviceName ?? '');
     return { ...session, user: await toUser(user) };
   });
 
@@ -393,8 +398,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const expired = () => new HttpError(401, 'unauthorized', 'Your session expired. Please log in again.');
     const hash = sec.hashToken(b.refreshToken);
     const { rows } = await pool.query<{
-      id: string; user_id: string; family_id: string; expires_at: Date; used_at: Date | null; revoked_at: Date | null;
-    }>('select id, user_id, family_id, expires_at, used_at, revoked_at from refresh_tokens where token_hash = $1', [hash]);
+      id: string; user_id: string; family_id: string; expires_at: Date; used_at: Date | null; revoked_at: Date | null; device_label: string;
+    }>('select id, user_id, family_id, expires_at, used_at, revoked_at, device_label from refresh_tokens where token_hash = $1', [hash]);
     const token = rows[0];
     if (!token) throw expired();
     if (token.used_at || token.revoked_at) {
@@ -408,7 +413,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const run: Query = (t, p) => client.query(t, p);
       const claimed = await client.query('update refresh_tokens set used_at = now() where id = $1 and used_at is null returning id', [token.id]);
       if (!claimed.rowCount) throw expired();
-      return createSession(run, token.user_id, token.family_id);
+      return createSession(run, token.user_id, token.family_id, token.device_label);
     });
   });
 

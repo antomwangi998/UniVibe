@@ -58,8 +58,9 @@ export function hashToken(token: string): string {
 // ---- access tokens (short-lived JWT)
 const keyOf = (secret: string) => new TextEncoder().encode(secret);
 
-export function signAccessToken(userId: string, secret: string): Promise<string> {
-  return new SignJWT({})
+/** [sessionId] is the login family (see refresh_tokens.family_id); it lets the server end one device's login. */
+export function signAccessToken(userId: string, secret: string, sessionId?: string): Promise<string> {
+  return new SignJWT(sessionId ? { sid: sessionId } : {})
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(ISSUER)
@@ -69,18 +70,26 @@ export function signAccessToken(userId: string, secret: string): Promise<string>
     .sign(keyOf(secret));
 }
 
-/** Returns the user id, or null for any invalid, expired or tampered token. */
-export async function verifyAccessToken(token: string, secret: string): Promise<string | null> {
+export interface AccessClaims { userId: string; sessionId: string | null }
+
+/** Returns who the token belongs to (and which login), or null for any invalid, expired or tampered token. */
+export async function verifyAccessClaims(token: string, secret: string): Promise<AccessClaims | null> {
   try {
     const { payload } = await jwtVerify(token, keyOf(secret), {
       issuer: ISSUER,
       audience: AUDIENCE,
       algorithms: ['HS256'],
     });
-    return typeof payload.sub === 'string' ? payload.sub : null;
+    if (typeof payload.sub !== 'string') return null;
+    return { userId: payload.sub, sessionId: typeof payload.sid === 'string' ? payload.sid : null };
   } catch {
     return null;
   }
+}
+
+/** Returns the user id, or null for any invalid, expired or tampered token. */
+export async function verifyAccessToken(token: string, secret: string): Promise<string | null> {
+  return (await verifyAccessClaims(token, secret))?.userId ?? null;
 }
 
 export function emailMatchesDomains(email: string, domains: string[]): boolean {
