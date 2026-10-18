@@ -121,3 +121,21 @@ Run **one** web instance: live events are in process memory, and the worker publ
 (only images are accepted as message media), per-user message deletion ("delete for me"), scheduled notifications,
 aggregated/grouped notification rows, Redis/Socket bus for multiple instances, metrics export (only `/admin/jobs`),
 message search is `ILIKE` (fine at campus scale; add `pg_trgm` if it gets slow).
+
+## Chat list additions (messaging UI upgrade)
+
+All additive; older clients ignore them.
+
+`GET /conversations` items now also carry:
+
+- `memberCount`: number of members.
+- `members`: up to six *other* members of a group as `{ id, name }` (empty for direct chats). Used for typing labels ("Jane is typing…"), collage avatars and naming untitled groups.
+- `lastMessage.mediaCount`: ready photos on the last message (0 for deleted messages).
+- `lastMessage.senderName`: the sender's name, for "Jane: …" previews.
+- `lastMessage.delivery`: only when the last message is the caller's own: `"sent" | "delivered" | "read"`, from the other members' delivery and read cursors (a group counts once every member has it). `null` otherwise.
+
+`GET /conversations/:id` members now include `lastDeliveredSeq` next to `lastReadSeq`.
+
+Already supported and now used by the app: `GET /conversations?archived=true`, `PUT /conversations/:id/settings { archived: false }` (unarchive), `{ pinned }`, `POST /conversations/:id/mark-unread` (sets a flag only; the next `/read` clears it).
+
+Message `media` items now also carry `width` and `height` (pixels, or `null` if unknown) so clients can reserve the photo's shape before it loads.

@@ -5,6 +5,7 @@ package com.univibe.app.features.chats
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -69,6 +70,9 @@ import androidx.compose.material.icons.outlined.SentimentDissatisfied
 import androidx.compose.material.icons.outlined.SentimentVerySatisfied
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +81,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,6 +91,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -94,7 +102,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -117,7 +127,9 @@ import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.Reaction
+import com.univibe.app.ui.components.ChatPhoto
 import com.univibe.app.ui.components.ErrorState
+import com.univibe.app.ui.components.PhotoGalleryViewerDialog
 import com.univibe.app.ui.components.PhotoViewerDialog
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.PhotoImage
@@ -173,7 +185,29 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     LaunchedEffect(s.searching) { if (s.searching) searchFocus.requestFocus() }
 
     val rows = remember(s.messages) { buildRows(s.messages) }
-    val showJump by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
+    // "At the bottom" = the newest message (index 0 of the reversed list) is in view, give or take a little.
+    val atBottomState = remember { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 160 } }
+    // Read while composing, i.e. before the list measures any new row: this is where the reader was when a message arrived.
+    val wasAtBottom = atBottomState.value
+    val showJump = !atBottomState.value
+    var pendingNew by remember { mutableIntStateOf(0) }
+    val counted = remember { HashSet<String>() }
+    var anchorId by remember { mutableStateOf<String?>(null) }
+    val newestId = s.messages.lastOrNull()?.id
+    LaunchedEffect(newestId, s.loading) {
+        if (s.loading) return@LaunchedEffect
+        val previous = anchorId
+        anchorId = newestId
+        if (previous == null || newestId == previous) return@LaunchedEffect // first load, or nothing new at the end
+        val fresh = newIncomingAfter(s.messages, previous, counted) ?: return@LaunchedEffect
+        when {
+            // Own message, or the reader is already at the bottom: keep following the conversation.
+            s.messages.lastOrNull()?.isMine == true || wasAtBottom -> listState.animateScrollToItem(0)
+            // Reading older messages: never jump. Count each new message once; read receipts stay with the existing logic.
+            fresh.isNotEmpty() -> { if (counted.size > 200) counted.clear(); counted.addAll(fresh); pendingNew += fresh.size }
+        }
+    }
+    LaunchedEffect(atBottomState.value) { if (atBottomState.value) pendingNew = 0 }
     val typingOffset = if (s.typing) 1 else 0
     LaunchedEffect(s.jumpTo) {
         val id = s.jumpTo ?: return@LaunchedEffect
@@ -210,7 +244,26 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
             navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
             actions = {
                 VibeIconButton(VibeIcons.Search, "Search in chat", viewModel::openSearch)
-                if (chat?.isGroup == true) VibeIconButton(VibeIcons.Info, "Group info", onOpenGroupInfo)
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    VibeIconButton(VibeIcons.More, "More options", { menuOpen = true })
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (headerAction != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (chat?.isGroup == true) "Group info" else "View profile") },
+                                leadingIcon = { Icon(VibeIcons.Info, contentDescription = null) },
+                                onClick = { menuOpen = false; headerAction.invoke() },
+                            )
+                        }
+                        if (chat != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (chat.muted) "Unmute notifications" else "Mute notifications") },
+                                leadingIcon = { Icon(VibeIcons.BellOff, contentDescription = null) },
+                                onClick = { menuOpen = false; viewModel.toggleMute() },
+                            )
+                        }
+                    }
+                }
             },
             titleContent = if (chat == null) null else {
                 {
@@ -218,14 +271,14 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         Modifier.clickable(enabled = headerAction != null, role = Role.Button, onClickLabel = if (chat.isGroup) "Open group info" else "Open profile") { headerAction?.invoke() },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (chat.isGroup) GroupAvatar(s.group?.photoPath, 40.dp)
-                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online)
+                        if (chat.isGroup) GroupAvatar(s.group?.photoPath, 40.dp, name = s.title)
+                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
                         Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
                             Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
                                 when {
-                                    s.typing -> "typing…"
-                                    chat.isGroup -> s.group?.let { "${it.members.size} members" } ?: "Group chat"
+                                    s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
+                                    chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
                                     chat.online -> "Online"
                                     else -> "Offline"
                                 },
@@ -237,6 +290,15 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                 }
             },
         )
+        }
+        if (s.offline) {
+            Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
+                Text(
+                    "You're offline. Messages may not send until you reconnect.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                )
+            }
         }
         s.pinned?.let { pinned ->
             if (!s.searching) PinnedBar(pinned, canUnpin = s.canPin, onJump = { viewModel.jumpTo(pinned.id) }, onUnpin = { viewModel.pin(null) })
@@ -251,7 +313,8 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                     state = listState,
                     reverseLayout = true,
                     contentPadding = PaddingValues(horizontal = Spacing.md, vertical = Spacing.sm),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    // Spacing is per message (tight inside a group, wider between groups), so no uniform gap here.
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
                     if (s.typing) item(key = "typing") { TypingBubble() }
                     items(rows, key = { it.key }) { row ->
@@ -259,11 +322,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             is ChatRow.Day -> DayHeader(row.label)
                             is ChatRow.Msg -> {
                                 val m = row.message
+                                val pos = groupPosition(m, row.older, row.newer)
                                 MessageItem(
                                     m = m,
+                                    pos = pos,
                                     isGroup = chat?.isGroup == true,
-                                    showSender = chat?.isGroup == true && !m.isMine && row.older?.senderId != m.senderId,
-                                    showAvatar = chat?.isGroup == true && !m.isMine && row.newer?.senderId != m.senderId,
+                                    showSender = chat?.isGroup == true && !m.isMine && pos.isFirst,
+                                    showAvatar = chat?.isGroup == true && !m.isMine && pos.isLast,
                                     showReceipts = s.showReceipts,
                                     highlighted = s.highlightId == m.id,
                                     onLongPress = { viewModel.openMenu(m) },
@@ -289,14 +354,33 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         )
                     }
                 }
-                // Plain `if`: AnimatedVisibility is ambiguous here (Box inside a Column), and the fade isn't needed.
-                if (showJump) {
-                    Surface(
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.md),
-                        shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp,
+                // Fades and scales in; not AnimatedVisibility, which is ambiguous here (Box inside a Column).
+                val reduced = rememberReducedMotion()
+                val jumpAlpha by animateFloatAsState(if (showJump) 1f else 0f, tween(if (reduced) 0 else 160), label = "jump")
+                if (jumpAlpha > 0.01f) {
+                    Box(
+                        Modifier.align(Alignment.BottomEnd).padding(Spacing.md)
+                            .graphicsLayer { alpha = jumpAlpha; scaleX = 0.85f + 0.15f * jumpAlpha; scaleY = 0.85f + 0.15f * jumpAlpha },
                     ) {
-                        IconButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
-                            Icon(VibeIcons.ChevronDown, contentDescription = "Scroll to latest message")
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp) {
+                            IconButton(onClick = { pendingNew = 0; scope.launch { listState.animateScrollToItem(0) } }, modifier = Modifier.size(48.dp)) {
+                                Icon(
+                                    VibeIcons.ChevronDown,
+                                    contentDescription = if (pendingNew > 0) "Scroll to latest message, $pendingNew new" else "Scroll to latest message",
+                                )
+                            }
+                        }
+                        if (pendingNew > 0) {
+                            Surface(
+                                shape = CircleShape, color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
+                            ) {
+                                Text(
+                                    if (pendingNew > 99) "99+" else pendingNew.toString(),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -306,6 +390,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         if (!s.notFound) {
             Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
                 Column(Modifier.navigationBarsPadding()) {
+                    s.failedPhoto?.let {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Couldn't send the photo.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                            TextButton(onClick = viewModel::retryFailedPhoto) { Text("Retry") }
+                            TextButton(onClick = viewModel::dismissFailedPhoto) { Text("Dismiss") }
+                        }
+                    }
                     AnimatedVisibility(s.replyTo != null) {
                         s.replyTo?.let { ReplyBar(it, onCancel = viewModel::cancelReply) }
                     }
@@ -339,7 +430,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             }
                             VibeTextField(
                                 value = s.input, onValueChange = viewModel::onInput, modifier = Modifier.weight(1f).focusRequester(composerFocus),
-                                placeholder = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }, singleLine = false,
+                                placeholder = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }, singleLine = false, maxLines = 6,
                                 isError = s.input.length > MAX_MESSAGE,
                             )
                             Spacer(Modifier.width(Spacing.sm))
@@ -390,7 +481,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     }
 
     if (s.forwarding != null) ForwardSheet(s, viewModel::toggleForward, viewModel::confirmForward, viewModel::closeForward)
-    s.viewerPath?.let { PhotoViewerDialog(it) { viewModel.openViewer(null) } }
+    s.viewerPath?.let { open ->
+        // Swipe through every photo in the conversation, oldest first, starting at the one that was tapped.
+        val all = remember(s.messages) { s.messages.flatMap { it.photos } }
+        val start = all.indexOf(open)
+        if (start >= 0) PhotoGalleryViewerDialog(all, start) { viewModel.openViewer(null) }
+        else PhotoViewerDialog(open) { viewModel.openViewer(null) }
+    }
 }
 
 @Composable
@@ -404,7 +501,7 @@ private fun ForwardSheet(s: ConversationUiState, onToggle: (String) -> Unit, onS
                     Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(role = Role.Checkbox) { onToggle(c.id) }.padding(horizontal = Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (c.isGroup) GroupAvatar(null, 40.dp) else StudentAvatar(c.title, size = 40.dp, accent = c.id.hashCode())
+                    if (c.isGroup) GroupAvatar(null, 40.dp, name = c.title) else StudentAvatar(c.title, size = 40.dp, accent = c.id.hashCode())
                     Text(c.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(start = Spacing.md))
                     Checkbox(checked = c.id in s.forwardSelected, onCheckedChange = null)
                 }
@@ -510,14 +607,14 @@ private fun ReplyBar(m: Message, onCancel: () -> Unit) {
 
 /** Drag a message to the right to reply (the long-press menu and a TalkBack action do the same). */
 @Composable
-private fun SwipeToReply(onReply: () -> Unit, content: @Composable () -> Unit) {
+private fun SwipeToReply(onReply: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val scope = rememberCoroutineScope()
     val offset = remember { Animatable(0f) }
     val maxPx = with(LocalDensity.current) { 72.dp.toPx() }
     val trigger = maxPx * 0.75f
     val haptics = LocalHapticFeedback.current
     Box(
-        Modifier.fillMaxWidth().draggable(
+        modifier.fillMaxWidth().draggable(
             orientation = Orientation.Horizontal,
             state = rememberDraggableState { delta -> scope.launch { offset.snapTo((offset.value + delta).coerceIn(0f, maxPx)) } },
             onDragStopped = {
@@ -536,13 +633,14 @@ private fun SwipeToReply(onReply: () -> Unit, content: @Composable () -> Unit) {
 
 @Composable
 private fun MessageItem(
-    m: Message, isGroup: Boolean, showSender: Boolean, showAvatar: Boolean, showReceipts: Boolean, highlighted: Boolean,
+    m: Message, pos: GroupPosition, isGroup: Boolean, showSender: Boolean, showAvatar: Boolean, showReceipts: Boolean, highlighted: Boolean,
     onLongPress: () -> Unit, onDoubleTap: () -> Unit, onReply: () -> Unit, onReaction: (Reaction) -> Unit, onJump: (String) -> Unit,
     onOpenPhoto: (String) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val mine = m.isMine
-    SwipeToReply(onReply) {
+    // Tight inside a group, wider between groups.
+    SwipeToReply(onReply, Modifier.padding(top = if (pos.joinsOlder) 2.dp else 8.dp)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
@@ -555,7 +653,10 @@ private fun MessageItem(
             }
             Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
                 if (showSender) Text(m.senderName, style = MaterialTheme.typography.labelMedium, color = colors.primary, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
-                val shape = if (mine) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+                // The corners on the sender's side flatten where the bubble joins its neighbours; the last one keeps the "tail".
+                val big = 20.dp; val small = 6.dp
+                val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (pos.joinsOlder) small else big, bottomEnd = small, bottomStart = big)
+                else RoundedCornerShape(topStart = if (pos.joinsOlder) small else big, topEnd = big, bottomEnd = big, bottomStart = small)
                 Surface(
                     shape = shape,
                     color = if (mine) colors.primary else colors.surfaceContainerHigh,
@@ -589,22 +690,34 @@ private fun MessageItem(
                             }
                         }
                         if (m.forwarded) Text("Forwarded", style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f).padding(bottom = 2.dp))
-                        m.imagePath?.let { path ->
-                            Box(
-                                Modifier.size(width = 220.dp, height = 160.dp).clip(RoundedCornerShape(12.dp))
-                                    .clickable(role = Role.Button, onClickLabel = "View photo") { onOpenPhoto(path) },
-                            ) { PhotoImage(path, "Photo in chat") }
+                        val photos = m.photos
+                        val uploading = m.status == MessageStatus.Sending
+                        if (photos.size == 1) {
+                            ChatPhoto(photos[0], onOpen = { onOpenPhoto(photos[0]) }, knownRatio = m.imageRatio, sending = uploading)
+                            Spacer(Modifier.height(4.dp))
+                        } else if (photos.size > 1) {
+                            // Several photos: a tidy grid of equal tiles, two to a row.
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                photos.chunked(2).forEach { pair ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        pair.forEach { p -> ChatPhoto(p, onOpen = { onOpenPhoto(p) }, square = true, sending = uploading) }
+                                    }
+                                }
+                            }
                             Spacer(Modifier.height(4.dp))
                         }
                         if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
                         Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
-                            if (mine) {
+                            // One status tick per run of messages (on the last), unless a message is still sending.
+                            if (mine && (pos.isLast || m.status == MessageStatus.Sending)) {
                                 Spacer(Modifier.width(4.dp))
                                 val seen = showReceipts && m.status == MessageStatus.Seen
+                                // Sent: one tick. Delivered or seen: two. Seen is also full strength, and TalkBack says which.
+                                val delivered = m.status == MessageStatus.Delivered || m.status == MessageStatus.Seen
                                 Icon(
-                                    imageVector = when { m.status == MessageStatus.Sending -> VibeIcons.Clock; seen -> VibeIcons.DoubleCheck; else -> VibeIcons.Check },
-                                    contentDescription = when { m.status == MessageStatus.Sending -> "Sending"; seen -> "Seen"; else -> "Sent" },
+                                    imageVector = when { m.status == MessageStatus.Sending -> VibeIcons.Clock; delivered -> VibeIcons.DoubleCheck; else -> VibeIcons.Check },
+                                    contentDescription = when { m.status == MessageStatus.Sending -> "Sending"; seen -> "Seen"; delivered -> "Delivered"; else -> "Sent" },
                                     modifier = Modifier.size(14.dp).alpha(if (seen) 1f else 0.8f),
                                 )
                             }

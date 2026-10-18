@@ -59,6 +59,8 @@ fun CampusPostCard(
     val photos = remember(post.imagePath, post.imagePaths) {
         post.imagePaths.ifEmpty { listOfNotNull(post.imagePath) }
     }
+    // The feed shows the small copies; the full-screen viewer below opens the full-size photos.
+    val feedPhotos = remember(photos, post.thumbPaths) { if (post.thumbPaths.size == photos.size) post.thumbPaths else photos }
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs, top = Spacing.sm + 4.dp)) {
             AuthorRow(post, onAuthorClick, onMore)
@@ -73,8 +75,8 @@ fun CampusPostCard(
         val mediaPadding = Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.sm + 4.dp, top = Spacing.sm + 2.dp)
         if (post.poll != null) PostPoll(post.poll, onVote, mediaPadding)
         when {
-            post.videoPath != null -> PostVideo(post.videoPath, post.author.name, mediaPadding)
-            photos.isNotEmpty() -> PostGallery(photos, post.author.name, onOpen = { viewerIndex = it }, modifier = mediaPadding)
+            post.videoPath != null -> PostVideo(post.videoPath, post.author.name, mediaPadding, knownRatio = post.videoRatio)
+            photos.isNotEmpty() -> PostGallery(feedPhotos, post.author.name, onOpen = { viewerIndex = it }, modifier = mediaPadding, ratios = post.mediaRatios)
             post.mediaAccent != null -> Box(
                 mediaPadding
                     .fillMaxWidth()

@@ -5,7 +5,9 @@ import { buildApp } from '../src/app';
 import type { Config } from '../src/config';
 import { createPool, migrate } from '../src/db';
 import type { Mailer } from '../src/email';
+import { createSharpProcessor } from '../src/imaging';
 import { cleanupPendingMedia } from '../src/media';
+import sharp from 'sharp';
 import { MemoryStorage, createMemoryStorage } from '../src/storage';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -153,6 +155,124 @@ describe.skipIf(!url)('photos and videos (needs TEST_DATABASE_URL)', () => {
     const seen = (await call('GET', '/posts', b.token)).body.find((p: { id: string }) => p.id === created.body.id);
     expect(seen.media).toHaveLength(2);
     expect((await call('GET', `/posts/${created.body.id}`, outsider.token)).status).toBe(404);
+  });
+
+  it('feed pages continue where the last one ended, without gaps or repeats', async () => {
+    const [a, b] = [await student(), await student()];
+    for (let i = 0; i < 5; i++) await call('POST', '/posts', a.token, { text: `page post ${i}` });
+    const all = (await call('GET', '/posts', b.token)).body.map((p: { id: string }) => p.id);
+    const first = (await call('GET', '/posts?limit=2', b.token)).body.map((p: { id: string }) => p.id);
+    expect(first).toEqual(all.slice(0, 2));
+    const second = (await call('GET', `/posts?limit=2&before=${first[1]}`, b.token)).body.map((p: { id: string }) => p.id);
+    expect(second).toEqual(all.slice(2, 4));
+    const third = (await call('GET', `/posts?limit=2&before=${second[1]}`, b.token)).body.map((p: { id: string }) => p.id);
+    expect(third).toEqual(all.slice(4, 6));
+    expect((await call('GET', '/posts?limit=2&before=00000000-0000-4000-8000-000000000000', b.token)).status).toBe(404);
+    expect((await call('GET', '/posts?limit=500', b.token)).status).toBe(400);
+  });
+
+  it('remembers the pixel size of an upload and returns it with the post', async () => {
+    const a = await student();
+    const started = await call('POST', '/media/uploads', a.token, { kind: 'image', purpose: 'post', contentType: 'image/jpeg', size: JPEG.length, width: 1200, height: 1600 });
+    expect(started.status).toBe(201);
+    const { rows } = await pool.query<{ object_key: string }>('select object_key from media where id = $1', [started.body.mediaId]);
+    storage.put(rows[0].object_key, JPEG, 'image/jpeg');
+    expect((await complete(a, started.body.mediaId)).status).toBe(200);
+    const post = await call('POST', '/posts', a.token, { text: 'sized', mediaIds: [started.body.mediaId] });
+    expect(post.body.media[0]).toMatchObject({ width: 1200, height: 1600 });
+    const unsized = await readyImage(a);
+    const plain = await call('POST', '/posts', a.token, { text: 'unsized', mediaIds: [unsized.id] });
+    expect(plain.body.media[0]).toMatchObject({ width: null, height: null });
+    const ask = (body: object) => call('POST', '/media/uploads', a.token, { kind: 'image', purpose: 'post', contentType: 'image/jpeg', size: 10, ...body });
+    expect((await ask({ width: 1200 })).status).toBe(400); // both or neither
+    expect((await ask({ width: 0, height: 10 })).status).toBe(400);
+    expect((await ask({ width: 99999, height: 10 })).status).toBe(400);
+  });
+
+  // ---- photo processing and limits
+  describe('with photo processing switched on', () => {
+    let processing: FastifyInstance;
+    beforeEach(() => { processing = buildApp({ pool, mailer, config, storage, images: createSharpProcessor({ maxPixels: 20_000_000 }) }); });
+    afterEach(async () => { await processing.close(); });
+
+    async function sendPhoto(who: Student, bytes: Uint8Array, purpose: 'post' | 'avatar' = 'post', target = processing) {
+      const started = await call('POST', '/media/uploads', who.token, { kind: 'image', purpose, contentType: 'image/jpeg', size: bytes.length }, target);
+      expect(started.status).toBe(201);
+      const { rows } = await pool.query<{ object_key: string }>('select object_key from media where id = $1', [started.body.mediaId]);
+      storage.put(rows[0].object_key, bytes, 'image/jpeg');
+      const done = await call('POST', `/media/${started.body.mediaId}/complete`, who.token, undefined, target);
+      return { id: started.body.mediaId as string, originalKey: rows[0].object_key, done };
+    }
+
+    it('stores an upright, metadata-free WebP with a feed thumbnail and serves both', async () => {
+      const a = await student();
+      const raw = await sharp({ create: { width: 3000, height: 1500, channels: 3, background: '#2dd4bf' } })
+        .jpeg().withMetadata({ exif: { IFD0: { Copyright: 'secret owner' } } }).toBuffer();
+      const { id, originalKey, done } = await sendPhoto(a, raw);
+      expect(done.status).toBe(200);
+      const { rows } = await pool.query('select content_type, object_key, thumb_key, width, height, size_bytes, status from media where id = $1', [id]);
+      expect(rows[0]).toMatchObject({ content_type: 'image/webp', width: 2048, height: 1024, status: 'ready' });
+      expect(rows[0].object_key).toMatch(/\.webp$/);
+      expect(rows[0].thumb_key).toMatch(/-t\.webp$/);
+      expect(storage.objects.has(originalKey)).toBe(false); // the unprocessed upload is gone
+      const full = await sharp(storage.objects.get(rows[0].object_key)!.bytes).metadata();
+      const thumb = await sharp(storage.objects.get(rows[0].thumb_key)!.bytes).metadata();
+      expect(full.exif).toBeUndefined();
+      expect(thumb.width).toBe(720);
+      const post = await call('POST', '/posts', a.token, { text: 'processed', mediaIds: [id] }, processing);
+      expect(post.body.media[0].url).toContain(rows[0].object_key);
+      expect(post.body.media[0].thumbUrl).toContain(rows[0].thumb_key);
+      expect(post.body.media[0]).toMatchObject({ width: 2048, height: 1024 });
+      // deleting the post removes the thumbnail as well
+      expect((await call('DELETE', `/posts/${post.body.id}`, a.token, undefined, processing)).status).toBe(204);
+      expect(storage.objects.has(rows[0].object_key)).toBe(false);
+      expect(storage.objects.has(rows[0].thumb_key)).toBe(false);
+    });
+
+    it('refuses a file that is not really a photo, and cleans it up', async () => {
+      const a = await student();
+      const { id, originalKey, done } = await sendPhoto(a, JPEG); // right first bytes, but not an image
+      expect(done.status).toBe(400);
+      expect(done.body.error).toBe('invalid_media');
+      expect((await pool.query('select 1 from media where id = $1', [id])).rowCount).toBe(0);
+      expect(storage.objects.has(originalKey)).toBe(false);
+    });
+
+    it('refuses photos with too many pixels', async () => {
+      const a = await student();
+      const strict = buildApp({ pool, mailer, config, storage, images: createSharpProcessor({ maxPixels: 1000 }) });
+      try {
+        const big = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#fff' } }).jpeg().toBuffer();
+        const { done } = await sendPhoto(a, big, 'post', strict);
+        expect(done.status).toBe(400);
+        expect(done.body.message).toMatch(/too large/);
+      } finally {
+        await strict.close();
+      }
+    });
+
+    it('processed profile photos get no thumbnail', async () => {
+      const a = await student();
+      const raw = await sharp({ create: { width: 1200, height: 1200, channels: 3, background: '#fff' } }).jpeg().toBuffer();
+      const { id, done } = await sendPhoto(a, raw, 'avatar');
+      expect(done.status).toBe(200);
+      const { rows } = await pool.query('select thumb_key, width from media where id = $1', [id]);
+      expect(rows[0]).toMatchObject({ thumb_key: null, width: 512 });
+    });
+  });
+
+  it('stops new uploads once a student has used up their storage', async () => {
+    const a = await student();
+    const full = (299 * 1024 * 1024);
+    await pool.query(
+      "insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, status) values ($1, 'image', 'post', 'image/webp', $2, $3, 'ready')",
+      [a.id, full, `${a.id}/quota-${Date.now()}.webp`],
+    );
+    const ask = (size: number) => call('POST', '/media/uploads', a.token, { kind: 'image', purpose: 'post', contentType: 'image/jpeg', size });
+    const over = await ask(2 * 1024 * 1024);
+    expect(over.status).toBe(400);
+    expect(over.body.error).toBe('storage_full');
+    expect((await ask(1024)).status).toBe(201); // still room for a small one
   });
 
   it('a video post takes exactly one video', async () => {

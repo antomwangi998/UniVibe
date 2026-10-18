@@ -15,6 +15,7 @@ import { registerPostRoutes } from './posts';
 import { apiV1 } from './routes';
 import { Hub } from './realtime';
 import * as sec from './security';
+import type { ImageProcessor } from './imaging';
 import type { Storage } from './storage';
 
 export interface AppDeps {
@@ -24,6 +25,8 @@ export interface AppDeps {
   limiter?: RateLimiter;
   /** Private photo and video storage. Without it, uploads answer 503 and everything else works. */
   storage?: Storage;
+  /** Photo processing (resize, strip metadata, thumbnails). The server always passes one. */
+  images?: ImageProcessor;
   /** Live connections. The server passes its own so the job worker can publish to the same sockets. */
   hub?: Hub;
 }
@@ -494,15 +497,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!(await sec.verifyPassword(user.password_hash, b.password))) {
       throw new HttpError(401, 'invalid_credentials', 'Your password is incorrect.');
     }
-    const files = await pool.query<{ object_key: string }>('select object_key from media where owner_id = $1', [user.id]);
+    const files = await pool.query<{ object_key: string; thumb_key: string | null }>('select object_key, thumb_key from media where owner_id = $1', [user.id]);
     await pool.query('delete from users where id = $1', [user.id]); // codes, sessions, posts and media records cascade
-    if (storage && files.rowCount) await storage.remove(files.rows.map((r) => r.object_key)).catch(() => undefined);
+    if (storage && files.rowCount) await storage.remove(files.rows.flatMap((r) => (r.thumb_key ? [r.object_key, r.thumb_key] : [r.object_key]))).catch(() => undefined);
     return reply.status(204).send();
   });
 
   // ---- feed, comments, people
   const userView = async (id: string) => toUser((await findUserById(id)) as UserRow);
-  const routeContext = { pool, requireUser, tooMany, storage, userView };
+  const routeContext = { pool, requireUser, tooMany, storage, images: deps.images, userView };
   registerMediaRoutes(app, routeContext);
   registerPostRoutes(app, routeContext);
   registerPeopleRoutes(app, routeContext);

@@ -57,6 +57,8 @@ class RemoteMessageRepository(
         @Volatile var names: Map<String, String> = emptyMap()
         /** How far each other member has read (seq). Drives the "seen" tick; a group counts as seen once everyone has read. */
         val readCursors = HashMap<String, Long>()
+        /** How far each other member's device has received (seq). Drives the "delivered" tick. */
+        val deliveredCursors = HashMap<String, Long>()
         @Volatile var reloadMembers = false
         var polls = 0
     }
@@ -74,6 +76,7 @@ class RemoteMessageRepository(
                 link.events.collect { e ->
                     when {
                         e is ChatEvent.Read && e.conversationId == chatId -> onRead(chatId, e)
+                        e is ChatEvent.Delivered && e.conversationId == chatId -> onDelivered(chatId, e)
                         e is ChatEvent.MessageNew && e.conversationId == chatId -> nudge.trySend(Unit)
                         e is ChatEvent.MessageChanged && e.conversationId == chatId -> nudge.trySend(Unit)
                     }
@@ -117,15 +120,23 @@ class RemoteMessageRepository(
         applySeen(s)
     }
 
-    /** Re-marks our own messages as Seen or Sent from the read cursors. */
+    private fun onDelivered(chatId: String, e: ChatEvent.Delivered) {
+        if (e.userId == myId()) return
+        val s = state(chatId)
+        synchronized(s) { s.deliveredCursors[e.userId] = maxOf(s.deliveredCursors[e.userId] ?: 0L, e.upToSeq) }
+        applySeen(s)
+    }
+
+    /** Re-marks our own messages as Seen, Delivered or Sent from the read and delivery cursors. */
     private fun applySeen(s: ChatState) {
         synchronized(s) {
             val seen = seenUpTo(s)
+            val delivered = deliveredUpTo(s)
             s.messages.value = s.messages.value.map { m ->
                 val seq = s.seqById[m.id]
                 if (!m.isMine || seq == null) m
                 else {
-                    val status = if (seen > 0 && seq <= seen) MessageStatus.Seen else MessageStatus.Sent
+                    val status = statusFor(seq, seen, delivered)
                     if (status == m.status) m else m.copy(status = status)
                 }
             }
@@ -133,6 +144,15 @@ class RemoteMessageRepository(
     }
 
     private fun seenUpTo(s: ChatState): Long = if (s.readCursors.isEmpty()) 0L else s.readCursors.values.min()
+
+    // A group counts as delivered once everyone has it; reading implies delivery.
+    private fun deliveredUpTo(s: ChatState): Long = if (s.deliveredCursors.isEmpty()) 0L else s.deliveredCursors.values.min()
+
+    private fun statusFor(seq: Long, seen: Long, delivered: Long): MessageStatus = when {
+        seen > 0 && seq <= seen -> MessageStatus.Seen
+        delivered > 0 && seq <= delivered -> MessageStatus.Delivered
+        else -> MessageStatus.Sent
+    }
 
     private suspend fun refresh(chatId: String) {
         val s = state(chatId)
@@ -163,8 +183,11 @@ class RemoteMessageRepository(
             if (id != me && !m.isNull("lastReadSeq")) {
                 synchronized(s) { s.readCursors[id] = maxOf(s.readCursors[id] ?: 0L, m.getLong("lastReadSeq")) }
             }
+            if (id != me && m.has("lastDeliveredSeq") && !m.isNull("lastDeliveredSeq")) {
+                synchronized(s) { s.deliveredCursors[id] = maxOf(s.deliveredCursors[id] ?: 0L, m.getLong("lastDeliveredSeq")) }
+            }
         }
-        synchronized(s) { s.readCursors.keys.retainAll(names.keys) } // someone who left no longer counts
+        synchronized(s) { s.readCursors.keys.retainAll(names.keys); s.deliveredCursors.keys.retainAll(names.keys) } // someone who left no longer counts
         s.names = names
     }
 
@@ -293,9 +316,20 @@ class RemoteMessageRepository(
         val id = o.getString("id")
         val st = state(chatId)
         val seen = synchronized(st) { seenUpTo(st) }
+        val delivered = synchronized(st) { deliveredUpTo(st) }
         // Our own photos open from the local copy; everyone else's from the server's temporary link.
         val photo = synchronized(state(chatId)) { state(chatId).localPhotos[id] }?.takeIf { File(it).isFile }
             ?: media?.takeIf { it.length() > 0 }?.getJSONObject(0)?.strOrNull("url")
+        // All attached photos (the server allows up to four); our own first photo still opens from the local copy.
+        val allPhotos = buildList {
+            if (media != null) for (i in 0 until media.length()) {
+                val item = media.getJSONObject(i)
+                if (item.optString("kind", "image") != "image") continue
+                (if (i == 0) photo else item.strOrNull("url"))?.let { add(it) }
+            }
+        }
+        val firstMedia = media?.takeIf { it.length() > 0 }?.getJSONObject(0)
+        val ratio = firstMedia?.let { m -> val w = m.optInt("width", 0); val h = m.optInt("height", 0); if (w > 0 && h > 0) w.toFloat() / h else null }
         val reply = o.optJSONObject("replyTo")?.let { r ->
             val author = r.strOrNull("senderId")
             ReplyRef(
@@ -312,9 +346,11 @@ class RemoteMessageRepository(
             // A photo with no caption shows as the picture alone; the word is only a fallback when no link is available.
             text = if (content.isBlank() && photo == null && media != null && media.length() > 0) "Photo" else content,
             imagePath = photo,
+            imagePaths = if (allPhotos.size > 1) allPhotos else emptyList(),
+            imageRatio = ratio,
             timeMillis = runCatching { Instant.parse(o.getString("createdAt")).toEpochMilli() }.getOrDefault(0L),
             isMine = mine,
-            status = if (mine && seen > 0 && o.getLong("seq") <= seen) MessageStatus.Seen else MessageStatus.Sent,
+            status = if (mine) statusFor(o.getLong("seq"), seen, delivered) else MessageStatus.Sent,
             replyTo = reply,
             reactions = parseReactions(o.optJSONObject("reactions")),
             myReaction = o.strOrNull("myReaction")?.let(::reactionOf),
