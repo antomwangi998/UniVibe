@@ -55,6 +55,18 @@ describe.skipIf(!url)('auth API (needs TEST_DATABASE_URL)', () => {
     return { email, ...res.body };
   }
 
+  it('records which Terms version was accepted', async () => {
+    const withVersion = newEmail();
+    expect((await call('POST', '/auth/register', { fullName: 'Test Student', email: withVersion, universityId: 'lakeside', password: PASSWORD, acceptedTerms: true, termsVersion: '0.1' })).status).toBeLessThan(300);
+    const without = newEmail();
+    expect((await register(without)).status).toBeLessThan(300);
+    const row = async (email: string) => (await pool.query('select accepted_terms_version as v, accepted_terms_at as at from users where email = $1', [email])).rows[0];
+    expect((await row(withVersion)).v).toBe('0.1');
+    expect((await row(withVersion)).at).not.toBeNull();
+    expect((await row(without)).v).toBe('');
+    expect((await call('POST', '/auth/register', { fullName: 'Test Student', email: newEmail(), universityId: 'lakeside', password: PASSWORD, acceptedTerms: true, termsVersion: 'bad version!' })).status).toBe(400);
+  });
+
   it('lists universities', async () => {
     const res = await call('GET', '/universities');
     expect(res.status).toBe(200);

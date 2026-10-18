@@ -10,14 +10,16 @@ const privacyPut = z.object({
   discoverable: z.boolean(),
   showOnline: z.boolean(),
   readReceipts: z.boolean(),
+  typingIndicators: z.boolean(),
   messagePermission: z.enum(['everyone', 'followers', 'nobody']),
 }).partial().strict();
 
-const PRIVACY_SQL = 'select discoverable, show_online, read_receipts, message_permission from privacy_settings where user_id = $1';
+const PRIVACY_SQL = 'select discoverable, show_online, read_receipts, typing_indicators, message_permission from privacy_settings where user_id = $1';
 const toPrivacy = (r?: Record<string, unknown>) => ({
   discoverable: r?.discoverable ?? true,
   showOnline: r?.show_online ?? true,
   readReceipts: r?.read_receipts ?? true,
+  typingIndicators: r?.typing_indicators ?? true,
   messagePermission: r?.message_permission ?? 'everyone',
 });
 
@@ -42,14 +44,15 @@ export function privacyRoutes(ctx: Ctx) {
       const me = await ctx.auth(req);
       const b = privacyPut.parse(req.body ?? {});
       await pool.query(
-        `insert into privacy_settings (user_id, discoverable, show_online, message_permission, read_receipts)
-         values ($1, coalesce($2::boolean, true), coalesce($3::boolean, true), coalesce($4::text, 'everyone'), coalesce($5::boolean, true))
+        `insert into privacy_settings (user_id, discoverable, show_online, message_permission, read_receipts, typing_indicators)
+         values ($1, coalesce($2::boolean, true), coalesce($3::boolean, true), coalesce($4::text, 'everyone'), coalesce($5::boolean, true), coalesce($6::boolean, true))
          on conflict (user_id) do update set
            discoverable = coalesce($2::boolean, privacy_settings.discoverable),
            show_online = coalesce($3::boolean, privacy_settings.show_online),
            message_permission = coalesce($4::text, privacy_settings.message_permission),
-           read_receipts = coalesce($5::boolean, privacy_settings.read_receipts), updated_at = now()`,
-        [me.id, b.discoverable ?? null, b.showOnline ?? null, b.messagePermission ?? null, b.readReceipts ?? null],
+           read_receipts = coalesce($5::boolean, privacy_settings.read_receipts),
+           typing_indicators = coalesce($6::boolean, privacy_settings.typing_indicators), updated_at = now()`,
+        [me.id, b.discoverable ?? null, b.showOnline ?? null, b.messagePermission ?? null, b.readReceipts ?? null, b.typingIndicators ?? null],
       );
       return toPrivacy((await pool.query(PRIVACY_SQL, [me.id])).rows[0]);
     });

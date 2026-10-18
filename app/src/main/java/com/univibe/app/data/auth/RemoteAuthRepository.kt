@@ -134,6 +134,7 @@ class RemoteAuthRepository(
             .put("universityId", request.universityId)
             .put("password", request.password)
             .put("acceptedTerms", true)
+            .apply { if (request.termsVersion.isNotBlank()) put("termsVersion", request.termsVersion) }
         request.admissionNumber?.trim()?.takeIf { it.isNotEmpty() }?.let { body.put("admissionNumber", it) }
 
         val response = when (val r = publicCall("POST", "/auth/register", body)) {

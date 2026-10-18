@@ -42,6 +42,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         val discoverable = booleanPreferencesKey("discoverable")
         val showOnline = booleanPreferencesKey("show_online")
         val readReceipts = booleanPreferencesKey("read_receipts")
+        val showTyping = booleanPreferencesKey("show_typing")
+        val enterToSend = booleanPreferencesKey("enter_to_send")
+        val messagePreview = booleanPreferencesKey("message_preview")
         val messagePolicy = stringPreferencesKey("message_policy")
         val blocked = stringSetPreferencesKey("blocked")
         val notifications = booleanPreferencesKey("notifications")
@@ -63,6 +66,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
             discoverable = this[K.discoverable] ?: d.discoverable,
             showOnline = this[K.showOnline] ?: d.showOnline,
             showReadReceipts = this[K.readReceipts] ?: d.showReadReceipts,
+            showTyping = this[K.showTyping] ?: d.showTyping,
+            enterToSend = this[K.enterToSend] ?: d.enterToSend,
+            showMessagePreview = this[K.messagePreview] ?: d.showMessagePreview,
             messagePolicy = this[K.messagePolicy]?.let { runCatching { MessagePolicy.valueOf(it) }.getOrNull() } ?: d.messagePolicy,
             blocked = this[K.blocked].orEmpty().mapNotNull {
                 val parts = it.split('\u001F', limit = 2)
@@ -86,6 +92,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         this[K.discoverable] = s.discoverable
         this[K.showOnline] = s.showOnline
         this[K.readReceipts] = s.showReadReceipts
+        this[K.showTyping] = s.showTyping
+        this[K.enterToSend] = s.enterToSend
+        this[K.messagePreview] = s.showMessagePreview
         this[K.messagePolicy] = s.messagePolicy.name
         this[K.blocked] = s.blocked.map { "${it.id}\u001F${it.name}" }.toSet()
         this[K.notifications] = s.notificationsEnabled
