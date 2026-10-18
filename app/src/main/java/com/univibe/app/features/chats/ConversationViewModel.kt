@@ -14,9 +14,11 @@ import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.GroupRepository
 import com.univibe.app.data.repository.MessageRepository
 import com.univibe.app.data.settings.SettingsRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -51,6 +53,10 @@ data class ConversationUiState(
     val forwardBusy: Boolean = false,
     val viewerPath: String? = null,
     val notice: String? = null,
+    /** The live connection has been down for a moment (not just a blink). Messages may fail until it is back. */
+    val offline: Boolean = false,
+    /** A photo that could not be sent; the screen offers Retry. */
+    val failedPhoto: String? = null,
 ) {
     val canSend get() = input.isNotBlank() && input.length <= MAX_MESSAGE
     /** False in admins-only groups for non-admins. The server enforces this as well. */
@@ -110,6 +116,8 @@ class ConversationViewModel(
             launch { messages.typing(chatId).collect { t -> _state.update { it.copy(typing = t) } } }
             launch { messages.pinnedMessageId(chatId).collect { id -> _state.update { it.copy(pinnedId = id) } } }
             launch { messages.hasOlder(chatId).collect { more -> _state.update { it.copy(canLoadOlder = more) } } }
+            // Down for more than a moment before we say so; a reconnect within that time is invisible.
+            launch { chats.connected().collectLatest { up -> if (up) _state.update { it.copy(offline = false) } else { delay(2_500); _state.update { it.copy(offline = true) } } } }
             launch { settings.settings.collect { s -> _state.update { it.copy(showReceipts = s.showReadReceipts) } } }
         }
     }
@@ -183,7 +191,26 @@ class ConversationViewModel(
         _state.update { it.copy(replyTo = null) }
         viewModelScope.launch {
             try { messages.send(chatId, "", path, reply) }
-            catch (e: Exception) { fail(e, "Couldn't send the photo.") }
+            catch (e: Exception) { _state.update { it.copy(failedPhoto = path) }; fail(e, "Couldn't send the photo.") }
+        }
+    }
+
+    fun retryFailedPhoto() {
+        val path = _state.value.failedPhoto ?: return
+        _state.update { it.copy(failedPhoto = null) }
+        sendImage(path)
+    }
+
+    fun dismissFailedPhoto() = _state.update { it.copy(failedPhoto = null) }
+
+    /** Mutes or unmutes this conversation for the person; put back if the server says no. */
+    fun toggleMute() {
+        val chat = _state.value.chat ?: return
+        val muted = !chat.muted
+        _state.update { it.copy(chat = chat.copy(muted = muted)) }
+        viewModelScope.launch {
+            try { chats.setMuted(chatId, muted) }
+            catch (e: Exception) { _state.update { it.copy(chat = it.chat?.copy(muted = !muted), notice = "Couldn't change notifications. Try again.") } }
         }
     }
 
@@ -202,7 +229,10 @@ class ConversationViewModel(
     fun react(m: Message, reaction: Reaction) {
         _state.update { it.copy(menuMessage = null) }
         val next = if (m.myReaction == reaction) null else reaction
-        viewModelScope.launch { runCatching { messages.react(chatId, m.id, next) } }
+        viewModelScope.launch {
+            try { messages.react(chatId, m.id, next) }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't update the reaction. Try again.") } }
+        }
     }
 
     fun deleteMessage() {
@@ -214,7 +244,10 @@ class ConversationViewModel(
                 editing = if (it.editing?.id == m.id) null else it.editing,
             )
         }
-        viewModelScope.launch { runCatching { messages.deleteMessage(chatId, m.id) } }
+        viewModelScope.launch {
+            try { messages.deleteMessage(chatId, m.id) }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't delete the message. Try again.") } }
+        }
     }
 
     // ---- mentions -------------------------------------------------------------------------------

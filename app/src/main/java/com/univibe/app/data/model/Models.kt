@@ -60,6 +60,12 @@ data class Post(
     val videoPath: String? = null,
     val poll: Poll? = null,
     val edited: Boolean = false,
+    /** Width / height of each attached photo, in [imagePaths] order. Null where the server doesn't know (older uploads). */
+    val mediaRatios: List<Float?> = emptyList(),
+    /** Width / height of the attached video, when known. */
+    val videoRatio: Float? = null,
+    /** Small feed copies of [imagePaths], same order and length, or empty when the server made none. */
+    val thumbPaths: List<String> = emptyList(),
 ) {
     /** True when the post carries something besides text, so its text may be empty. */
     val hasAttachment: Boolean
@@ -73,6 +79,9 @@ object PostLimits {
     const val MAX_POLL_OPTIONS = 4
     const val MAX_POLL_OPTION_LENGTH = 40
     const val MAX_VIDEO_BYTES = 50L * 1024 * 1024
+
+    /** Largest photo file the server accepts. The server also re-encodes photos, so what is stored is much smaller. */
+    const val MAX_IMAGE_UPLOAD_BYTES = 8L * 1024 * 1024
 }
 
 data class PollOption(val text: String, val votes: Int = 0)
@@ -94,7 +103,30 @@ data class Chat(
     val muted: Boolean = false,
     /** The other student in a 1:1 chat (null for groups); lets the header open their profile. */
     val studentId: String? = null,
-)
+    /** What the last message was, taken from the server's message (never guessed from the preview text). */
+    val lastKind: LastKind = LastKind.Text,
+    val lastFromMe: Boolean = false,
+    /** Sender's name, for group previews ("Jane: ..."). Null when the server did not say. */
+    val lastSenderName: String? = null,
+    val photoCount: Int = 0,
+    /** True when the server flag "marked unread" is set (the chat has no real unread messages of its own). */
+    val markedOnly: Boolean = false,
+    /** For groups: up to six other members (names only), straight from the chat list. */
+    val members: List<ChatMember> = emptyList(),
+    val memberCount: Int = 0,
+    /** How far our own last message got. None when the last message is not ours. */
+    val lastDelivery: Delivery = Delivery.None,
+    /** Profile picture of the other person in a direct chat. */
+    val avatarUrl: String? = null,
+) {
+    val hasUnread: Boolean get() = unread > 0
+}
+
+data class ChatMember(val id: String, val name: String)
+
+enum class LastKind { None, Text, Photo, Deleted }
+
+enum class Delivery { None, Sent, Delivered, Read }
 
 enum class RsvpState { None, Interested, Going }
 
@@ -248,7 +280,7 @@ data class Comment(
     val isPostAuthor: Boolean = false,
 )
 
-enum class MessageStatus { Sending, Sent, Seen }
+enum class MessageStatus { Sending, Sent, Delivered, Seen }
 
 data class Message(
     val id: String,
@@ -260,13 +292,19 @@ data class Message(
     val isMine: Boolean,
     val status: MessageStatus = MessageStatus.Sent,
     val imagePath: String? = null,
+    /** Every attached photo in order ([imagePath] is the first). Empty when there is at most the one. */
+    val imagePaths: List<String> = emptyList(),
+    /** Width / height of the first photo as the server knows it, so the bubble has the right shape before it loads. */
+    val imageRatio: Float? = null,
     val replyTo: ReplyRef? = null,
     /** How many people used each reaction. */
     val reactions: Map<Reaction, Int> = emptyMap(),
     val myReaction: Reaction? = null,
     val forwarded: Boolean = false,
     val edited: Boolean = false,
-)
+) {
+    val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
+}
 
 /** Messages can be edited for 15 minutes after sending. The server enforces this too. */
 const val EDIT_WINDOW_MILLIS = 15 * 60_000L

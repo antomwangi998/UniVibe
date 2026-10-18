@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { HttpError } from './errors';
+import type { ImageProcessor } from './imaging';
 import type { Storage } from './storage';
 
 /** What the social routes need from the app: the database, the signed-in student, and rate limiting. */
@@ -11,6 +12,8 @@ export interface RouteContext {
   tooMany: (key: string, max: number, windowSeconds: number) => void;
   /** Private photo and video storage. Undefined when the server has none configured. */
   storage: Storage | undefined;
+  /** Re-encodes uploaded photos. Without it photos are kept exactly as uploaded (tests only). */
+  images?: ImageProcessor;
   /** The signed-in student's own profile, as the API returns it. */
   userView: (id: string) => Promise<object>;
 }

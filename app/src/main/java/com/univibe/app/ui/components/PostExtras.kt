@@ -117,7 +117,7 @@ private class VideoFrame(val poster: ImageBitmap?, val ratio: Float?)
 
 /** Poster frame with a play button; tapping plays the video in place. Videos are local files in this build. */
 @Composable
-fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier) {
+fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier, knownRatio: Float? = null) {
     var playing by remember(path) { mutableStateOf(false) }
     val remote = path.startsWith("https://")
     val frame by produceState<VideoFrame?>(null, path) {
@@ -141,7 +141,7 @@ fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier) {
     }
     val poster = frame?.poster
     // Keep the video's own shape (portrait stays portrait), within sane limits, so nothing is stretched or cut off.
-    val ratio = (frame?.ratio ?: (16f / 9f)).coerceIn(0.62f, 2f)
+    val ratio = (frame?.ratio ?: knownRatio ?: (16f / 9f)).coerceIn(0.62f, 2f)
     Box(
         modifier.fillMaxWidth().animateContentSize().aspectRatio(ratio).clip(PostMediaShape).background(Color.Black),
         contentAlignment = Alignment.Center,

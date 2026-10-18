@@ -47,6 +47,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -293,13 +295,40 @@ fun GroupInfoScreen(
     }
 }
 
+/**
+ * Uploaded photo first; otherwise a coloured avatar with the group's initials (colour derived from the name, so it is the
+ * same everywhere); otherwise the plain group icon when no name is known.
+ */
 @Composable
-fun GroupAvatar(photoPath: String?, size: androidx.compose.ui.unit.Dp) {
+fun GroupAvatar(photoPath: String?, size: androidx.compose.ui.unit.Dp, name: String? = null, memberNames: List<String> = emptyList()) {
     val colors = MaterialTheme.colorScheme
-    if (photoPath != null) {
-        Box(Modifier.size(size).clip(CircleShape)) { PhotoImage(photoPath, contentDescription = "Group photo", modifier = Modifier.fillMaxSize()) }
-    } else {
-        Surface(shape = CircleShape, color = colors.primaryContainer, modifier = Modifier.size(size)) {
+    val initials = remember(name) {
+        name.orEmpty().split(" ").filter { w -> w.isNotBlank() }.mapNotNull { w -> w.firstOrNull { c -> c.isLetterOrDigit() } }.take(2).joinToString("") { c -> c.uppercase() }
+    }
+    when {
+        photoPath != null -> Box(Modifier.size(size).clip(CircleShape)) { PhotoImage(photoPath, contentDescription = "Group photo", modifier = Modifier.fillMaxSize()) }
+        // No uploaded photo: a collage of up to four members' initials, when we know who they are.
+        memberNames.size >= 2 -> androidx.compose.foundation.layout.Column(Modifier.size(size).clip(CircleShape)) {
+            val tiles = memberNames.take(4)
+            val rows = tiles.chunked(2)
+            rows.forEach { row ->
+                androidx.compose.foundation.layout.Row(Modifier.weight(1f).fillMaxWidth()) {
+                    row.forEach { n ->
+                        Box(Modifier.weight(1f).fillMaxSize().background(com.univibe.app.ui.components.accentSolid(n.hashCode())), contentAlignment = Alignment.Center) {
+                            Text(n.firstOrNull { it.isLetterOrDigit() }?.uppercase().orEmpty(), color = Color.White, fontSize = (size.value * if (tiles.size > 2) 0.24f else 0.34f).sp, style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                    if (row.size == 1 && tiles.size > 2) Box(Modifier.weight(1f).fillMaxSize().background(colors.surfaceContainerHigh))
+                }
+            }
+        }
+        initials.isNotEmpty() -> Box(
+            Modifier.size(size).clip(CircleShape).background(com.univibe.app.ui.components.accentSolid(name.orEmpty().hashCode())),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(initials, color = Color.White, fontSize = (size.value * 0.36f).sp, style = MaterialTheme.typography.titleMedium)
+        }
+        else -> Surface(shape = CircleShape, color = colors.primaryContainer, modifier = Modifier.size(size)) {
             Box(contentAlignment = Alignment.Center) { Icon(VibeIcons.Groups, contentDescription = null, tint = colors.onPrimaryContainer, modifier = Modifier.size(size / 2)) }
         }
     }
