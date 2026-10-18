@@ -132,7 +132,7 @@ fun CampusPostCard(
                     .background(Brush.linearGradient(accentGradient(post.mediaAccent))),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Outlined.Image, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(40.dp))
+                Icon(VibeIcons.Photo, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(40.dp))
             }
         }
         Spacer(Modifier.size(Spacing.sm))

@@ -105,11 +105,11 @@ fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onC
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             "Communities", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-            actions = { VibeIconButton(Icons.Outlined.Add, "New community", onCreate) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
+            actions = { VibeIconButton(VibeIcons.Add, "New community", onCreate) },
         )
         VibeTextField(
-            s.query, viewModel::setQuery, placeholder = "Search communities", leadingIcon = Icons.Outlined.Search,
+            s.query, viewModel::setQuery, placeholder = "Search communities", leadingIcon = VibeIcons.Search,
             modifier = Modifier.padding(horizontal = Spacing.md),
         )
         LazyRow(
@@ -122,7 +122,7 @@ fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onC
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
             s.error != null -> ErrorState(s.error!!, viewModel::load)
             s.visible.isEmpty() -> EmptyState(
-                Icons.Outlined.Groups, "No communities found", "Try a different search, or start your own.",
+                VibeIcons.Groups, "No communities found", "Try a different search, or start your own.",
                 actionLabel = "Create a community", onAction = onCreate,
             )
             else -> LazyColumn(
@@ -138,7 +138,7 @@ fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onC
                                 Text(c.name, style = MaterialTheme.typography.titleMedium)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (c.privacy == CommunityPrivacy.Private) {
-                                        Icon(Icons.Outlined.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Icon(VibeIcons.Lock, contentDescription = "Private", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Spacer(Modifier.width(4.dp))
                                     }
                                     Text("${c.members} members · ${c.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -170,7 +170,7 @@ fun CommunityBadge(c: Community, size: Dp) {
     Box(
         Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(Brush.linearGradient(accentGradient(c.accent))),
         contentAlignment = Alignment.Center,
-    ) { Icon(Icons.Outlined.Groups, contentDescription = null, tint = Color.White) }
+    ) { Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White) }
 }
 
 @Composable
@@ -194,8 +194,8 @@ fun CommunityDetailScreen(
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             c?.name ?: "Community", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-            actions = { if (c?.role == CommunityRole.Owner) VibeIconButton(Icons.Outlined.Edit, "Edit community", onEdit) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
+            actions = { if (c?.role == CommunityRole.Owner) VibeIconButton(VibeIcons.Edit, "Edit community", onEdit) },
         )
         when {
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
@@ -209,7 +209,7 @@ fun CommunityDetailScreen(
                     Box(Modifier.fillMaxWidth().height(130.dp).clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(accentGradient(c.accent)))) {
                         Row(Modifier.align(Alignment.BottomStart).padding(Spacing.md), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             Pill(c.category)
-                            if (c.privacy == CommunityPrivacy.Private) Pill("Private", Icons.Outlined.Lock)
+                            if (c.privacy == CommunityPrivacy.Private) Pill("Private", VibeIcons.Lock)
                         }
                     }
                 }
@@ -231,9 +231,9 @@ fun CommunityDetailScreen(
                                 },
                                 onClick = viewModel::onMembershipClick, modifier = Modifier.weight(1f), loading = s.busy,
                                 style = if (c.isMember || c.joinRequested) VibeButtonStyle.Secondary else VibeButtonStyle.Primary,
-                                leadingIcon = if (c.isMember) Icons.Outlined.Check else null,
+                                leadingIcon = if (c.isMember) VibeIcons.Check else null,
                             )
-                            if (c.isMember) VibeButton("Post", onPost, Modifier.weight(1f), leadingIcon = Icons.Outlined.Edit)
+                            if (c.isMember) VibeButton("Post", onPost, Modifier.weight(1f), leadingIcon = VibeIcons.Edit)
                         }
                     }
                 }
@@ -264,12 +264,12 @@ fun CommunityDetailScreen(
                 }
             }
             HorizontalDivider(color = colors.outlineVariant)
-            SheetRow(Icons.Outlined.Person, "View profile", false) { viewModel.memberMenu(null); onOpenStudent(m.student.id) }
+            SheetRow(VibeIcons.Profile, "View profile", false) { viewModel.memberMenu(null); onOpenStudent(m.student.id) }
             val owner = c?.role == CommunityRole.Owner
             if (owner && m.role == CommunityRole.Member) SheetRow(Icons.Outlined.AdminPanelSettings, "Make moderator", false) { viewModel.makeModerator(m) }
             if (owner && m.role == CommunityRole.Moderator) SheetRow(Icons.Outlined.AdminPanelSettings, "Remove as moderator", false) { viewModel.removeModerator(m) }
             if (c?.isStaff == true && m.role != CommunityRole.Owner && (m.role != CommunityRole.Moderator || owner)) {
-                SheetRow(Icons.Outlined.PersonRemove, "Remove from community", true) { viewModel.confirm(CommunityConfirm.RemoveMember(m)) }
+                SheetRow(VibeIcons.PersonRemove, "Remove from community", true) { viewModel.confirm(CommunityConfirm.RemoveMember(m)) }
             }
             Spacer(Modifier.size(Spacing.md))
         }
@@ -310,11 +310,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.postsTab(
     when {
         s.postsLoading -> item { LoadingSkeleton(itemCount = 1) }
         c.privacy == CommunityPrivacy.Private && !c.isMember -> item {
-            EmptyState(Icons.Outlined.Lock, "This community is private", "Request to join to see posts and members.")
+            EmptyState(VibeIcons.Lock, "This community is private", "Request to join to see posts and members.")
         }
         s.posts.isEmpty() -> item {
             EmptyState(
-                Icons.Outlined.ChatBubbleOutline, "No posts yet", if (c.isMember) "Start the conversation." else "Join to post here.",
+                VibeIcons.Comment, "No posts yet", if (c.isMember) "Start the conversation." else "Join to post here.",
                 actionLabel = if (c.isMember) "Write a post" else null, onAction = if (c.isMember) onPost else null,
             )
         }
@@ -365,7 +365,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
         }
     }
     when {
-        s.membersError != null -> item { EmptyState(Icons.Outlined.Lock, "Members are hidden", s.membersError) }
+        s.membersError != null -> item { EmptyState(VibeIcons.Lock, "Members are hidden", s.membersError) }
         else -> items(s.members, key = { it.student.id }) { m ->
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp))
@@ -394,7 +394,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(
 ) {
     if (c.isMember) item {
         SettingsGroup {
-            SettingsSwitchRow("Mute notifications", c.muted, vm::setMuted, subtitle = "Stop alerts from this community.", icon = Icons.Outlined.Notifications)
+            SettingsSwitchRow("Mute notifications", c.muted, vm::setMuted, subtitle = "Stop alerts from this community.", icon = VibeIcons.Bell)
         }
     }
     item {
@@ -446,18 +446,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(
     item {
         Column {
             TextButton(onClick = vm::reportCommunity) {
-                Icon(Icons.Outlined.Flag, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(VibeIcons.Report, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("Report this community")
             }
             if (c.role == CommunityRole.Owner) {
                 TextButton(onClick = onEdit) {
-                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(VibeIcons.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Edit community")
                 }
                 TextButton(onClick = { vm.confirm(CommunityConfirm.Delete) }) {
-                    Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                    Icon(VibeIcons.Delete, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(6.dp))
                     Text("Delete community", color = MaterialTheme.colorScheme.error)
                 }
