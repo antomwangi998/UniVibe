@@ -27,6 +27,7 @@ object SettingsCategories {
     const val APPEARANCE = "Appearance"
     const val ACCESSIBILITY = "Accessibility"
     const val PERMISSIONS = "Permissions"
+    const val DATA = "Data & storage"
     const val STATUS = "Account status"
     const val HELP = "Help & support"
 }
@@ -69,7 +70,11 @@ object SettingsRegistry {
         // Permissions
         e("permissions", "Permissions", "What UniVibe is allowed to do on your phone", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, keywords = listOf("allow", "access", "android settings")),
         e("perm-notifications", "Notification permission", "Allow or block alerts from UniVibe", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Notifications", keywords = listOf("notifications blocked", "turn on notifications")),
-        e("perm-photos", "Photos and videos access", "How UniVibe gets the photos you choose", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Photos and videos", keywords = listOf("camera", "gallery", "storage", "microphone", "contacts", "location")),
+        e("perm-photos", "Photos and videos access", "How UniVibe gets the photos you choose", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Photos and videos", keywords = listOf("camera", "gallery", "contacts", "location")),
+        e("perm-microphone", "Microphone permission", "Used only to record voice messages", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Microphone", keywords = listOf("mic", "voice message", "record audio", "voice notes")),
+        // Data & storage
+        e("data-storage", "Data & storage", "See and clear what UniVibe keeps on this phone", SettingsRoutes.DATA_STORAGE, SettingsCategories.DATA, keywords = listOf("storage", "space", "memory", "downloads")),
+        e("clear-cache", "Clear cache", "Remove saved pictures and maps; your account is not affected", SettingsRoutes.DATA_STORAGE, SettingsCategories.DATA, "Clear cache", keywords = listOf("free up space", "temporary files", "delete cache", "cache size")),
         // Status
         e("status", "Account status", "Your standing, removed content and notices from moderators", SettingsRoutes.STATUS, SettingsCategories.STATUS, keywords = listOf("suspended", "suspension", "restriction", "moderation", "warning", "banned")),
         // Help

@@ -31,7 +31,7 @@ object PrivacyPolicy {
             c("3.2", "Profile details.", "Your username (handle), bio, course, faculty, year of study, graduation year, interests, and your profile and cover photos, to the extent you add them."),
             c("3.3", "Content you create.", "Posts and their photos or videos, captions, polls, comments, events you create, and anything else you submit. Content can mention or show other people; please respect their privacy."),
             c("3.4", "Activity.", "Who you follow and who follows you, likes, saves, poll votes, event registrations and check-ins, people you block, Discover choices (pass or connect), notification and privacy settings, and your reports."),
-            c("3.5", "Messages.", "Direct and group conversations you are in, the messages and photos you send, replies, forwards, reactions, pinned messages, who is in each conversation, when messages were sent, edited or unsent, and how far you have read each conversation (we need this for unread counts and delivery)."),
+            c("3.5", "Messages.", "Direct and group conversations you are in, the messages, photos and voice messages you send, replies, forwards, reactions, pinned messages, who is in each conversation, when messages were sent, edited or unsent, and how far you have read each conversation (we need this for unread counts and delivery)."),
             c("3.6", "Notifications and devices.", "In-app notifications about your activity, your notification choices, and for push notifications a device token and installation ID. When you log in we store a short device label such as the make and model of your phone, so you can recognise your logins in Settings → Security → Login activity."),
             c("3.7", "Support and safety.", "Emails you send us, reports you make or that concern you (including the reason, any details and a short excerpt of the reported item), moderation decisions and notes, and a record of moderator actions."),
             c("3.8", "Technical data.", "Your IP address and basic request details are seen by our servers and hosting provider whenever the app connects, and are used for security and rate limiting. See Section 11."),
@@ -39,7 +39,7 @@ object PrivacyPolicy {
         LegalSection(4, "What we do not collect", listOf(
             c("4.1", "Not collected.", "UniVibe does not currently collect or ask for:"),
             b("your precise or background location (event venues on a map are places organisers entered, not your location);"),
-            b("your phone contacts, camera or microphone;"),
+            b("your phone contacts or camera, or your microphone at any time other than while you are recording a voice message you chose to send;"),
             b("identity documents, student cards or government ID numbers;"),
             b("payment details (UniVibe is free and has no payments);"),
             b("an advertising ID, or data for advertisers or data brokers."),
@@ -85,7 +85,7 @@ object PrivacyPolicy {
             c("9.6", "Logging in on several devices.", "The device label described in Section 3.6 is shown only to you, for you to recognise your logins. We never use it to make decisions about you, and we do not store your IP address or location against a login."),
         )),
         LegalSection(10, "Permissions on your phone", listOf(
-            c("10.1", "What the app asks for.", "UniVibe uses the internet and, on newer versions of Android, asks permission to show notifications. It does not ask for your location, contacts, camera or microphone."),
+            c("10.1", "What the app asks for.", "UniVibe uses the internet and, on newer versions of Android, asks permission to show notifications and, the first time you record a voice message, to use the microphone. The microphone is used only while you are recording, and only the voice message you send is kept. UniVibe does not ask for your location, contacts or camera."),
             c("10.2", "Photos.", "When you add a photo or video, you choose which one to upload. UniVibe does not ask for access to your whole photo library."),
             c("10.3", "Withdrawing permissions.", "You can change permissions in Android settings at any time. If you turn off notifications, you may miss alerts, but the rest of UniVibe keeps working."),
             c("10.4", "Maps.", "Event pages can show a map. The map is drawn with data from OpenStreetMap, so your phone contacts OpenStreetMap’s servers to download map tiles for the area you are looking at, and they can see your IP address. UniVibe does not send them your account details."),
@@ -192,7 +192,7 @@ object PrivacyPolicy {
         LegalSection(25, "Your privacy in short", listOf(
             b("We collect what is needed to run UniVibe: your account, profile, posts, messages, activity and a phone token for notifications."),
             b("We do not sell your data, show ads, or use analytics or advertising trackers."),
-            b("We do not collect your location, contacts, camera, microphone, payments or ID documents."),
+            b("We do not collect your location, contacts, camera, payments or ID documents. The microphone is used only to record voice messages you choose to send."),
             b("Messages are stored on our servers and are not end-to-end encrypted."),
             b("Your posts are visible to signed-in students in the audience you choose, never to the public web."),
             b("You can delete your account any time in Settings → Account → Delete account."),

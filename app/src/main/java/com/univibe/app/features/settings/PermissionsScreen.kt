@@ -2,6 +2,7 @@ package com.univibe.app.features.settings
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,7 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,13 +34,15 @@ private const val PUSH_PREFS = "push"
 private const val KEY_ASKED = "asked_notification_permission" // the same flag the sign-in prompt uses
 
 /**
- * Settings → Permissions. Lists only what UniVibe really uses: it declares just the notification permission.
- * Photos go through Android's photo picker, which needs no permission, so nothing else is listed as "needed".
+ * Settings → Permissions. Lists only what UniVibe really uses: notifications, and the microphone for voice messages.
+ * Photos go through Android's photo picker, which needs no permission. The microphone is only requested in a chat,
+ * at the moment you start recording; this screen shows its state and opens Android settings, it doesn't ask.
  */
 @Composable
 fun PermissionsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val allowed by rememberNotificationsAllowed()
+    val micAllowed by rememberMicrophoneAllowed()
     val prefs = context.getSharedPreferences(PUSH_PREFS, Context.MODE_PRIVATE)
     val canAskHere = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !allowed && !prefs.getBoolean(KEY_ASKED, false)
     // The result is picked up by rememberNotificationsAllowed when the screen resumes.
@@ -62,6 +71,18 @@ fun PermissionsScreen(onBack: () -> Unit) {
                 }
                 RowDivider()
                 PermissionBlock(
+                    title = "Microphone",
+                    status = if (micAllowed) "Allowed" else "Not allowed",
+                    why = "Used only while you are recording a voice message. UniVibe asks the first time you tap to record, and never listens at any other time.",
+                    dependsOn = "Voice messages in chats.",
+                ) {
+                    VibeButton(
+                        if (micAllowed) "Manage in Android settings" else "Change in Android settings",
+                        onClick = { openAppDetailsSettings(context) }, style = VibeButtonStyle.Secondary,
+                    )
+                }
+                RowDivider()
+                PermissionBlock(
                     title = "Photos and videos",
                     status = "No permission needed",
                     why = "When you add a photo, Android's photo picker opens and you choose each one. UniVibe only receives the photos you pick, and can't browse your gallery.",
@@ -74,7 +95,7 @@ fun PermissionsScreen(onBack: () -> Unit) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.md)) {
                     Text("Not used", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "UniVibe doesn't use your camera, microphone, contacts, location or calendar, and can't be given access to them.",
+                        "UniVibe doesn't use your camera, contacts, location or calendar, and can't be given access to them.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = Spacing.xs),
                     )
@@ -100,4 +121,14 @@ private fun PermissionBlock(title: String, status: String, why: String, dependsO
         Text("Used for: $dependsOn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.xs))
         Column(Modifier.padding(top = Spacing.sm)) { action() }
     }
+}
+
+/** Live microphone permission state; re-checked whenever the screen returns from Android settings. */
+@Composable
+private fun rememberMicrophoneAllowed(): State<Boolean> {
+    val context = LocalContext.current
+    fun granted() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    val state = remember { mutableStateOf(granted()) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { state.value = granted() }
+    return state
 }
