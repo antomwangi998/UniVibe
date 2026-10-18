@@ -57,6 +57,8 @@ data class ConversationUiState(
     val offline: Boolean = false,
     /** A photo that could not be sent; the screen offers Retry. */
     val failedPhoto: String? = null,
+    /** A voice message that could not be sent; the recording is kept so Retry can send it again. */
+    val failedVoice: Recording? = null,
 ) {
     val canSend get() = input.isNotBlank() && input.length <= MAX_MESSAGE
     /** False in admins-only groups for non-admins. The server enforces this as well. */
@@ -90,7 +92,7 @@ data class ConversationUiState(
 }
 
 fun replyPreview(m: Message): String =
-    if (m.text.isBlank() && m.imagePath != null) "Photo" else m.text.take(120)
+    if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else m.text.take(120)
 
 fun canEditMessage(m: Message, now: Long = System.currentTimeMillis()): Boolean =
     m.isMine && m.text.isNotBlank() && now - m.timeMillis <= EDIT_WINDOW_MILLIS
@@ -193,6 +195,28 @@ class ConversationViewModel(
             try { messages.send(chatId, "", path, reply) }
             catch (e: Exception) { _state.update { it.copy(failedPhoto = path) }; fail(e, "Couldn't send the photo.") }
         }
+    }
+
+    fun sendVoice(path: String, durationMs: Int) {
+        if (!_state.value.canPost) { java.io.File(path).delete(); return }
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { messages.sendVoice(chatId, path, durationMs, reply) }
+            catch (e: Exception) { _state.update { it.copy(failedVoice = Recording(path, durationMs)) }; fail(e, "Couldn't send the voice message.") }
+        }
+    }
+
+    fun retryFailedVoice() {
+        val r = _state.value.failedVoice ?: return
+        _state.update { it.copy(failedVoice = null) }
+        sendVoice(r.path, r.durationMs)
+    }
+
+    fun dismissFailedVoice() {
+        _state.value.failedVoice?.let { runCatching { java.io.File(it.path).delete() } }
+        _state.update { it.copy(failedVoice = null) }
     }
 
     fun retryFailedPhoto() {

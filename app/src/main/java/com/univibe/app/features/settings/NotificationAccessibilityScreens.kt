@@ -117,7 +117,7 @@ fun NotificationsScreen(
         item {
             SettingsGroup {
                 SettingsSwitchRow("Quiet hours", device.quietHours, { v -> settingsViewModel.update { it.copy(quietHours = v) } },
-                    subtitle = "On this phone, no alerts from 10 PM to 7 AM (security notices excepted).", icon = Icons.Outlined.Bedtime)
+                    subtitle = "On this phone, no alerts from 10 PM to 7 AM (security notices excepted).", icon = VibeIcons.Moon)
             }
         }
         item {
@@ -155,7 +155,7 @@ fun AccessibilityScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewM
             SettingsGroup {
                 SettingsSwitchRow(
                     "Reduce motion", s.reduceMotion, { v -> viewModel.update { it.copy(reduceMotion = v) } },
-                    subtitle = "Calmer transitions and no looping animations.", icon = Icons.Outlined.Animation,
+                    subtitle = "Calmer transitions and no looping animations.", icon = VibeIcons.Sparkle,
                 )
             }
         }
@@ -164,7 +164,7 @@ fun AccessibilityScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewM
                 "Open system accessibility settings",
                 onClick = { openSystem(context, Settings.ACTION_ACCESSIBILITY_SETTINGS) },
                 modifier = Modifier.fillMaxWidth(), style = VibeButtonStyle.Secondary,
-                leadingIcon = Icons.Outlined.Accessibility,
+                leadingIcon = VibeIcons.Accessibility,
             )
         }
         item { SettingsNote("UniVibe also follows your phone's font size, display size and animation settings.") }

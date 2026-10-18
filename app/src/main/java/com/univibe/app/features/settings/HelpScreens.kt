@@ -60,15 +60,15 @@ fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGu
     SettingsPage("Help & support", onBack) {
         item {
             SettingsGroup {
-                SettingsNavRow(Icons.Outlined.QuestionAnswer, "Frequently asked questions", onFaq)
+                SettingsNavRow(VibeIcons.Comment, "Frequently asked questions", onFaq)
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.BugReport, "Report a problem", onReport, subtitle = "Opens your email app")
+                SettingsNavRow(VibeIcons.Bug, "Report a problem", onReport, subtitle = "Opens your email app")
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Gavel, "Community guidelines", onGuidelines)
+                SettingsNavRow(VibeIcons.Document, "Community guidelines", onGuidelines)
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Description, "Terms of Service", onTerms)
+                SettingsNavRow(VibeIcons.Document, "Terms of Service", onTerms)
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Policy, "Privacy Policy", onPrivacyPolicy)
+                SettingsNavRow(VibeIcons.Document, "Privacy Policy", onPrivacyPolicy)
                 RowDivider()
                 SettingsNavRow(VibeIcons.Info, "About UniVibe", onAbout)
             }
@@ -200,11 +200,11 @@ fun AboutScreen(onBack: () -> Unit) {
         }
         item {
             SettingsGroup {
-                SettingsNavRow(Icons.Outlined.Description, "Terms of Service", { legal = LegalDoc.Terms })
+                SettingsNavRow(VibeIcons.Document, "Terms of Service", { legal = LegalDoc.Terms })
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Policy, "Privacy Policy", { legal = LegalDoc.Privacy })
+                SettingsNavRow(VibeIcons.Document, "Privacy Policy", { legal = LegalDoc.Privacy })
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Forum, "Open-source licences", { legal = null }, subtitle = "Poppins font, SIL Open Font License 1.1", showChevron = false)
+                SettingsNavRow(VibeIcons.Comment, "Open-source licences", { legal = null }, subtitle = "Poppins font, SIL Open Font License 1.1", showChevron = false)
             }
         }
         item { SettingsNote("UniVibe. Connect. Share. Belong.") }

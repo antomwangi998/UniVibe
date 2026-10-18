@@ -38,9 +38,9 @@ fun SecurityScreen(onBack: () -> Unit, onPassword: () -> Unit, onLoginActivity: 
     SettingsPage("Security", onBack) {
         item {
             SettingsGroup {
-                SettingsNavRow(Icons.Outlined.Lock, "Password", onPassword, subtitle = "Changing it logs out your other devices")
+                SettingsNavRow(VibeIcons.Lock, "Password", onPassword, subtitle = "Changing it logs out your other devices")
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Devices, "Login activity", onLoginActivity, subtitle = "Where you're logged in")
+                SettingsNavRow(VibeIcons.Devices, "Login activity", onLoginActivity, subtitle = "Where you're logged in")
             }
         }
         item { SettingsNote("Two-factor authentication isn't available yet.") }

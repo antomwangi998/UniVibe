@@ -276,8 +276,8 @@ const val PAGE_SIZE = 20
  * Puts a freshly fetched first page in front of the older posts already loaded, without gaps or repeats.
  * Posts after the first page's last post are kept; anything the first page now covers is dropped from the tail.
  */
-internal fun mergeFirstPage(old: List<Post>, first: List<Post>): List<Post> {
-    if (first.size < PAGE_SIZE || old.size <= first.size) return first
+internal fun mergeFirstPage(old: List<Post>, first: List<Post>, pageSize: Int = PAGE_SIZE): List<Post> {
+    if (first.size < pageSize || old.size <= first.size) return first
     val firstIds = first.mapTo(HashSet()) { it.id }
     val anchor = old.indexOfFirst { it.id == first.last().id }
     val tail = if (anchor >= 0) old.drop(anchor + 1) else old

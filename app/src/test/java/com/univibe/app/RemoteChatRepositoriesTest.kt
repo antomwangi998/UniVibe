@@ -264,6 +264,30 @@ class RemoteChatRepositoriesTest {
         assertEquals(2.0f, m.imageRatio!!, 0.001f) // the first photo's shape, known before anything loads
     }
 
+    @Test fun aVoiceMessageIsReadWithItsLengthAndIsNotTakenForAPhoto() = runBlocking {
+        val json = JSONObject(message("v1", 5, "u2", "")).apply {
+            put("media", org.json.JSONArray().put(JSONObject().put("id", "a").put("kind", "audio").put("contentType", "audio/mp4").put("url", "https://cdn.test/v.m4a").put("durationMs", 12_500)))
+        }
+        val repo = RemoteMessageRepository(serverFor(window = "[$json]")) { me }
+        val m = withTimeout(5_000) { repo.messages("c1").first { l -> l.any { it.id == "v1" } } }.single()
+        assertEquals("https://cdn.test/v.m4a", m.voice!!.source)
+        assertEquals(12_500, m.voice!!.durationMs)
+        assertEquals(null, m.imagePath)
+        assertTrue(m.photos.isEmpty())
+    }
+
+    @Test fun chatListShowsAVoiceMessagePreviewAndAGroupPhoto() = runBlocking {
+        val api = FakeApi { _, _, _ ->
+            ok("""{"items":[{"id":"g1","kind":"group","title":"Law 2026","photoUrl":"https://cdn.test/g.jpg","lastMessageAt":"2026-10-17T09:00:00.000Z","unreadCount":0,"mutedUntil":null,"archived":false,"pinned":false,"markedUnread":false,
+               "memberCount":3,"members":[],"with":null,
+               "lastMessage":{"id":"m1","senderId":"u2","senderName":"Jane Doe","content":null,"deleted":false,"mediaCount":0,"audioCount":1,"createdAt":"2026-10-17T09:00:00.000Z"}}],"nextCursor":null}""")
+        }
+        val g = RemoteChatRepository(api) { me }.getChats().single()
+        assertEquals(com.univibe.app.data.model.LastKind.Voice, g.lastKind)
+        assertEquals("Voice message", g.lastMessage)
+        assertEquals("https://cdn.test/g.jpg", g.groupPhotoUrl)
+    }
+
     @Test fun withoutAnUploaderPhotosFailClearly() = runBlocking {
         val repo = RemoteMessageRepository(serverFor()) { me }
         try {

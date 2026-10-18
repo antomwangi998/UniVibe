@@ -45,6 +45,17 @@ interface FeedRepository {
     suspend fun getPostsPage(filter: FeedFilter, beforeId: String?, limit: Int): List<Post> =
         if (beforeId == null) getPosts(filter) else emptyList()
 
+    /** One post by id, or null when it is gone or this student may not see it. */
+    suspend fun getPost(id: String): Post? = getPosts(FeedFilter.Campus).firstOrNull { it.id == id }
+
+    /** The newest posts by one student that this student may see (a profile's recent posts). */
+    suspend fun getPostsBy(authorId: String, limit: Int): List<Post> =
+        getPosts(FeedFilter.Campus).filter { it.author.id == authorId }.take(limit)
+
+    /** One page of saved posts, most recently saved first; [beforeId] is the last one already shown. */
+    suspend fun getSavedPostsPage(beforeId: String?, limit: Int): List<Post> =
+        if (beforeId == null) getSavedPosts() else emptyList()
+
     suspend fun getStories(): List<Student>
     suspend fun setLiked(postId: String, liked: Boolean)
     suspend fun setSaved(postId: String, saved: Boolean)
@@ -159,6 +170,9 @@ interface MessageRepository {
     fun typing(chatId: String): Flow<Boolean>
     /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
     suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
+    /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
+    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null): Unit =
+        throw UnsupportedOperationException("Voice messages aren't available.")
     suspend fun deleteMessage(chatId: String, messageId: String)
     /** One reaction per person per message; null removes yours. */
     suspend fun react(chatId: String, messageId: String, reaction: Reaction?)

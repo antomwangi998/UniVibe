@@ -4,12 +4,10 @@ import com.univibe.app.data.model.CommunityRole
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.ProfileUpdate
 import com.univibe.app.data.profile.InMemoryProfileLocalStore
-import com.univibe.app.data.repository.MockChatRepository
 import com.univibe.app.data.repository.MockCommentRepository
 import com.univibe.app.data.repository.MockCommunityRepository
 import com.univibe.app.data.repository.MockData
 import com.univibe.app.data.repository.MockFeedRepository
-import com.univibe.app.data.repository.MockMessageRepository
 import com.univibe.app.data.repository.MockProfileRepository
 import com.univibe.app.data.repository.MockStore
 import kotlinx.coroutines.flow.first
@@ -39,39 +37,9 @@ class SocialRepositoriesTest {
         assertTrue(comments.getComments("p1").first { it.id == "cm1" }.likedByMe)
     }
 
-    @Test fun sendingAMessageAppendsAndUpdatesChatPreview() = runTest {
-        val messages = MockMessageRepository(store, autoReply = false); val chats = MockChatRepository(store)
-        messages.send("c3", "See you!")
-        assertEquals("See you!", messages.messages("c3").first().last().text)
-        assertTrue(chats.getChat("c3")!!.lastMessage.contains("See you!"))
-        assertEquals(0, chats.getChat("c3")!!.unread)
-    }
 
-    @Test fun blankMessagesAreIgnored() = runTest {
-        val messages = MockMessageRepository(store, autoReply = false)
-        val before = messages.messages("c3").first().size
-        messages.send("c3", "   ")
-        assertEquals(before, messages.messages("c3").first().size)
-    }
 
-    @Test fun onlyOwnMessagesCanBeDeleted() = runTest {
-        val messages = MockMessageRepository(store, autoReply = false)
-        messages.send("c3", "oops")
-        val mine = messages.messages("c3").first().last { it.isMine }
-        messages.deleteMessage("c3", mine.id)
-        assertFalse(messages.messages("c3").first().any { it.id == mine.id })
-        messages.deleteMessage("c3", "c3-1") // someone else's seeded message
-        assertTrue(messages.messages("c3").first().any { it.id == "c3-1" })
-    }
 
-    @Test fun openChatReusesExistingOrCreatesNew() = runTest {
-        val messages = MockMessageRepository(store, autoReply = false); val chats = MockChatRepository(store)
-        assertEquals("c3", messages.openChatWith(MockData.brian))
-        val id = messages.openChatWith(MockData.amina)
-        assertEquals("c_s5", id)
-        assertNotNull(chats.getChat(id))
-        assertEquals(id, messages.openChatWith(MockData.amina))
-    }
 
     @Test fun joiningAndLeavingChangesRoleAndMemberCount() = runTest {
         val repo = MockCommunityRepository(store)

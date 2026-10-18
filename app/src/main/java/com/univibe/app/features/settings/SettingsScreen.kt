@@ -109,31 +109,31 @@ fun SettingsScreen(
         } else {
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Outlined.AccountCircle, "Account", { onNavigate(SettingsRoutes.ACCOUNT) }, subtitle = user?.email)
+                    SettingsNavRow(VibeIcons.Profile, "Account", { onNavigate(SettingsRoutes.ACCOUNT) }, subtitle = user?.email)
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.Lock, "Security", { onNavigate(SettingsRoutes.SECURITY) })
+                    SettingsNavRow(VibeIcons.Lock, "Security", { onNavigate(SettingsRoutes.SECURITY) })
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.Shield, "Privacy & safety", { onNavigate(SettingsRoutes.PRIVACY) })
+                    SettingsNavRow(VibeIcons.Shield, "Privacy & safety", { onNavigate(SettingsRoutes.PRIVACY) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Bell, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.Palette, "Appearance", { onNavigate(SettingsRoutes.APPEARANCE) })
+                    SettingsNavRow(VibeIcons.Palette, "Appearance", { onNavigate(SettingsRoutes.APPEARANCE) })
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
+                    SettingsNavRow(VibeIcons.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.AdminPanelSettings, "Permissions", { onNavigate(SettingsRoutes.PERMISSIONS) })
+                    SettingsNavRow(VibeIcons.Shield, "Permissions", { onNavigate(SettingsRoutes.PERMISSIONS) })
                 }
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Outlined.Gavel, "Account status", { onNavigate(SettingsRoutes.STATUS) })
+                    SettingsNavRow(VibeIcons.Document, "Account status", { onNavigate(SettingsRoutes.STATUS) })
                     RowDivider()
-                    SettingsNavRow(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support", { onNavigate(SettingsRoutes.HELP) })
+                    SettingsNavRow(VibeIcons.Help, "Help & support", { onNavigate(SettingsRoutes.HELP) })
                 }
             }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.AutoMirrored.Outlined.Logout, "Log out", { confirmLogOut = true }, destructive = true, showChevron = false)
+                    SettingsNavRow(VibeIcons.Logout, "Log out", { confirmLogOut = true }, destructive = true, showChevron = false)
                 }
             }
             item { SettingsNote("UniVibe 0.1.0") }
@@ -153,15 +153,15 @@ fun SettingsScreen(
 }
 
 private fun iconFor(category: String): ImageVector = when (category) {
-    SettingsCategories.ACCOUNT -> Icons.Outlined.AccountCircle
-    SettingsCategories.SECURITY -> Icons.Outlined.Lock
-    SettingsCategories.PRIVACY -> Icons.Outlined.Shield
+    SettingsCategories.ACCOUNT -> VibeIcons.Profile
+    SettingsCategories.SECURITY -> VibeIcons.Lock
+    SettingsCategories.PRIVACY -> VibeIcons.Shield
     SettingsCategories.NOTIFICATIONS -> VibeIcons.Bell
-    SettingsCategories.APPEARANCE -> Icons.Outlined.Palette
-    SettingsCategories.ACCESSIBILITY -> Icons.Outlined.Accessibility
-    SettingsCategories.PERMISSIONS -> Icons.Outlined.AdminPanelSettings
-    SettingsCategories.STATUS -> Icons.Outlined.Gavel
-    else -> Icons.AutoMirrored.Outlined.HelpOutline
+    SettingsCategories.APPEARANCE -> VibeIcons.Palette
+    SettingsCategories.ACCESSIBILITY -> VibeIcons.Accessibility
+    SettingsCategories.PERMISSIONS -> VibeIcons.Shield
+    SettingsCategories.STATUS -> VibeIcons.Document
+    else -> VibeIcons.Help
 }
 
 /** Settings → Appearance. The theme is a device preference, applied app-wide immediately. */
@@ -171,9 +171,9 @@ fun AppearanceScreen(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Uni
         item { SettingsSectionTitle("Theme") }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                ThemeOption("System", Icons.Outlined.SettingsBrightness, themeMode == ThemeMode.SYSTEM, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.SYSTEM) }
-                ThemeOption("Light", Icons.Outlined.LightMode, themeMode == ThemeMode.LIGHT, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.LIGHT) }
-                ThemeOption("Dark", Icons.Outlined.DarkMode, themeMode == ThemeMode.DARK, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.DARK) }
+                ThemeOption("System", VibeIcons.Contrast, themeMode == ThemeMode.SYSTEM, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.SYSTEM) }
+                ThemeOption("Light", VibeIcons.Sun, themeMode == ThemeMode.LIGHT, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.LIGHT) }
+                ThemeOption("Dark", VibeIcons.Moon, themeMode == ThemeMode.DARK, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.DARK) }
             }
         }
         item { SettingsNote("System follows your phone's light or dark setting. Text size and motion are under Accessibility.") }

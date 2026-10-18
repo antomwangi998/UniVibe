@@ -118,13 +118,18 @@ data class Chat(
     val lastDelivery: Delivery = Delivery.None,
     /** Profile picture of the other person in a direct chat. */
     val avatarUrl: String? = null,
+    /** For groups: the uploaded group photo (a signed link), when there is one. */
+    val groupPhotoUrl: String? = null,
 ) {
     val hasUnread: Boolean get() = unread > 0
 }
 
 data class ChatMember(val id: String, val name: String)
 
-enum class LastKind { None, Text, Photo, Deleted }
+/** A recorded voice message: where to play it from and how long it is. */
+data class VoiceNote(val source: String, val durationMs: Int)
+
+enum class LastKind { None, Text, Photo, Voice, Deleted }
 
 enum class Delivery { None, Sent, Delivered, Read }
 
@@ -296,6 +301,8 @@ data class Message(
     val imagePaths: List<String> = emptyList(),
     /** Width / height of the first photo as the server knows it, so the bubble has the right shape before it loads. */
     val imageRatio: Float? = null,
+    /** A voice message, when this is one. A local file path while it is still sending, a link afterwards. */
+    val voice: VoiceNote? = null,
     val replyTo: ReplyRef? = null,
     /** How many people used each reaction. */
     val reactions: Map<Reaction, Int> = emptyMap(),

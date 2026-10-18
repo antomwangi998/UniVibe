@@ -74,7 +74,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
         )
         VibeTextField(
             value = state.admission, onValueChange = viewModel::onAdmission, label = "Admission number (optional)",
-            leadingIcon = Icons.Outlined.Badge,
+            leadingIcon = VibeIcons.Badge,
             isError = state.admissionError != null,
             supportingText = state.admissionError ?: "Helps verify you as a student. You can add it later.",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -85,7 +85,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
         if (state.universities.size <= 1) {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(VibeIcons.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Text(
                         state.university?.name ?: "Loading university…",
                         style = MaterialTheme.typography.bodyLarge,

@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.features.home.mergeFirstPage
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -151,7 +152,13 @@ class PhotosViewModel(
 }
 
 // ------------------------------------------------------------------ saved posts
-data class SavedUiState(val loading: Boolean = true, val error: String? = null, val posts: List<Post> = emptyList())
+data class SavedUiState(
+    val loading: Boolean = true,
+    val error: String? = null,
+    val posts: List<Post> = emptyList(),
+    val loadingMore: Boolean = false,
+    val endReached: Boolean = false,
+)
 
 class SavedPostsViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
@@ -163,8 +170,38 @@ class SavedPostsViewModel(
 
     fun load(silent: Boolean = false) {
         viewModelScope.launch {
-            try { _state.update { it.copy(loading = false, error = null, posts = repository.getSavedPosts()) } }
+            try {
+                val page = repository.getSavedPostsPage(null, SAVED_PAGE_SIZE)
+                _state.update { cur ->
+                    // A quiet reload keeps the older pages already shown, so the list does not jump.
+                    val posts = if (silent) mergeFirstPage(cur.posts, page, SAVED_PAGE_SIZE) else page
+                    val onlyFirstPage = posts.size == page.size
+                    cur.copy(
+                        loading = false, error = null, posts = posts, loadingMore = false,
+                        endReached = if (onlyFirstPage) page.size < SAVED_PAGE_SIZE else cur.endReached,
+                    )
+                }
+            }
             catch (e: Exception) { if (!silent) _state.update { it.copy(loading = false, error = "We couldn't load your saved posts.") } }
+        }
+    }
+
+    /** Fetches the next page of saved posts when the student nears the bottom. */
+    fun loadMore() {
+        val s = _state.value
+        if (s.loading || s.loadingMore || s.endReached || s.error != null) return
+        val last = s.posts.lastOrNull() ?: return
+        _state.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            try {
+                val page = repository.getSavedPostsPage(last.id, SAVED_PAGE_SIZE)
+                _state.update { cur ->
+                    val known = cur.posts.mapTo(HashSet()) { it.id }
+                    cur.copy(posts = cur.posts + page.filter { it.id !in known }, loadingMore = false, endReached = page.size < SAVED_PAGE_SIZE)
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(loadingMore = false) }
+            }
         }
     }
 
@@ -289,3 +326,5 @@ class StudentProfileViewModel(
 
     fun report() = _state.update { it.copy(menuOpen = false, notice = "Thanks. We'll review this profile.") }
 }
+
+private const val SAVED_PAGE_SIZE = 20

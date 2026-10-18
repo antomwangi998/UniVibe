@@ -92,7 +92,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
             trailingIcon = {
                 IconButton(onClick = viewModel::toggleFilters) {
                     Icon(
-                        Icons.Outlined.FilterList,
+                        VibeIcons.Filter,
                         contentDescription = "Filter chats",
                         tint = if (state.filter != ChatFilter.All) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -222,7 +222,7 @@ private fun SwipeableChatRow(
                 contentAlignment = if (muteSide) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 Icon(
-                    if (muteSide) VibeIcons.BellOff else Icons.Outlined.Archive,
+                    if (muteSide) VibeIcons.BellOff else VibeIcons.Archive,
                     contentDescription = if (muteSide) (if (chat.muted) "Unmute" else "Mute") else "Archive",
                 )
             }
@@ -263,7 +263,7 @@ private fun ChatRow(chat: Chat, typingIds: Set<String>, selected: Boolean, onOpe
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (chat.isGroup) GroupAvatar(null, AvatarSize, name = chat.title, memberNames = chat.members.map { it.name })
+        if (chat.isGroup) GroupAvatar(chat.groupPhotoUrl, AvatarSize, name = chat.title, memberNames = chat.members.map { it.name })
         else StudentAvatar(chat.title, size = AvatarSize, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
 
         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
@@ -338,6 +338,9 @@ private fun PreviewLine(chat: Chat, unread: Boolean, modifier: Modifier) {
                 modifier = Modifier.padding(end = 4.dp).size(14.dp),
             )
         }
+        if (chat.lastKind == LastKind.Voice) {
+            Icon(VibeIcons.Mic, contentDescription = null, tint = tint, modifier = Modifier.padding(end = 4.dp).size(16.dp))
+        }
         if (chat.lastKind == LastKind.Photo) {
             Icon(VibeIcons.Photo, contentDescription = null, tint = tint, modifier = Modifier.padding(end = 4.dp).size(16.dp))
         }
@@ -385,21 +388,21 @@ private fun ChatActionsSheet(
 ) {
     VibeBottomSheet(onDismiss = onDismiss) {
         Row(Modifier.fillMaxWidth().padding(bottom = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-            if (chat.isGroup) GroupAvatar(null, 40.dp, name = chat.title, memberNames = chat.members.map { it.name }) else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl)
+            if (chat.isGroup) GroupAvatar(chat.groupPhotoUrl, 40.dp, name = chat.title, memberNames = chat.members.map { it.name }) else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl)
             Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Spacing.md))
         }
         if (archived) {
             // Pin, mute and read state belong to the main list; from the archive the one action is to bring the chat back.
-            SheetAction(Icons.Outlined.Archive, "Unarchive conversation", onUnarchive)
+            SheetAction(VibeIcons.Archive, "Unarchive conversation", onUnarchive)
             return@VibeBottomSheet
         }
         SheetAction(VibeIcons.Pin, if (chat.pinned) "Unpin conversation" else "Pin conversation", onPin)
         SheetAction(
-            if (chat.hasUnread) Icons.Outlined.MarkChatRead else Icons.Outlined.MarkChatUnread,
+            if (chat.hasUnread) VibeIcons.DoubleCheck else VibeIcons.ChatUnread,
             if (chat.hasUnread) "Mark as read" else "Mark as unread", onUnread,
         )
         SheetAction(VibeIcons.BellOff, if (chat.muted) "Unmute notifications" else "Mute notifications", onMute)
-        SheetAction(Icons.Outlined.Archive, "Archive conversation", onArchive)
+        SheetAction(VibeIcons.Archive, "Archive conversation", onArchive)
     }
 }
 

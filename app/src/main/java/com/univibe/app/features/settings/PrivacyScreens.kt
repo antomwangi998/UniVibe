@@ -63,7 +63,7 @@ fun PrivacyScreen(
                         SettingsNavRow(VibeIcons.Photo, "Discover profile", onDiscoverProfile, subtitle = "Choose your card photo and preview it.")
                         RowDivider()
                         SettingsSwitchRow("Show online status", p.showOnline, { v -> viewModel.change(PrivacyChange(showOnline = v)) },
-                            subtitle = "Let others see when you're active.", icon = Icons.Outlined.Sensors, enabled = !st.saving)
+                            subtitle = "Let others see when you're active.", icon = VibeIcons.Sensors, enabled = !st.saving)
                     }
                 }
                 item {
@@ -87,7 +87,7 @@ fun PrivacyScreen(
                             subtitle = if (s.blocked.isEmpty()) "No one blocked" else "${s.blocked.size} blocked",
                         )
                         RowDivider()
-                        SettingsNavRow(Icons.Outlined.Security, "Safety tips", onSafety)
+                        SettingsNavRow(VibeIcons.Shield, "Safety tips", onSafety)
                     }
                 }
                 item {

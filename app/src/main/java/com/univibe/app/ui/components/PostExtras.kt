@@ -172,7 +172,7 @@ fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier, k
                     .semantics { contentDescription = "Play video from $authorName" },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                Icon(VibeIcons.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
             }
         }
     }

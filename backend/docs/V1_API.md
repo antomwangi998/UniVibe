@@ -139,3 +139,14 @@ All additive; older clients ignore them.
 Already supported and now used by the app: `GET /conversations?archived=true`, `PUT /conversations/:id/settings { archived: false }` (unarchive), `{ pinned }`, `POST /conversations/:id/mark-unread` (sets a flag only; the next `/read` clears it).
 
 Message `media` items now also carry `width` and `height` (pixels, or `null` if unknown) so clients can reserve the photo's shape before it loads.
+
+## Groups and voice messages (migration 017)
+
+- `GET /conversations/:id` and the list: groups carry `description`, `photoUrl`, `createdBy` and `permissions { onlyAdminsCanMessage, onlyAdminsCanEditInfo, onlyAdminsCanAddMembers }`.
+- `PUT|PATCH /conversations/:id/info { title?, description?, photoMediaId? }`: admins only unless the owner opened editing. The photo is an image uploaded with `purpose: "group"`; `null` removes it. The old picture is deleted.
+- `PUT|PATCH /conversations/:id/permissions`: owner or admin. `PUT|PATCH /conversations/:id/members/:userId/role { role: "admin" | "member" }`: owner only.
+- `POST /conversations/:id/report { reason, details? }`: once per person; stored in `conversation_reports`.
+- Sending is refused (403) for plain members while `onlyAdminsCanMessage` is on. Adding people follows `onlyAdminsCanAddMembers`.
+- Voice messages: `POST /media/uploads { kind: "audio", purpose: "message", contentType: "audio/mp4" | "audio/aac" | "audio/webm" | "audio/ogg", size <= 5 MB, durationMs <= 300000 }`, then attach the media id to a message. A voice message has no other attachments. Message `media` items carry `durationMs`; the list's `lastMessage.audioCount` says the last message was a voice message.
+
+Upload progress is client-side only (bytes sent to the storage link); the API did not change.

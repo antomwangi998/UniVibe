@@ -266,8 +266,8 @@ fun CommunityDetailScreen(
             HorizontalDivider(color = colors.outlineVariant)
             SheetRow(VibeIcons.Profile, "View profile", false) { viewModel.memberMenu(null); onOpenStudent(m.student.id) }
             val owner = c?.role == CommunityRole.Owner
-            if (owner && m.role == CommunityRole.Member) SheetRow(Icons.Outlined.AdminPanelSettings, "Make moderator", false) { viewModel.makeModerator(m) }
-            if (owner && m.role == CommunityRole.Moderator) SheetRow(Icons.Outlined.AdminPanelSettings, "Remove as moderator", false) { viewModel.removeModerator(m) }
+            if (owner && m.role == CommunityRole.Member) SheetRow(VibeIcons.Shield, "Make moderator", false) { viewModel.makeModerator(m) }
+            if (owner && m.role == CommunityRole.Moderator) SheetRow(VibeIcons.Shield, "Remove as moderator", false) { viewModel.removeModerator(m) }
             if (c?.isStaff == true && m.role != CommunityRole.Owner && (m.role != CommunityRole.Moderator || owner)) {
                 SheetRow(VibeIcons.PersonRemove, "Remove from community", true) { viewModel.confirm(CommunityConfirm.RemoveMember(m)) }
             }
@@ -423,7 +423,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.aboutTab(
     if (c.isStaff) item {
         VibeCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(VibeIcons.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text("Moderation", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = Spacing.sm))
             }
             if (s.reports.isEmpty()) {

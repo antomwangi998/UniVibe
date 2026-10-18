@@ -122,6 +122,39 @@ class FeedPagingTest {
         }
     }
 
+    // ---- profile posts, single posts, saved pages
+    private fun recordingApi(status: Int = 200, body: String = "[]", seen: MutableList<String>) = object : AuthedApi {
+        override suspend fun authedCall(method: String, path: String, body2: JSONObject?): AuthResult<HttpResponse> {
+            seen += path
+            return AuthResult.Success(HttpResponse(status, body))
+        }
+    }
+
+    @Test fun aProfileAsksForThatStudentsPostsOnly() = runTest {
+        val seen = mutableListOf<String>()
+        RemoteFeedRepository(recordingApi(seen = seen)) { account }.getPostsBy("abc", 3)
+        assertEquals(listOf("/posts?author=abc&limit=3"), seen)
+    }
+
+    @Test fun savedPostsAskForPages() = runTest {
+        val seen = mutableListOf<String>()
+        val repo = RemoteFeedRepository(recordingApi(seen = seen)) { account }
+        repo.getSavedPostsPage(null, 20)
+        repo.getSavedPostsPage("xyz", 20)
+        assertEquals(listOf("/posts/saved?limit=20", "/posts/saved?limit=20&before=xyz"), seen)
+    }
+
+    @Test fun aMissingPostIsNullNotAnError() = runTest {
+        val gone = RemoteFeedRepository(recordingApi(status = 404, body = "{\"error\":\"not_found\",\"message\":\"Post not found.\"}", seen = mutableListOf())) { account }
+        assertNull(gone.getPost("nope"))
+    }
+
+    @Test fun mergingSavedPagesUsesTheirOwnPageSize() {
+        val old = posts(1..30)
+        val merged = mergeFirstPage(old, posts(1..10), pageSize = 10).map { it.id }
+        assertEquals(posts(1..30).map { it.id }, merged)
+    }
+
     private val account = AuthUser(
         id = "11111111-1111-4111-8111-111111111111", fullName = "Wanjiru Kamau", email = "x@student.cuk.ac.ke", universityId = "cuk",
         universityName = "Uni", emailVerified = true, studentVerified = true, course = "Law", interests = emptyList(), bio = "", handle = "w",

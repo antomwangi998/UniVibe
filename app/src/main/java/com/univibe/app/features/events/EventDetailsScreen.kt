@@ -152,7 +152,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
     if (s.manageOpen) {
         VibeBottomSheet(onDismiss = { viewModel.openManage(false) }) {
             SheetRow(VibeIcons.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
-            if (status != EventStatus.Cancelled) SheetRow(Icons.Outlined.EventBusy, "Cancel event", true) { viewModel.confirm(EventConfirm.Cancel) }
+            if (status != EventStatus.Cancelled) SheetRow(VibeIcons.EventBusy, "Cancel event", true) { viewModel.confirm(EventConfirm.Cancel) }
             SheetRow(VibeIcons.Delete, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
         }
     }
@@ -347,7 +347,7 @@ private fun ActionBar(details: EventDetails, onGoing: () -> Unit, onInterested: 
                     VibeButton(
                         text = "Interested", onClick = onInterested,
                         style = if (interested) VibeButtonStyle.Primary else VibeButtonStyle.Secondary,
-                        leadingIcon = if (interested) VibeIcons.Check else Icons.Outlined.StarOutline,
+                        leadingIcon = if (interested) VibeIcons.Check else VibeIcons.Star,
                         modifier = Modifier.weight(1f).semantics { selected = interested },
                     )
                     VibeButton(

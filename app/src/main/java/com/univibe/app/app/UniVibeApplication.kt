@@ -25,17 +25,18 @@ import com.univibe.app.data.repository.DiscoverRepository
 import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.repository.MockDiscoverRepository
 import com.univibe.app.data.repository.GroupRepository
+import com.univibe.app.data.repository.RemoteGroupRepository
+import com.univibe.app.data.repository.UnavailableChatRepository
+import com.univibe.app.data.repository.UnavailableGroupRepository
+import com.univibe.app.data.repository.UnavailableMessageRepository
 import com.univibe.app.data.repository.MockEventRepository
-import com.univibe.app.data.repository.MockGroupRepository
 import com.univibe.app.data.repository.MockNotificationRepository
 import com.univibe.app.data.repository.NotificationRepository
 import com.univibe.app.data.repository.FeedRepository
 import com.univibe.app.data.repository.MessageRepository
-import com.univibe.app.data.repository.MockChatRepository
 import com.univibe.app.data.repository.MockCommentRepository
 import com.univibe.app.data.repository.MockCommunityRepository
 import com.univibe.app.data.repository.MockFeedRepository
-import com.univibe.app.data.repository.MockMessageRepository
 import com.univibe.app.data.repository.MockProfileRepository
 import com.univibe.app.data.repository.MockStore
 import com.univibe.app.data.repository.RemoteChatRepository
@@ -128,13 +129,17 @@ object AppContainer {
             ?: MockFeedRepository(mockStore)
     }
     val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
-    val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
+    val groupRepository: GroupRepository by lazy {
+        api?.let {
+            RemoteGroupRepository(it, MediaUploader(it, UrlConnectionFileUploader()), following = { profileRepository.getFollowing().map { f -> f.student } }) { accountOf(authRepository.session.value)?.id }
+        } ?: UnavailableGroupRepository
+    }
     val chatRepository: ChatRepository by lazy {
-        api?.let { RemoteChatRepository(it, chatSocket) { accountOf(authRepository.session.value)?.id } } ?: MockChatRepository(mockStore)
+        api?.let { RemoteChatRepository(it, chatSocket) { accountOf(authRepository.session.value)?.id } } ?: UnavailableChatRepository
     }
     val messageRepository: MessageRepository by lazy {
         api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id } }
-            ?: MockMessageRepository(mockStore)
+            ?: UnavailableMessageRepository
     }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
     /** One shared instance so RSVPs made on the details screen show up in the list. */

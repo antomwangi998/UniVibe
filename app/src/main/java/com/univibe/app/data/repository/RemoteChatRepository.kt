@@ -85,6 +85,7 @@ class RemoteChatRepository(
             isGroup = isGroup,
             online = other?.takeIf { !it.isNull("online") }?.optBoolean("online", false) ?: false,
             avatarUrl = student?.avatarUrl,
+            groupPhotoUrl = json.strOrNull("photoUrl"),
             pinned = json.optBoolean("pinned", false),
             muted = isMuted(json.strOrNull("mutedUntil")),
             studentId = student?.id,
@@ -156,16 +157,19 @@ class RemoteChatRepository(
         val deleted = last?.optBoolean("deleted", false) == true
         val text = last?.strOrNull("content")?.takeIf { it.isNotBlank() }
         // `mediaCount` is newer than some servers: when it is missing, an empty message is treated as a photo, as before.
+        val voice = if (last == null || deleted) 0 else last.optInt("audioCount", 0)
         val photos = if (last == null || deleted) 0 else if (last.has("mediaCount")) last.optInt("mediaCount", 0) else if (text == null) 1 else 0
         val kind = when {
             last == null -> LastKind.None
             deleted -> LastKind.Deleted
+            voice > 0 -> LastKind.Voice
             photos > 0 -> LastKind.Photo
             else -> LastKind.Text
         }
         val preview = when (kind) {
             LastKind.None -> ""
             LastKind.Deleted -> "Message deleted"
+            LastKind.Voice -> "Voice message"
             LastKind.Photo -> text ?: if (photos > 1) "$photos photos" else "Photo"
             LastKind.Text -> text ?: ""
         }
@@ -203,6 +207,7 @@ class RemoteChatRepository(
             memberCount = o.optInt("memberCount", 0),
             lastDelivery = delivery,
             avatarUrl = with?.avatarUrl,
+            groupPhotoUrl = o.strOrNull("photoUrl"),
         )
     }
 

@@ -68,7 +68,7 @@ class CommentsViewModel(
             _state.update { it.copy(loading = true, error = null) }
             try {
                 val list = repository.getComments(postId)
-                val post = runCatching { feed.getPosts(FeedFilter.Campus) }.getOrDefault(emptyList()).firstOrNull { it.id == postId }
+                val post = runCatching { feed.getPost(postId) }.getOrNull()
                 _state.update { it.copy(loading = false, comments = list, post = post) }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "We couldn't load the comments. Check your connection and try again.") }

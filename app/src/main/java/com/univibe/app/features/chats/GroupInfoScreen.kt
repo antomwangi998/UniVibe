@@ -215,7 +215,7 @@ fun GroupInfoScreen(
                     RowDivider()
                     SettingsNavRow(VibeIcons.Report, "Report group", { viewModel.reporting(true) }, destructive = true, showChevron = false)
                     RowDivider()
-                    SettingsNavRow(Icons.AutoMirrored.Outlined.ExitToApp, "Leave group", { viewModel.confirm(GroupConfirm.Leave) }, destructive = true, showChevron = false)
+                    SettingsNavRow(VibeIcons.Logout, "Leave group", { viewModel.confirm(GroupConfirm.Leave) }, destructive = true, showChevron = false)
                 }
             }
             item { Spacer(Modifier.navigationBarsPadding()) }
@@ -395,7 +395,7 @@ private fun RulesSection(group: GroupInfo, onOnlyAdminsMessage: (Boolean) -> Uni
     if (group.iAmAdmin) {
         SettingsGroup {
             SettingsSectionTitle("Group settings")
-            SettingsSwitchRow("Only admins can send messages", group.onlyAdminsCanMessage, onOnlyAdminsMessage, subtitle = "Everyone else can read, not post.", icon = Icons.Outlined.AdminPanelSettings)
+            SettingsSwitchRow("Only admins can send messages", group.onlyAdminsCanMessage, onOnlyAdminsMessage, subtitle = "Everyone else can read, not post.", icon = VibeIcons.Shield)
             RowDivider()
             SettingsSwitchRow("Only admins can edit group info", group.onlyAdminsCanEditInfo, onOnlyAdminsEdit, subtitle = "Name, description and photo.")
             RowDivider()
@@ -456,8 +456,8 @@ private fun MemberSheet(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         SheetRow(VibeIcons.Profile, "View profile", false, onProfile)
         SheetRow(VibeIcons.Comment, "Message", false, onMessage)
-        if (isOwner && member.role == GroupRole.Member) SheetRow(Icons.Outlined.AdminPanelSettings, "Make group admin", false, onMakeAdmin)
-        if (isOwner && member.role == GroupRole.Admin) SheetRow(Icons.Outlined.AdminPanelSettings, "Remove as admin", false, onRemoveAdmin)
+        if (isOwner && member.role == GroupRole.Member) SheetRow(VibeIcons.Shield, "Make group admin", false, onMakeAdmin)
+        if (isOwner && member.role == GroupRole.Admin) SheetRow(VibeIcons.Shield, "Remove as admin", false, onRemoveAdmin)
         if (canRemove) SheetRow(VibeIcons.PersonRemove, "Remove from group", true, onRemove)
         Spacer(Modifier.size(Spacing.md))
     }

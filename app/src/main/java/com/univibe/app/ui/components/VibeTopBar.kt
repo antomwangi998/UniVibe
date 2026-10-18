@@ -63,7 +63,7 @@ fun VibeTopBar(
     }
 }
 
-/** Circular outlined icon button (48dp touch target). */
+/** Top-bar icon button: the icon itself is the button (no circle or box), with a 48dp touch target. */
 @Composable
 fun VibeIconButton(
     icon: ImageVector,
@@ -71,14 +71,12 @@ fun VibeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.padding(start = Spacing.sm),
-    ) {
-        IconButton(onClick = onClick) {
-            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(22.dp))
-        }
-    }
+    SocialActionButton(
+        icon = icon,
+        contentDescription = contentDescription,
+        onClick = onClick,
+        modifier = modifier,
+        tint = MaterialTheme.colorScheme.onSurface,
+        iconSize = VibeIconSize.Navigation,
+    )
 }

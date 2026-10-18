@@ -171,6 +171,37 @@ describe.skipIf(!url)('photos and videos (needs TEST_DATABASE_URL)', () => {
     expect((await call('GET', '/posts?limit=500', b.token)).status).toBe(400);
   });
 
+  it('lists one student\'s posts, newest first, in pages', async () => {
+    const [a, b, c] = [await student(), await student(), await student()];
+    const mine: string[] = [];
+    for (let i = 0; i < 3; i++) mine.push((await call('POST', '/posts', a.token, { text: `by a ${i}` })).body.id);
+    await call('POST', '/posts', b.token, { text: 'by b' });
+    const all = (await call('GET', `/posts?author=${a.id}`, c.token)).body;
+    expect(all.map((p: { id: string }) => p.id)).toEqual([...mine].reverse());
+    expect(all.every((p: { author: { id: string } }) => p.author.id === a.id)).toBe(true);
+    const first = (await call('GET', `/posts?author=${a.id}&limit=2`, c.token)).body.map((p: { id: string }) => p.id);
+    const rest = (await call('GET', `/posts?author=${a.id}&limit=2&before=${first[1]}`, c.token)).body.map((p: { id: string }) => p.id);
+    expect([...first, ...rest]).toEqual([...mine].reverse());
+    expect((await call('GET', '/posts?author=not-an-id', c.token)).status).toBe(400);
+  });
+
+  it('saved posts come in pages, most recently saved first', async () => {
+    const [a, b] = [await student(), await student()];
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await call('POST', '/posts', a.token, { text: `to save ${i}` })).body.id);
+    for (const id of ids) {
+      expect((await call('PUT', `/posts/${id}/save`, b.token)).status).toBe(204);
+      await new Promise((r) => setTimeout(r, 15)); // distinct save times
+    }
+    const all = (await call('GET', '/posts/saved', b.token)).body.map((p: { id: string }) => p.id);
+    expect(all).toEqual([...ids].reverse());
+    const first = (await call('GET', '/posts/saved?limit=2', b.token)).body.map((p: { id: string }) => p.id);
+    expect(first).toEqual(all.slice(0, 2));
+    const rest = (await call('GET', `/posts/saved?limit=2&before=${first[1]}`, b.token)).body.map((p: { id: string }) => p.id);
+    expect(rest).toEqual(all.slice(2));
+    expect((await call('GET', `/posts/saved?before=${ids[0]}`, a.token)).status).toBe(404); // a never saved it
+  });
+
   it('remembers the pixel size of an upload and returns it with the post', async () => {
     const a = await student();
     const started = await call('POST', '/media/uploads', a.token, { kind: 'image', purpose: 'post', contentType: 'image/jpeg', size: JPEG.length, width: 1200, height: 1600 });

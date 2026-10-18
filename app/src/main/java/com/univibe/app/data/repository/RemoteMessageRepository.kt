@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
+import com.univibe.app.data.model.VoiceNote
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.model.ReplyRef
 import com.univibe.app.data.model.Student
@@ -223,7 +224,7 @@ class RemoteMessageRepository(
         try {
             // The photo goes up first (ask for a link, send the file, confirm); the message then just points at it.
             val mediaId = imagePath?.let { path ->
-                (uploader ?: throw IllegalStateException("Photos aren't available right now.")).upload(path, "image", "message")
+                (uploader ?: throw IllegalStateException("Photos aren't available right now.")).upload(path, "image", "message", tag = local.id)
             }
             val body = JSONObject().put("content", clean).put("clientId", clientId)
             mediaId?.let { body.put("mediaIds", JSONArray().put(it)) }
@@ -236,6 +237,32 @@ class RemoteMessageRepository(
             s.messages.update { list -> list.filterNot { it.id == local.id } }
             throw e
         }
+    }
+
+    override suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef?) {
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, voice = VoiceNote(audioPath, durationMs), replyTo = replyTo)
+        s.messages.update { it + local }
+        try {
+            val mediaId = (uploader ?: throw IllegalStateException("Voice messages aren't available right now.")).upload(audioPath, "audio", "message", durationMs, tag = local.id)
+            val body = JSONObject().put("content", "").put("clientId", clientId).put("mediaIds", JSONArray().put(mediaId))
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+            runCatching { java.io.File(audioPath).delete() } // it now plays from the server copy
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
+    private fun firstOfKind(arr: JSONArray?, kind: String): JSONObject? {
+        if (arr == null) return null
+        for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); if (o.optString("kind", "image") == kind) return o }
+        return null
     }
 
     override suspend fun deleteMessage(chatId: String, messageId: String) {
@@ -319,16 +346,19 @@ class RemoteMessageRepository(
         val delivered = synchronized(st) { deliveredUpTo(st) }
         // Our own photos open from the local copy; everyone else's from the server's temporary link.
         val photo = synchronized(state(chatId)) { state(chatId).localPhotos[id] }?.takeIf { File(it).isFile }
-            ?: media?.takeIf { it.length() > 0 }?.getJSONObject(0)?.strOrNull("url")
+            ?: firstOfKind(media, "image")?.strOrNull("url")
         // All attached photos (the server allows up to four); our own first photo still opens from the local copy.
         val allPhotos = buildList {
+            var first = true
             if (media != null) for (i in 0 until media.length()) {
                 val item = media.getJSONObject(i)
                 if (item.optString("kind", "image") != "image") continue
-                (if (i == 0) photo else item.strOrNull("url"))?.let { add(it) }
+                (if (first) photo else item.strOrNull("url"))?.let { add(it) }
+                first = false
             }
         }
-        val firstMedia = media?.takeIf { it.length() > 0 }?.getJSONObject(0)
+        val firstMedia = firstOfKind(media, "image")
+        val voice = firstOfKind(media, "audio")?.let { a -> a.strOrNull("url")?.let { VoiceNote(it, a.optInt("durationMs", 0)) } }
         val ratio = firstMedia?.let { m -> val w = m.optInt("width", 0); val h = m.optInt("height", 0); if (w > 0 && h > 0) w.toFloat() / h else null }
         val reply = o.optJSONObject("replyTo")?.let { r ->
             val author = r.strOrNull("senderId")
@@ -348,6 +378,7 @@ class RemoteMessageRepository(
             imagePath = photo,
             imagePaths = if (allPhotos.size > 1) allPhotos else emptyList(),
             imageRatio = ratio,
+            voice = voice,
             timeMillis = runCatching { Instant.parse(o.getString("createdAt")).toEpochMilli() }.getOrDefault(0L),
             isMine = mine,
             status = if (mine) statusFor(o.getLong("seq"), seen, delivered) else MessageStatus.Sent,

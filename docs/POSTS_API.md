@@ -67,3 +67,11 @@ deleting a post or account deletes the thumbnail too.
   that needs ffmpeg, which this server does not have.
 - Storage per student: 300 MB across all their photos and videos, counted after processing. Over the limit, starting
   an upload answers 400 `storage_full` with a message the app shows as is.
+
+## Profile posts and paged saved posts
+
+`GET /v1/posts?author=<student id>` lists one student's posts (a profile), newest first, with the same visibility rules
+as the feed. It combines with `filter`, `limit` and `before`.
+
+`GET /v1/posts/saved` accepts `limit` (1 to 50; without it up to 200, as before) and `before` (the id of the last saved
+post the app has) and returns posts most recently saved first. An unknown `before` returns 404.
