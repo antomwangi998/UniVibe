@@ -99,7 +99,7 @@ fun EventCard(
                     event.rsvp == RsvpState.Going ->
                         VibeButton("Going", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = VibeIcons.Check)
                     event.rsvp == RsvpState.Interested ->
-                        VibeButton("Interested", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.StarOutline)
+                        VibeButton("Interested", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = VibeIcons.Star)
                     else -> VibeButton("RSVP", onRsvpClick, compact = true)
                 }
             }

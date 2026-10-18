@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.media.VideoStore
 import com.univibe.app.data.model.FeedFilter
@@ -113,6 +114,20 @@ class RemoteFeedRepository(
         val following = filter == FeedFilter.Following
         val before = if (beforeId != null) "&before=$beforeId" else ""
         return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}&limit=$limit$before"), following)
+    }
+
+    override suspend fun getPost(id: String): Post? = try {
+        parsePost(JSONObject(api.send("GET", "/posts/$id")))
+    } catch (e: ApiException) {
+        if (e.status == 404) null else throw e
+    }
+
+    override suspend fun getPostsBy(authorId: String, limit: Int): List<Post> =
+        parsePosts(api.send("GET", "/posts?author=$authorId&limit=$limit"))
+
+    override suspend fun getSavedPostsPage(beforeId: String?, limit: Int): List<Post> {
+        val before = if (beforeId != null) "&before=$beforeId" else ""
+        return parsePosts(api.send("GET", "/posts/saved?limit=$limit$before"))
     }
 
     /** Stories are not built yet, so there is nothing to show (and nothing invented). */

@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -169,6 +170,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
             // Content runs edge to edge; the bar hovers above it.
+            // Percentage for any media upload in progress; drawn above the screens.
+            com.univibe.app.ui.components.UploadBanner(Modifier.align(androidx.compose.ui.Alignment.TopCenter).zIndex(1f))
             CompositionLocalProvider(LocalFloatingBarVisible provides barVisible, LocalChromeHidden provides hiddenByScroll.value) {
                 NavHost(
                     navController = navController,

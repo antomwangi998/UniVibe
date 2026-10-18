@@ -60,7 +60,7 @@ fun ErrorState(
     title: String = "Something went wrong",
 ) {
     EmptyState(
-        icon = Icons.Outlined.CloudOff,
+        icon = VibeIcons.CloudOff,
         title = title,
         message = message,
         modifier = modifier,

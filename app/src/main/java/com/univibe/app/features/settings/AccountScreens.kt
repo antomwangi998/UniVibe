@@ -67,7 +67,7 @@ fun AccountScreen(
         }
         item {
             SettingsGroup {
-                SettingsNavRow(Icons.Outlined.LockReset, "Change password", onChangePassword)
+                SettingsNavRow(VibeIcons.Lock, "Change password", onChangePassword)
                 RowDivider()
                 SettingsNavRow(VibeIcons.Delete, "Delete account", onDelete, destructive = true)
             }

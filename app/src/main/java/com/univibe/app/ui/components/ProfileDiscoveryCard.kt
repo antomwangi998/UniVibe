@@ -59,7 +59,7 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
             ) {
                 Row(Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("View profile", style = MaterialTheme.typography.labelMedium)
-                    Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp).padding(start = 2.dp))
+                    Icon(VibeIcons.Forward, contentDescription = null, modifier = Modifier.size(14.dp).padding(start = 2.dp))
                 }
             }
         }

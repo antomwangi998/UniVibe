@@ -34,6 +34,13 @@ const feedQuery = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
   /** Id of the last post the app already has; the page continues with the posts just older than it. */
   before: z.string().uuid().optional(),
+  /** Only this student's posts (a profile). The usual visibility rules still apply. */
+  author: z.string().uuid().optional(),
+});
+const savedQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  /** Id of the last saved post the app already has. */
+  before: z.string().uuid().optional(),
 });
 const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() });
 
@@ -197,18 +204,22 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   // ---- reading
   app.get('/posts', async (req) => {
     const user = await ctx.requireUser(req);
-    const { filter, limit, before } = feedQuery.parse(req.query ?? {});
+    const { filter, limit, before, author } = feedQuery.parse(req.query ?? {});
     const following =
       filter === 'following'
         ? 'and exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = p.author_id)'
         : '';
     const params: unknown[] = [user.id, user.university_id];
     let older = '';
+    if (author) {
+      params.push(author);
+      older = `and p.author_id = $${params.length} `;
+    }
     if (before) {
       const anchor = await pool.query('select 1 from posts where id = $1', [before]);
       if (!anchor.rows[0]) throw new HttpError(404, 'not_found', 'That page of the feed is no longer available.');
       params.push(before);
-      older = `and (p.created_at, p.id) < (select c.created_at, c.id from posts c where c.id = $${params.length})`;
+      older += `and (p.created_at, p.id) < (select c.created_at, c.id from posts c where c.id = $${params.length})`;
     }
     params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
@@ -220,10 +231,20 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
 
   app.get('/posts/saved', async (req) => {
     const user = await ctx.requireUser(req);
+    const { limit, before } = savedQuery.parse(req.query ?? {});
+    const params: unknown[] = [user.id, user.university_id];
+    let older = '';
+    if (before) {
+      const anchor = await pool.query('select 1 from post_saves where user_id = $1 and post_id = $2', [user.id, before]);
+      if (!anchor.rows[0]) throw new HttpError(404, 'not_found', 'That page of saved posts is no longer available.');
+      params.push(before);
+      older = `and (sv.created_at, p.id) < (select s2.created_at, s2.post_id from post_saves s2 where s2.user_id = $1 and s2.post_id = $${params.length})`;
+    }
+    params.push(limit ?? 200);
     const { rows } = await pool.query<PostRow>(
       `select ${POST_COLS} ${POST_FROM} join post_saves sv on sv.post_id = p.id and sv.user_id = $1 ` +
-        `where ${visible('p', 'a')} order by sv.created_at desc limit 200`,
-      [user.id, user.university_id],
+        `where ${visible('p', 'a')} ${older} order by sv.created_at desc, p.id desc limit $${params.length}`,
+      params,
     );
     return present(rows);
   });

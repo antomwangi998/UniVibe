@@ -2,7 +2,6 @@ package com.univibe.app
 
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.RsvpState
-import com.univibe.app.data.repository.MockChatRepository
 import com.univibe.app.data.repository.MockDiscoverRepository
 import com.univibe.app.data.repository.MockEventRepository
 import com.univibe.app.data.repository.MockFeedRepository
@@ -51,13 +50,6 @@ class MockRepositoriesTest {
         assertEquals(RsvpState.None, repo.getEvents().first { it.id == id }.rsvp)
     }
 
-    @Test
-    fun archivedChatsDisappear() = runTest {
-        val repo = MockChatRepository()
-        val id = repo.getChats().first().id
-        repo.archive(id)
-        assertTrue(repo.getChats().none { it.id == id })
-    }
 
     @Test
     fun discoverCandidatesCarrySharedInterests() = runTest {

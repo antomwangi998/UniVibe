@@ -1,5 +1,8 @@
 package com.univibe.app.features.profile
 
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.univibe.app.ui.components.FollowButton
 import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
@@ -179,8 +182,18 @@ fun SavedPostsScreen(
                 VibeIcons.Bookmark, "Nothing saved yet",
                 "Tap the bookmark on a post to keep it here.",
             )
-            else -> LazyColumn(
-                Modifier.fillMaxSize().navigationBarsPadding(),
+            else -> {
+              val listState = rememberLazyListState()
+              val nearEnd by remember {
+                  derivedStateOf {
+                      val info = listState.layoutInfo
+                      info.totalItemsCount > 0 && (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - 4
+                  }
+              }
+              LaunchedEffect(nearEnd, s.posts.size) { if (nearEnd) viewModel.loadMore() }
+              LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
                 contentPadding = PaddingValues(top = Spacing.sm, bottom = Spacing.lg),
             ) {
                 items(s.posts, key = { it.id }) { post ->
@@ -193,6 +206,12 @@ fun SavedPostsScreen(
                         },
                     )
                 }
+                if (s.loadingMore) item(key = "more") {
+                    Box(Modifier.fillMaxWidth().padding(Spacing.md), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                }
+              }
             }
         }
     }

@@ -115,10 +115,10 @@ fun OnboardingScreen(
                         Text("Let's set up your campus profile. It takes less than a minute.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm + 4.dp)) {
-                                StatusRow(Icons.Outlined.School, "University", user.universityName, done = true)
+                                StatusRow(VibeIcons.School, "University", user.universityName, done = true)
                                 StatusRow(VibeIcons.CheckCircle, "Email", if (user.emailVerified) "Verified" else "Not verified", user.emailVerified)
                                 StatusRow(
-                                    if (user.studentVerified) VibeIcons.CheckCircle else Icons.Outlined.HourglassEmpty,
+                                    if (user.studentVerified) VibeIcons.CheckCircle else VibeIcons.Hourglass,
                                     "Student status", if (user.studentVerified) "Verified student" else "Not verified yet", user.studentVerified,
                                 )
                             }

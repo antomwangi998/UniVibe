@@ -112,7 +112,7 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
                         }
                     }
                     Text("Who can join?", style = MaterialTheme.typography.titleSmall)
-                    PrivacyOption(Icons.Outlined.Public, "Public", "Anyone at your university can join and see posts.", s.privacy == CommunityPrivacy.Public) { viewModel.setPrivacy(CommunityPrivacy.Public) }
+                    PrivacyOption(VibeIcons.Public, "Public", "Anyone at your university can join and see posts.", s.privacy == CommunityPrivacy.Public) { viewModel.setPrivacy(CommunityPrivacy.Public) }
                     PrivacyOption(VibeIcons.Lock, "Private", "People ask to join and a moderator approves them. Only members see posts and members.", s.privacy == CommunityPrivacy.Private) { viewModel.setPrivacy(CommunityPrivacy.Private) }
                     Text("Rules (optional)", style = MaterialTheme.typography.titleSmall)
                     s.rules.forEachIndexed { i, rule ->

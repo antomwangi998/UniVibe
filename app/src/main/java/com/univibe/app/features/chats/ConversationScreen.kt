@@ -2,7 +2,16 @@
 
 package com.univibe.app.features.chats
 
+import androidx.compose.ui.semantics.contentDescription
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.SystemClock
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -185,6 +194,48 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     LaunchedEffect(s.searching) { if (s.searching) searchFocus.requestFocus() }
 
     val rows = remember(s.messages) { buildRows(s.messages) }
+    // Upload progress for messages that are still sending (photos and voice messages), by their temporary id.
+    val uploads by com.univibe.app.data.net.UploadTracker.uploads.collectAsStateWithLifecycle()
+
+    // ---- Voice messages: record only after a tap and a granted permission; one recording or player at a time.
+    val voiceContext = LocalContext.current
+    val recorder = remember { VoiceRecorder(voiceContext.applicationContext) }
+    var recordingStartedAt by remember { mutableStateOf<Long?>(null) }
+    var recordedMs by remember { mutableLongStateOf(0L) }
+    val showMic = s.input.isBlank() && s.editing == null
+    DisposableEffect(Unit) { onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
+    LaunchedEffect(VoicePlayer.isPlaying) { while (VoicePlayer.isPlaying) { VoicePlayer.tick(); kotlinx.coroutines.delay(200) } }
+    LaunchedEffect(VoicePlayer.failed) { if (VoicePlayer.failed) { Toast.makeText(voiceContext, "Couldn't play the voice message.", Toast.LENGTH_SHORT).show(); VoicePlayer.failed = false } }
+    fun finishRecording(send: Boolean) {
+        val rec = recorder.stop()
+        recordingStartedAt = null
+        when {
+            rec == null -> if (send) Toast.makeText(voiceContext, "Recording too short.", Toast.LENGTH_SHORT).show()
+            send -> viewModel.sendVoice(rec.path, rec.durationMs)
+            else -> java.io.File(rec.path).delete()
+        }
+    }
+    fun beginRecording() {
+        VoicePlayer.release()
+        if (recorder.start()) { recordedMs = 0L; recordingStartedAt = SystemClock.elapsedRealtime() }
+        else Toast.makeText(voiceContext, "Couldn't start recording.", Toast.LENGTH_SHORT).show()
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) beginRecording() else Toast.makeText(voiceContext, "Allow the microphone to record voice messages.", Toast.LENGTH_LONG).show()
+    }
+    fun onMic() {
+        if (ContextCompat.checkSelfPermission(voiceContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) beginRecording()
+        else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    LaunchedEffect(recordingStartedAt) {
+        val t = recordingStartedAt ?: return@LaunchedEffect
+        while (true) {
+            recordedMs = SystemClock.elapsedRealtime() - t
+            if (recordedMs >= VoiceRecorder.MAX_MS) { finishRecording(true); break } // five minutes is the limit
+            kotlinx.coroutines.delay(100)
+        }
+    }
+
     // "At the bottom" = the newest message (index 0 of the reversed list) is in view, give or take a little.
     val atBottomState = remember { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 160 } }
     // Read while composing, i.e. before the list measures any new row: this is where the reader was when a message arrived.
@@ -271,7 +322,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         Modifier.clickable(enabled = headerAction != null, role = Role.Button, onClickLabel = if (chat.isGroup) "Open group info" else "Open profile") { headerAction?.invoke() },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (chat.isGroup) GroupAvatar(s.group?.photoPath, 40.dp, name = s.title)
+                        if (chat.isGroup) GroupAvatar(s.group?.photoPath ?: chat.groupPhotoUrl, 40.dp, name = s.title)
                         else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
                         Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
                             Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -326,6 +377,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                 MessageItem(
                                     m = m,
                                     pos = pos,
+                                    uploadProgress = if (m.status == MessageStatus.Sending) uploads.firstOrNull { it.tag == m.id }?.fraction else null,
                                     isGroup = chat?.isGroup == true,
                                     showSender = chat?.isGroup == true && !m.isMine && pos.isFirst,
                                     showAvatar = chat?.isGroup == true && !m.isMine && pos.isLast,
@@ -390,6 +442,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         if (!s.notFound) {
             Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
                 Column(Modifier.navigationBarsPadding()) {
+                    s.failedVoice?.let {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Couldn't send the voice message.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                            TextButton(onClick = viewModel::retryFailedVoice) { Text("Retry") }
+                            TextButton(onClick = viewModel::dismissFailedVoice) { Text("Dismiss") }
+                        }
+                    }
                     s.failedPhoto?.let {
                         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                             Text("Couldn't send the photo.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
@@ -423,6 +482,8 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(Spacing.md),
                         )
+                    } else if (recordingStartedAt != null) {
+                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) })
                     } else {
                         Row(Modifier.fillMaxWidth().padding(Spacing.sm), verticalAlignment = Alignment.Bottom) {
                             IconButton(onClick = pickPhoto, modifier = Modifier.size(52.dp)) {
@@ -436,11 +497,11 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             Spacer(Modifier.width(Spacing.sm))
                             Surface(
                                 shape = CircleShape,
-                                color = if (s.canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                contentColor = if (s.canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (s.canSend || showMic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                contentColor = if (s.canSend || showMic) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                             ) {
-                                IconButton(onClick = viewModel::send, enabled = s.canSend, modifier = Modifier.size(52.dp)) {
-                                    Icon(if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send, contentDescription = if (s.editing != null) "Save edit" else "Send message", modifier = Modifier.size(VibeIconSize.Action))
+                                IconButton(onClick = { if (showMic) onMic() else viewModel.send() }, enabled = s.canSend || showMic, modifier = Modifier.size(52.dp)) {
+                                    Icon(if (showMic) VibeIcons.Mic else if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send, contentDescription = if (showMic) "Record a voice message" else if (s.editing != null) "Save edit" else "Send message", modifier = Modifier.size(VibeIconSize.Action))
                                 }
                             }
                         }
@@ -633,7 +694,7 @@ private fun SwipeToReply(onReply: () -> Unit, modifier: Modifier = Modifier, con
 
 @Composable
 private fun MessageItem(
-    m: Message, pos: GroupPosition, isGroup: Boolean, showSender: Boolean, showAvatar: Boolean, showReceipts: Boolean, highlighted: Boolean,
+    m: Message, pos: GroupPosition, uploadProgress: Float?, isGroup: Boolean, showSender: Boolean, showAvatar: Boolean, showReceipts: Boolean, highlighted: Boolean,
     onLongPress: () -> Unit, onDoubleTap: () -> Unit, onReply: () -> Unit, onReaction: (Reaction) -> Unit, onJump: (String) -> Unit,
     onOpenPhoto: (String) -> Unit,
 ) {
@@ -693,7 +754,7 @@ private fun MessageItem(
                         val photos = m.photos
                         val uploading = m.status == MessageStatus.Sending
                         if (photos.size == 1) {
-                            ChatPhoto(photos[0], onOpen = { onOpenPhoto(photos[0]) }, knownRatio = m.imageRatio, sending = uploading)
+                            ChatPhoto(photos[0], onOpen = { onOpenPhoto(photos[0]) }, knownRatio = m.imageRatio, sending = uploading, progress = uploadProgress)
                             Spacer(Modifier.height(4.dp))
                         } else if (photos.size > 1) {
                             // Several photos: a tidy grid of equal tiles, two to a row.
@@ -706,6 +767,7 @@ private fun MessageItem(
                             }
                             Spacer(Modifier.height(4.dp))
                         }
+                        m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
                         Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
@@ -753,7 +815,11 @@ private fun MessageItem(
 private fun TypingBubble() {
     val reduced = rememberReducedMotion()
     val transition = rememberInfiniteTransition(label = "typing")
-    Surface(shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+    Surface(
+        shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.semantics { contentDescription = "Typing"; liveRegion = LiveRegionMode.Polite },
+    ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             repeat(3) { i ->
                 val alpha = if (reduced) 0.6f else {

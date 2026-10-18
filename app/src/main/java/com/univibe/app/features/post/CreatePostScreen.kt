@@ -196,7 +196,7 @@ fun CreatePostScreen(onBack: () -> Unit) {
     if (showAudience) {
         VibeBottomSheet(onDismiss = { showAudience = false }) {
             Text("Who can see this?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm))
-            AudienceOption(Icons.Outlined.Public, "Campus", "Everyone at your university", s.audience == PostAudience.Campus) {
+            AudienceOption(VibeIcons.Public, "Campus", "Everyone at your university", s.audience == PostAudience.Campus) {
                 viewModel.selectAudience(PostAudience.Campus); showAudience = false
             }
             AudienceOption(VibeIcons.Groups, "Followers", "Only people who follow you", s.audience == PostAudience.Followers) {

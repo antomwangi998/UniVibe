@@ -67,8 +67,7 @@ class FullProfileViewModel(
                 val candidate = if (isMe) null else runCatching { discover.getCandidates() }.getOrDefault(emptyList()).firstOrNull { it.id == studentId }
                 val allCommunities = runCatching { communityRepository.getCommunities() }.getOrDefault(emptyList())
                 val communities = profile.communityIds.mapNotNull { id -> allCommunities.firstOrNull { it.id == id } }
-                val posts = runCatching { feed.getPosts(FeedFilter.Campus) }.getOrDefault(emptyList())
-                    .filter { it.author.id == studentId }.take(3)
+                val posts = runCatching { feed.getPostsBy(studentId, 3) }.getOrDefault(emptyList())
                 _state.update {
                     it.copy(
                         loading = false,

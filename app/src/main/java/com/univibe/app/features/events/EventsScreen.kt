@@ -123,7 +123,7 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
             Text(event.title, style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.size(Spacing.sm))
             RsvpOption(VibeIcons.Check, "Going", event.rsvp == RsvpState.Going) { viewModel.chooseRsvp(RsvpState.Going) }
-            RsvpOption(Icons.Outlined.StarOutline, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
+            RsvpOption(VibeIcons.Star, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
             RsvpOption(VibeIcons.Close, "Not going", event.rsvp == RsvpState.None) { viewModel.chooseRsvp(RsvpState.None) }
         }
     }

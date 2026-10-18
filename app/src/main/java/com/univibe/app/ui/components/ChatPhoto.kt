@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -51,6 +53,8 @@ fun ChatPhoto(
     square: Boolean = false,
     tileWidth: Dp = 118.dp,
     sending: Boolean = false,
+    /** 0..1 while the photo uploads; null when unknown (a plain spinner is shown). */
+    progress: Float? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     var ratio by remember(path) { mutableStateOf(PhotoAspects.get(path) ?: knownRatio) }
@@ -105,7 +109,13 @@ fun ChatPhoto(
         }
         if (sending) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp, color = Color.White)
+                if (progress != null) {
+                    val percent = (progress * 100).toInt().coerceIn(0, 100)
+                    Box(Modifier.semantics { contentDescription = "Uploading photo, $percent percent" }, contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.size(52.dp), strokeWidth = 3.dp, color = Color.White, trackColor = Color.White.copy(alpha = 0.3f))
+                        Text("$percent%", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                    }
+                } else CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp, color = Color.White)
             }
         }
     }

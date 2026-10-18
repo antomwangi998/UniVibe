@@ -1,5 +1,7 @@
 package com.univibe.app.ui.components
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -41,7 +43,7 @@ fun StudentAvatar(
         }
         if (online) {
             Surface(
-                modifier = Modifier.align(Alignment.BottomEnd).size(size * 0.28f),
+                modifier = Modifier.align(Alignment.BottomEnd).size(size * 0.28f).semantics { contentDescription = "Online" },
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary,
                 border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),

@@ -15,6 +15,9 @@ import type { Storage } from './storage';
 export const MEDIA_LIMITS = {
   image: { maxBytes: 8 * 1024 * 1024, types: ['image/jpeg', 'image/png', 'image/webp'] },
   video: { maxBytes: 50 * 1024 * 1024, types: ['video/mp4', 'video/quicktime', 'video/webm'] },
+  /** Voice messages: up to five minutes of speech, which is well under this. */
+  audio: { maxBytes: 5 * 1024 * 1024, types: ['audio/mp4', 'audio/aac', 'audio/webm', 'audio/ogg'] },
+  maxAudioMs: 5 * 60 * 1000,
   /** Photos above this many pixels (width x height) are refused, however small the file is. */
   maxPixels: 30_000_000,
   /** Everything one student has stored (photos, videos, profile pictures), counted after processing. */
@@ -24,6 +27,7 @@ export const MEDIA_LIMITS = {
 const EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
   'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm',
+  'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/webm': 'weba', 'audio/ogg': 'ogg',
 };
 
 /** Does the start of the file look like what it claims to be? A wrong label is not enough to get a file accepted. */
@@ -35,19 +39,25 @@ export function looksLike(contentType: string, b: Uint8Array): boolean {
     case 'image/webp': return b.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP';
     case 'video/mp4':
     case 'video/quicktime': return b.length >= 12 && ascii(4, 8) === 'ftyp';
+    case 'audio/mp4': return b.length >= 12 && ascii(4, 8) === 'ftyp';
+    case 'audio/aac': return b.length >= 2 && b[0] === 0xff && (b[1] & 0xf6) === 0xf0; // ADTS frame header
+    case 'audio/ogg': return b.length >= 4 && ascii(0, 4) === 'OggS';
+    case 'audio/webm':
     case 'video/webm': return b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
     default: return false;
   }
 }
 
 const uploadSchema = z.object({
-  kind: z.enum(['image', 'video']),
-  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event']),
+  kind: z.enum(['image', 'video', 'audio']),
+  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
   // Pixel size, when the app knows it. Both or neither; used only to lay out the feed.
   width: z.number().int().positive().max(20000).optional(),
   height: z.number().int().positive().max(20000).optional(),
+  /** Length of a voice message, in milliseconds. Required for audio, not allowed for anything else. */
+  durationMs: z.number().int().positive().max(5 * 60 * 1000).optional(),
 }).refine((v) => (v.width === undefined) === (v.height === undefined), { message: 'Send both width and height, or neither.' });
 const photosSchema = z.object({
   avatarMediaId: z.string().uuid().nullable().optional(),
@@ -90,6 +100,11 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (b.kind === 'video' && b.purpose !== 'post') {
       throw new HttpError(400, 'validation', 'Profile and cover photos must be images.');
     }
+    if (b.kind === 'audio' && (b.purpose !== 'message' || !b.durationMs)) {
+      throw new HttpError(400, 'validation', 'Audio can only be a voice message, and needs its length.');
+    }
+    if (b.kind !== 'audio' && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages have a length.');
+    if (b.purpose === 'group' && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
     const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
     if (Number(used.rows[0].total) + b.size > MEDIA_LIMITS.perUserBytes) {
       throw new HttpError(
@@ -99,8 +114,8 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     }
     const key = `${user.id}/${randomUUID()}.${EXTENSIONS[b.contentType]}`;
     const created = await pool.query<{ id: string }>(
-      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id',
-      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null],
+      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id',
+      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null],
     );
     const uploadUrl = await storage.presignUpload(key, b.contentType, UPLOAD_LINK_SECONDS);
     return reply.status(201).send({
@@ -116,7 +131,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     const user = await ctx.requireUser(req);
     const storage = needStorage(ctx);
     const id = paramId(req);
-    const { rows } = await pool.query<{ kind: 'image' | 'video'; purpose: ImagePurpose; content_type: string; object_key: string; status: string }>(
+    const { rows } = await pool.query<{ kind: 'image' | 'video' | 'audio'; purpose: ImagePurpose; content_type: string; object_key: string; status: string }>(
       'select kind, purpose, content_type, object_key, status from media where id = $1 and owner_id = $2',
       [id, user.id],
     );

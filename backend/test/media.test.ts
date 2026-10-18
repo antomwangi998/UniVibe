@@ -21,3 +21,14 @@ describe('looksLike (what a file really is, not what it says it is)', () => {
     expect(looksLike('application/pdf', text('%PDF-1.7'))).toBe(false);
   });
 });
+
+describe('looksLike for voice messages', () => {
+  it('accepts real audio headers and rejects a mislabelled file', () => {
+    expect(looksLike('audio/mp4', Uint8Array.from([0, 0, 0, 0x1c, ...text('ftypM4A ')]))).toBe(true);
+    expect(looksLike('audio/aac', bytes(0xff, 0xf1, 0x50, 0x80))).toBe(true);
+    expect(looksLike('audio/ogg', text('OggS\0\u0002'))).toBe(true);
+    expect(looksLike('audio/webm', bytes(0x1a, 0x45, 0xdf, 0xa3))).toBe(true);
+    expect(looksLike('audio/mp4', bytes(0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0))).toBe(false); // a JPEG called audio
+    expect(looksLike('audio/mpeg', bytes(0xff, 0xfb, 0, 0))).toBe(false); // not on the allowed list
+  });
+});

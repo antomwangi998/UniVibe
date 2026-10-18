@@ -117,6 +117,10 @@ object VibeIcons {
 
     // ---- Controls and navigation chrome ---------------------------------------------------
     val Back = directional("Back", LINE, "M19 12 H5", "M11 6 L5 12 L11 18")
+    val Mic = icon("Mic", 0f, LINE, "M12 3.5 a3 3 0 0 1 3 3 V11.5 a3 3 0 0 1 -6 0 V6.5 a3 3 0 0 1 3 -3 Z", "M6.5 11 a5.5 5.5 0 0 0 11 0", "M12 16.5 V20.5", "M9 20.5 H15")
+    val Play = icon("Play", 0f, LINE, "M8 5.5 L18 12 L8 18.5 Z")
+    val Pause = icon("Pause", 0f, LINE, "M9 6 V18", "M15 6 V18")
+    val Stop = icon("Stop", 0f, LINE, "M7 7 H17 V17 H7 Z")
     val Close = icon("Close", 0f, LINE, "M6.5 6.5 L17.5 17.5", "M17.5 6.5 L6.5 17.5")
     val Add = icon("Add", 0f, LINE, "M12 5.5 V18.5", "M5.5 12 H18.5")
     val ChevronRight = directional("ChevronRight", LINE, "M9.5 6 L15.5 12 L9.5 18")
@@ -209,4 +213,85 @@ object VibeIcons {
         "Fire", 0f, LINE,
         "M12 20 C8 20 5.8 17.2 5.8 14.2 C5.8 11 8.5 9.5 9 6.5 C10.5 7.5 11.2 9 11.2 10.5 C12.8 9 13 7 12.5 4.5 C15.5 6.5 18.2 10 18.2 14.2 C18.2 17.2 16 20 12 20 Z",
     )
+
+    // ---- Settings, status and content kinds ---------------------------------------------------------
+    val Shield = icon("Shield", 0f, LINE, "M12 3.8 L19 6.5 V11.5 Q19 16.8 12 20.2 Q5 16.8 5 11.5 V6.5 Z")
+    val Document = icon(
+        "Document", 0f, LINE,
+        "M7.5 3.8 H13.5 L18 8.3 V18.5 Q18 20.2 16.5 20.2 H7.5 Q6 20.2 6 18.5 V5.5 Q6 3.8 7.5 3.8 Z",
+        "M13.5 3.8 V8.3 H18", "M9 12.5 H15", "M9 16 H13",
+    )
+    val Palette = icon(
+        "Palette", 0f, LINE,
+        "M12 3.8 C7.4 3.8 3.8 7.3 3.8 11.7 C3.8 16.2 7.5 20.2 11.6 20.2 C13.2 20.2 13.8 19.2 13.3 18 C12.8 16.8 13.6 15.6 15 15.6 H17 C18.8 15.6 20.2 14.2 20.2 12.4 C20.2 7.7 16.6 3.8 12 3.8 Z",
+        "M8 11.5 H8.01", "M10.6 7.8 H10.61", "M14.8 8.3 H14.81",
+    )
+    val Accessibility = icon(
+        "Accessibility", 0f, LINE,
+        "M10.2 5.2 A1.8 1.8 0 1 0 13.8 5.2 A1.8 1.8 0 1 0 10.2 5.2 Z",
+        "M5 9 L12 10.2 L19 9", "M12 10.2 V14.5", "M12 14.5 L9 20", "M12 14.5 L15 20",
+    )
+    val Help = icon("Help", 0f, LINE, RING, "M9.6 9.6 Q9.8 7.6 12 7.6 Q14.3 7.6 14.3 9.6 Q14.3 11 12 12 V13", "M12 16 H12.01")
+    val Star = icon("Star", 0f, LINE, "M12 4 L14.4 9.2 L20 9.9 L15.9 13.7 L17 19.3 L12 16.5 L7 19.3 L8.1 13.7 L4 9.9 L9.6 9.2 Z")
+    val Sensors = icon(
+        "Sensors", 0f, LINE,
+        "M10.6 12 A1.4 1.4 0 1 0 13.4 12 A1.4 1.4 0 1 0 10.6 12 Z",
+        "M8.5 8.5 A5 5 0 0 0 8.5 15.5", "M15.5 8.5 A5 5 0 0 1 15.5 15.5",
+        "M5.5 5.5 A9 9 0 0 0 5.5 18.5", "M18.5 5.5 A9 9 0 0 1 18.5 18.5",
+    )
+    val School = icon("School", 0f, LINE, "M12 5 L21 9.5 L12 14 L3 9.5 Z", "M6.5 12 V16 Q12 19.5 17.5 16 V12", "M21 9.5 V14")
+    val Public = icon("Public", 0f, LINE, RING, "M3.8 12 H20.2", "M12 3.8 Q8 12 12 20.2", "M12 3.8 Q16 12 12 20.2")
+    val Poll = icon("Poll", 0f, 2.2f, "M6 19 V12", "M12 19 V6", "M18 19 V9.5")
+    val Sun = icon(
+        "Sun", 0f, LINE,
+        "M8.4 12 A3.6 3.6 0 1 0 15.6 12 A3.6 3.6 0 1 0 8.4 12 Z",
+        "M12 3.5 V5.2", "M12 18.8 V20.5", "M3.5 12 H5.2", "M18.8 12 H20.5",
+        "M6 6 L7.2 7.2", "M16.8 16.8 L18 18", "M6 18 L7.2 16.8", "M16.8 7.2 L18 6",
+    )
+    val Moon = icon("Moon", 0f, LINE, "M19.5 14.5 A8 8 0 1 1 9.5 4.5 A6.5 6.5 0 0 0 19.5 14.5 Z")
+    val Contrast = icon("Contrast", 0f, LINE, RING, "M12 3.8 V20.2", "M12 3.8 A8.2 8.2 0 0 1 12 20.2")
+    val Hourglass = icon(
+        "Hourglass", 0f, LINE,
+        "M7 4 H17", "M7 20 H17", "M8 4 Q8 10 12 12 Q16 10 16 4", "M8 20 Q8 14 12 12 Q16 14 16 20",
+    )
+    val Grid = icon(
+        "Grid", 0f, LINE,
+        "M5.5 4.5 H10 Q11 4.5 11 5.5 V10 Q11 11 10 11 H5.5 Q4.5 11 4.5 10 V5.5 Q4.5 4.5 5.5 4.5 Z",
+        "M14 4.5 H18.5 Q19.5 4.5 19.5 5.5 V10 Q19.5 11 18.5 11 H14 Q13 11 13 10 V5.5 Q13 4.5 14 4.5 Z",
+        "M5.5 13 H10 Q11 13 11 14 V18.5 Q11 19.5 10 19.5 H5.5 Q4.5 19.5 4.5 18.5 V14 Q4.5 13 5.5 13 Z",
+        "M14 13 H18.5 Q19.5 13 19.5 14 V18.5 Q19.5 19.5 18.5 19.5 H14 Q13 19.5 13 18.5 V14 Q13 13 14 13 Z",
+    )
+    val EventBusy = icon("EventBusy", 0f, LINE, CAL_BODY, "M4 10 H20", "M8.5 3.5 V7", "M15.5 3.5 V7", "M9.8 12.8 L14.2 17.2", "M14.2 12.8 L9.8 17.2")
+    val Feed = icon(
+        "Feed", 0f, LINE,
+        "M6.5 4.5 H17.5 Q19 4.5 19 6 V9 Q19 10.5 17.5 10.5 H6.5 Q5 10.5 5 9 V6 Q5 4.5 6.5 4.5 Z",
+        "M6.5 13.5 H17.5 Q19 13.5 19 15 V18 Q19 19.5 17.5 19.5 H6.5 Q5 19.5 5 18 V15 Q5 13.5 6.5 13.5 Z",
+    )
+    val Devices = icon(
+        "Devices", 0f, LINE,
+        "M7 4.5 H19 Q20 4.5 20 5.5 V13.5 Q20 14.5 19 14.5 H7 Q6 14.5 6 13.5 V5.5 Q6 4.5 7 4.5 Z", "M10 19.5 H16", "M13 14.5 V19.5",
+    )
+    val CloudOff = icon(
+        "CloudOff", 0f, LINE,
+        "M7.5 18.5 H17 Q20.5 18.5 20.5 15 Q20.5 12 17.5 11.5 Q17 7.5 12.8 7.5 Q10 7.5 8.8 9.8 Q5 10 5 14 Q5 18.5 7.5 18.5 Z",
+        "M4.5 4.5 L19.5 19.5",
+    )
+    val Bug = icon(
+        "Bug", 0f, LINE,
+        "M9 8 Q9 5 12 5 Q15 5 15 8 V14 Q15 18.5 12 18.5 Q9 18.5 9 14 Z",
+        "M9 11 H5", "M15 11 H19", "M9 15 H6", "M15 15 H18", "M9.5 6.5 L7.5 4.5", "M14.5 6.5 L16.5 4.5",
+    )
+    val Badge = icon(
+        "Badge", 0f, LINE,
+        "M5.5 5.5 H18.5 Q20 5.5 20 7 V17 Q20 18.5 18.5 18.5 H5.5 Q4 18.5 4 17 V7 Q4 5.5 5.5 5.5 Z",
+        "M7.6 10.5 A1.9 1.9 0 1 0 11.4 10.5 A1.9 1.9 0 1 0 7.6 10.5 Z", "M14 10 H17.5", "M14 13.5 H17.5",
+    )
+    val Archive = icon(
+        "Archive", 0f, LINE,
+        "M4.5 5.5 H19.5 V9.5 H4.5 Z", "M5.8 9.5 V17.5 Q5.8 19 7.3 19 H16.7 Q18.2 19 18.2 17.5 V9.5", "M10 13 H14",
+    )
+    val Sparkle = icon("Sparkle", 0f, LINE, "M12 4 L13.6 9.4 L19 11 L13.6 12.6 L12 18 L10.4 12.6 L5 11 L10.4 9.4 Z")
+    val Logout = directional("Logout", LINE, "M10 5 H7 Q5 5 5 7 V17 Q5 19 7 19 H10", "M14 8 L18.5 12 L14 16", "M18.5 12 H9.5")
+    val Forward = directional("Forward", LINE, "M5 12 H19", "M13 6 L19 12 L13 18")
+    val ChatUnread = icon("ChatUnread", 0f, LINE, CHAT, "M19 5.5 H19.01")
 }

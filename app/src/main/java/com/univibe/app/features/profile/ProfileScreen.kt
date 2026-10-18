@@ -169,7 +169,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                 }
                 item {
                     VibeCard(onClick = actions.onOpenPrivacy) {
-                        NavLine(Icons.Outlined.Shield, "Privacy & safety", "Who can find and message you")
+                        NavLine(VibeIcons.Shield, "Privacy & safety", "Who can find and message you")
                     }
                 }
             }
@@ -254,7 +254,7 @@ private fun Header(profile: MyProfile, actions: ProfileActions) {
             textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.xs),
         )
         Row(Modifier.fillMaxWidth().padding(vertical = Spacing.md), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            Stat(Icons.Outlined.GridView, profile.posts.toString(), "Posts", Modifier.weight(1f), null)
+            Stat(VibeIcons.Grid, profile.posts.toString(), "Posts", Modifier.weight(1f), null)
             Stat(VibeIcons.Groups, compact(profile.followers), "Followers", Modifier.weight(1f), actions.onOpenFollowers)
             Stat(VibeIcons.PersonAdd, profile.following.toString(), "Following", Modifier.weight(1f), actions.onOpenFollowing)
         }

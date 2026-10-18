@@ -146,6 +146,45 @@ describe.skipIf(!url)('messaging (needs TEST_DATABASE_URL)', () => {
     expect(view.body.members.every((m: { lastDeliveredSeq: number }) => typeof m.lastDeliveredSeq === 'number')).toBe(true);
   });
 
+  it('group profile, rules and roles: who may change what, and who may speak', async () => {
+    const a = await h.student();
+    const b = await h.student();
+    const c = await h.student();
+    const outsider = await h.student();
+    const g = (await call('POST', `${V1}/conversations`, a.token, { type: 'group', title: 'Study group', memberIds: [b.id, c.id] })).body.id as string;
+    const view = async (who: Student) => (await call('GET', `${V1}/conversations/${g}`, who.token)).body;
+    let v = await view(a);
+    expect(v.description).toBe('');
+    expect(v.permissions).toEqual({ onlyAdminsCanMessage: false, onlyAdminsCanEditInfo: true, onlyAdminsCanAddMembers: true });
+    // info is admins-only by default
+    expect((await call('PUT', `${V1}/conversations/${g}/info`, b.token, { description: 'nope' })).status).toBe(403);
+    expect((await call('PUT', `${V1}/conversations/${g}/info`, a.token, { title: 'Renamed', description: '  Notes and past papers  ' })).status).toBe(204);
+    v = await view(b);
+    expect(v.title).toBe('Renamed');
+    expect(v.description).toBe('Notes and past papers');
+    expect((await call('PUT', `${V1}/conversations/${g}/info`, a.token, { description: 'x'.repeat(301) })).status).toBe(400);
+    expect((await call('PUT', `${V1}/conversations/${g}/info`, outsider.token, { description: 'hi' })).status).toBe(404);
+    // a photo must be a ready image uploaded for this purpose; anything else is refused
+    expect((await call('PUT', `${V1}/conversations/${g}/info`, a.token, { photoMediaId: '00000000-0000-4000-8000-000000000000' })).status).toBe(422);
+    // the owner opens editing to everyone; members may then edit
+    expect((await call('PUT', `${V1}/conversations/${g}/permissions`, b.token, { onlyAdminsCanEditInfo: false })).status).toBe(403);
+    expect((await call('PUT', `${V1}/conversations/${g}/permissions`, a.token, { onlyAdminsCanEditInfo: false })).status).toBe(204);
+    expect((await call('PUT', `${V1}/conversations/${g}/info`, b.token, { description: 'Open to all' })).status).toBe(204);
+    // admins-only posting: members are refused, the owner is not
+    await call('PUT', `${V1}/conversations/${g}/permissions`, a.token, { onlyAdminsCanMessage: true });
+    expect((await call('POST', `${V1}/conversations/${g}/messages`, b.token, { content: 'hi' })).status).toBe(403);
+    expect((await call('POST', `${V1}/conversations/${g}/messages`, a.token, { content: 'welcome' })).status).toBe(201);
+    // only the owner makes admins; an admin may then post; the owner's own role cannot be changed
+    expect((await call('PUT', `${V1}/conversations/${g}/members/${c.id}/role`, b.token, { role: 'admin' })).status).toBe(403);
+    expect((await call('PUT', `${V1}/conversations/${g}/members/${b.id}/role`, a.token, { role: 'admin' })).status).toBe(204);
+    expect((await call('POST', `${V1}/conversations/${g}/messages`, b.token, { content: 'now I can' })).status).toBe(201);
+    expect((await call('PUT', `${V1}/conversations/${g}/members/${a.id}/role`, a.token, { role: 'member' })).status).toBe(404);
+    // reporting a group is allowed once per person, quietly
+    expect((await call('POST', `${V1}/conversations/${g}/report`, c.token, { reason: 'spam' })).status).toBe(204);
+    expect((await call('POST', `${V1}/conversations/${g}/report`, c.token, { reason: 'spam' })).status).toBe(204);
+    expect(Number((await pool.query('select count(*) from conversation_reports where conversation_id = $1', [g])).rows[0].count)).toBe(1);
+  });
+
   it('a retried send with the same clientId creates one message', async () => {
     const a = await h.student();
     const b = await h.student();

@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.ui.components.VibeIconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -201,7 +202,7 @@ fun HomeScreen(
                 state.visiblePosts.isEmpty() -> item(key = "empty") {
                     Box(Modifier.padding(Spacing.md)) {
                         EmptyState(
-                            icon = Icons.Outlined.DynamicFeed,
+                            icon = VibeIcons.Feed,
                             title = "Nothing here yet",
                             message = "Follow more students and communities to fill your feed.",
                         )
@@ -239,6 +240,7 @@ fun HomeScreen(
             exit = slideOutVertically(tween(160)) { -it } + fadeOut(tween(160)),
         ) {
             CompactFeedBar(
+                onCreatePost = onCreatePost,
                 filter = state.filter,
                 unread = unreadNotifications,
                 onOpenFilters = { showFilters = true },
@@ -491,7 +493,7 @@ private fun Composer(
                 }
             }
             ComposerAction(VibeIcons.Events, "Event", onOpenEvents)
-            ComposerAction(Icons.Outlined.Poll, "Poll") { buildingPoll = true }
+            ComposerAction(VibeIcons.Poll, "Poll") { buildingPoll = true }
         }
     }
 
@@ -669,6 +671,7 @@ private fun FeedToolbar(filter: FeedFilter, onOpenFilters: () -> Unit) {
 /** Slim bar that replaces the full header while scrolling up through the feed: logo (back to top), filter, bell. */
 @Composable
 private fun CompactFeedBar(
+    onCreatePost: () -> Unit,
     filter: FeedFilter,
     unread: Int,
     onOpenFilters: () -> Unit,
@@ -689,6 +692,7 @@ private fun CompactFeedBar(
                 ) { UniVibeMark(markSize = 30.dp) }
                 FeedFilterButton(filter, onOpenFilters)
                 Spacer(Modifier.weight(1f))
+                VibeIconButton(VibeIcons.Edit, "Write a post", onCreatePost)
                 NotificationBell(unread, onOpenNotifications)
             }
             HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)

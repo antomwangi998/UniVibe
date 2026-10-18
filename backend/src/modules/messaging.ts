@@ -25,7 +25,7 @@ export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null }[];
   forwarded: boolean;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
@@ -35,8 +35,8 @@ export interface MessageView {
 type Q = Pick<PoolClient, 'query'>;
 
 async function membership(q: Q, conversationId: string, userId: string) {
-  const { rows } = await q.query<{ kind: 'direct' | 'group'; role: string; last_read_seq: string }>(
-    `select c.kind, m.role, m.last_read_seq from conversations c
+  const { rows } = await q.query<{ kind: 'direct' | 'group'; role: string; last_read_seq: string; only_admins_can_message: boolean; only_admins_can_add_members: boolean }>(
+    `select c.kind, m.role, m.last_read_seq, c.only_admins_can_message, c.only_admins_can_add_members from conversations c
        join conversation_members m on m.conversation_id = c.id and m.user_id = $2 where c.id = $1`,
     [conversationId, userId],
   );
@@ -63,13 +63,13 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position, width, height from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
   const byMessage = new Map<string, MessageView['media']>();
   await Promise.all(media.map(async (m) => {
     const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null });
+    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null });
     byMessage.set(m.message_id, list);
   }));
   return rows.map((r) => {
@@ -107,10 +107,13 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
 export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
-  if (!input.content && !input.mediaIds.length) throw new HttpError(400, 'validation', 'Write a message or attach a photo.');
+  if (!input.content && !input.mediaIds.length) throw new HttpError(400, 'validation', 'Write a message, attach a photo or record a voice message.');
 
   const { id, created } = await withTx(ctx.pool, async (client) => {
     const member = await membership(client, conversationId, me.id);
+    if (member.kind === 'group' && member.only_admins_can_message && member.role === 'member') {
+      throw new HttpError(403, 'forbidden', 'Only admins can send messages in this group.');
+    }
     if (member.kind === 'direct') {
       const other = (await client.query<{ id: string; permission: string; suspended: boolean; same_uni: boolean }>(
         `select u.id, coalesce(ps.message_permission, 'everyone') as permission,
@@ -143,9 +146,12 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
            from unnest($2::uuid[]) with ordinality as x(id, ord)
-          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind = 'image' and m.status = 'ready' and m.message_id is null`,
+          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio') and m.status = 'ready' and m.message_id is null`,
         [messageId, input.mediaIds, me.id]);
       if (attached.rowCount !== input.mediaIds.length) throw new HttpError(422, 'invalid_media', 'One of the attachments is not available.');
+      // A voice message stands alone: no other attachments with it.
+      const audio = await client.query("select 1 from media where message_id = $1 and kind = 'audio'", [messageId]);
+      if (audio.rowCount && input.mediaIds.length > 1) throw new HttpError(422, 'invalid_media', 'A voice message cannot have other attachments.');
     }
     await client.query('update conversations set last_message_at = now() where id = $1', [conversationId]);
     await client.query(
@@ -269,7 +275,9 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     async function conversationView(me: AuthUser, id: string) {
       await membership(pool, id, me.id);
       const conv = (await pool.query(
-        `select c.id, c.kind, c.title, c.created_at, c.last_message_at,
+        `select c.id, c.kind, c.title, c.created_at, c.last_message_at, c.description, c.created_by,
+                c.only_admins_can_message, c.only_admins_can_edit_info, c.only_admins_can_add_members,
+                (select pm.object_key from media pm where pm.id = c.photo_media_id and pm.status = 'ready') as photo_key,
                 (select p.id from messages p where p.id = c.pinned_message_id and p.status = 'active') as pinned_message_id
            from conversations c where c.id = $1`, [id])).rows[0];
       const mine = (await pool.query('select muted_until, archived, pinned from conversation_members where conversation_id = $1 and user_id = $2', [id, me.id])).rows[0];
@@ -280,6 +288,8 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
       return {
         id: conv.id, kind: conv.kind, title: conv.title, createdAt: conv.created_at, lastMessageAt: conv.last_message_at,
+        description: conv.description ?? '', createdBy: conv.created_by, photoUrl: await signedUrl(ctx, conv.photo_key ?? null),
+        permissions: { onlyAdminsCanMessage: conv.only_admins_can_message, onlyAdminsCanEditInfo: conv.only_admins_can_edit_info, onlyAdminsCanAddMembers: conv.only_admins_can_add_members },
         // The viewer's own settings for this conversation.
         mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned, pinnedMessageId: conv.pinned_message_id,
         members: await Promise.all(rows.map(async (r) => ({
@@ -300,12 +310,14 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         try { cur = JSON.parse(Buffer.from(q.cursor, 'base64url').toString()); } catch { throw new HttpError(400, 'invalid_cursor', 'That page cursor is not valid.'); }
       }
       const { rows } = await pool.query(
-        `select c.id, c.kind, c.title, c.last_message_at, cm.muted_until, cm.archived, cm.pinned, cm.marked_unread,
+        `select c.id, c.kind, c.title, c.last_message_at,
+                (select pm.object_key from media pm where pm.id = c.photo_media_id and pm.status = 'ready') as photo_key, cm.muted_until, cm.archived, cm.pinned, cm.marked_unread,
                 to_char(c.last_message_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_t,
                 (select count(*) from messages x where x.conversation_id = c.id and x.seq > cm.last_read_seq
                     and x.sender_id is distinct from $1 and x.status = 'active') as unread,
                 lm.id as lm_id, lm.sender_id as lm_sender, lm.content as lm_content, lm.status as lm_status, lm.created_at as lm_created,
-                (select count(*) from media md where md.message_id = lm.id and md.status = 'ready') as lm_media,
+                (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'image') as lm_media,
+                (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'audio') as lm_audio,
                 (select su.full_name from users su where su.id = lm.sender_id) as lm_sender_name,
                 (select count(*) from conversation_members mc where mc.conversation_id = c.id) as member_count,
                 -- Up to six other members of a group (names only): used for typing labels, collage avatars and untitled groups.
@@ -337,11 +349,11 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         items: await Promise.all(page.map(async (r) => ({
           id: r.id, kind: r.kind, title: r.title, lastMessageAt: r.last_message_at, unreadCount: Number(r.unread),
           mutedUntil: r.muted_until, archived: r.archived, pinned: r.pinned, markedUnread: r.marked_unread,
-          memberCount: Number(r.member_count), members: r.members_preview,
+          memberCount: Number(r.member_count), members: r.members_preview, photoUrl: await signedUrl(ctx, r.photo_key ?? null),
           with: r.card_id ? await toCard(ctx, r as CardRow) : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
-          mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, senderName: r.lm_sender_name ?? null,
+          mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, senderName: r.lm_sender_name ?? null,
           delivery: r.lm_delivery ?? null } : null,
         }))),
         nextCursor: more && last ? Buffer.from(JSON.stringify({ t: last.cursor_t, id: last.id })).toString('base64url') : null,
@@ -438,7 +450,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       ctx.limit(`members:${me.id}`, 30, 3600);
       const mine = await membership(pool, id, me.id);
       if (mine.kind !== 'group') throw new HttpError(400, 'validation', 'People can only be added to groups.');
-      if (mine.role === 'member') throw new HttpError(403, 'forbidden', 'Only admins can add people.');
+      if (mine.role === 'member' && mine.only_admins_can_add_members) throw new HttpError(403, 'forbidden', 'Only admins can add people.');
       const candidates = await eligibleUsers(me, b.userIds);
       const added = await withTx(pool, async (client) => {
         await client.query('select 1 from conversations where id = $1 for update', [id]); // serialises concurrent adds against the cap
