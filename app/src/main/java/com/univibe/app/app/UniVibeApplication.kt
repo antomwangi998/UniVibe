@@ -7,6 +7,12 @@ import com.univibe.app.data.auth.MockAuthRepository
 import com.univibe.app.data.auth.RemoteAuthRepository
 import com.univibe.app.data.net.UrlConnectionTransport
 import com.univibe.app.data.settings.AccountSecurityRepository
+import com.univibe.app.data.settings.LocalNotificationPrefsRepository
+import com.univibe.app.data.settings.LocalPrivacyRepository
+import com.univibe.app.data.settings.NotificationPrefsRepository
+import com.univibe.app.data.settings.RemoteNotificationPrefsRepository
+import com.univibe.app.data.settings.PrivacyRepository
+import com.univibe.app.data.settings.RemotePrivacyRepository
 import com.univibe.app.data.settings.DataStoreSettingsRepository
 import com.univibe.app.data.settings.RemoteAccountSecurityRepository
 import com.univibe.app.data.settings.UnavailableAccountSecurityRepository
@@ -159,6 +165,12 @@ object AppContainer {
     }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
+
+    /** Privacy choices and blocking. Real server: stored and enforced there. Offline preview build: this device only. */
+    val privacyRepository: PrivacyRepository by lazy { api?.let { RemotePrivacyRepository(it, settingsRepository) } ?: LocalPrivacyRepository(settingsRepository) }
+
+    /** Which notifications and push alerts you get. Real server: stored and enforced there. Offline preview build: this session only. */
+    val notificationPrefsRepository: NotificationPrefsRepository by lazy { api?.let { RemoteNotificationPrefsRepository(it) } ?: LocalNotificationPrefsRepository() }
 
     /** Login sessions and account status. Real server only: the offline preview build reports them as unavailable. */
     val accountSecurity: AccountSecurityRepository by lazy { api?.let { RemoteAccountSecurityRepository(it) } ?: UnavailableAccountSecurityRepository }

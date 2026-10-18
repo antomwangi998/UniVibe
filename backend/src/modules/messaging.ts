@@ -192,7 +192,9 @@ export async function markRead(ctx: Ctx, hub: Hub, me: AuthUser, conversationId:
   await ctx.pool.query("delete from notifications where recipient_id = $1 and type = 'message' and entity_id = $2", [me.id, conversationId]);
   await ctx.pool.query('update conversation_members set marked_unread = false where conversation_id = $1 and user_id = $2', [conversationId, me.id]);
   const seq = Number(res.rows[0].last_read_seq);
-  hub.sendMany((await audience(ctx.pool, conversationId, me.id)).filter((u) => u !== me.id), { type: 'message:read', conversationId, userId: me.id, upToSeq: seq });
+  // With read receipts off, other people are not told how far this person has read.
+  const receipts = (await ctx.pool.query('select coalesce((select read_receipts from privacy_settings where user_id = $1), true) as enabled', [me.id])).rows[0].enabled as boolean;
+  if (receipts) hub.sendMany((await audience(ctx.pool, conversationId, me.id)).filter((u) => u !== me.id), { type: 'message:read', conversationId, userId: me.id, upToSeq: seq });
   // Other devices of the same user learn the conversation is read.
   hub.send(me.id, { type: 'conversation:updated', conversationId });
   return seq;
@@ -272,7 +274,8 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
            from conversations c where c.id = $1`, [id])).rows[0];
       const mine = (await pool.query('select muted_until, archived, pinned from conversation_members where conversation_id = $1 and user_id = $2', [id, me.id])).rows[0];
       const { rows } = await pool.query(
-        `select m.role, m.last_read_seq, m.last_delivered_seq, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
+        `select m.role, m.last_read_seq, m.last_delivered_seq, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online,
+                coalesce(ps.read_receipts, true) as read_receipts from conversation_members m
            join users u on u.id = m.user_id ${cardJoin('u')} left join privacy_settings ps on ps.user_id = u.id
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
       return {
@@ -280,7 +283,8 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         // The viewer's own settings for this conversation.
         mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned, pinnedMessageId: conv.pinned_message_id,
         members: await Promise.all(rows.map(async (r) => ({
-          ...(await toCard(ctx, r as CardRow)), role: r.role, lastReadSeq: Number(r.last_read_seq), lastDeliveredSeq: Number(r.last_delivered_seq),
+          ...(await toCard(ctx, r as CardRow)), role: r.role, // Other people's read position is hidden when they turned read receipts off.
+          lastReadSeq: r.card_id === me.id || r.read_receipts ? Number(r.last_read_seq) : 0, lastDeliveredSeq: Number(r.last_delivered_seq),
           // Online state is shown only for people who allow it (always to themselves).
           online: r.card_id === me.id ? hub.isOnline(me.id) : r.show_online ? hub.isOnline(r.card_id) : null,
         }))),
@@ -310,9 +314,10 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                           where m3.conversation_id = c.id and m3.user_id <> $1 and c.kind = 'group'
                           order by m3.joined_at, u2.id limit 6) t) as members_preview,
                 -- Only for our own last message: how far it got, from the other members' delivery and read cursors.
-                case when lm.sender_id = $1 then (select case when bool_and(m5.last_read_seq >= lm.seq) then 'read'
+                case when lm.sender_id = $1 then (select case when bool_and(m5.last_read_seq >= lm.seq and coalesce(ps5.read_receipts, true)) then 'read'
                                                               when bool_and(m5.last_delivered_seq >= lm.seq) then 'delivered' else 'sent' end
-                                                    from conversation_members m5 where m5.conversation_id = c.id and m5.user_id <> $1) end as lm_delivery,
+                                                    from conversation_members m5 left join privacy_settings ps5 on ps5.user_id = m5.user_id
+                                                    where m5.conversation_id = c.id and m5.user_id <> $1) end as lm_delivery,
                 ${cardColumns('o')}
            from conversation_members cm join conversations c on c.id = cm.conversation_id
            left join lateral (select * from messages x where x.conversation_id = c.id and x.seq > cm.cleared_seq order by x.seq desc limit 1) lm on true

@@ -64,7 +64,7 @@ class SettingsRegistryTest {
     }
 
     @Test fun nothingIsListedForFeaturesThatDoNotExist() {
-        val banned = listOf("two-factor", "payments", "creator", "calls", "trusted devices")
+        val banned = listOf("two-factor", "payments", "creator", "calls", "trusted devices", "digest")
         assertTrue(SettingsRegistry.entries.none { e -> banned.any { b -> e.title.lowercase().contains(b) } })
     }
 }

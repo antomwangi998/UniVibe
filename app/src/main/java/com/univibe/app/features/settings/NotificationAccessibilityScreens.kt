@@ -4,7 +4,9 @@ import com.univibe.app.ui.components.VibeIcons
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Animation
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,7 +31,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.univibe.app.data.settings.NotificationPrefsChange
 import com.univibe.app.data.settings.TextScale
+import com.univibe.app.push.rememberNotificationsAllowed
+import com.univibe.app.push.openAppNotificationSettings
+import com.univibe.app.ui.components.BannerKind
+import com.univibe.app.ui.components.ErrorState
+import com.univibe.app.ui.components.MessageBanner
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeButtonStyle
 import com.univibe.app.ui.components.VibeCard
@@ -41,49 +50,85 @@ private fun openSystem(context: Context, action: String, withPackage: Boolean = 
 }
 
 @Composable
-fun NotificationsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
-    val s by viewModel.settings.collectAsStateWithLifecycle()
+fun NotificationsScreen(
+    onBack: () -> Unit,
+    viewModel: NotificationPrefsViewModel = viewModel(),
+    settingsViewModel: SettingsViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val device by settingsViewModel.settings.collectAsStateWithLifecycle()
+    val allowed by rememberNotificationsAllowed()
     val context = LocalContext.current
-    val on = s.notificationsEnabled
     SettingsPage("Notifications", onBack) {
-        item {
-            SettingsGroup {
-                SettingsSwitchRow("Allow notifications", on, { v -> viewModel.update { it.copy(notificationsEnabled = v) } },
-                    subtitle = "Turn everything off or choose below.", icon = VibeIcons.Bell)
+        if (!allowed) item {
+            MessageBanner("Android is blocking UniVibe's notifications, so no alert will appear on this phone whatever you choose below.", BannerKind.Info)
+        }
+        when (val st = state) {
+            NotificationPrefsState.Loading -> item {
+                Row(Modifier.fillMaxWidth().padding(Spacing.xl), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
+            }
+            is NotificationPrefsState.Failed -> item { ErrorState(st.message, onRetry = viewModel::load) }
+            is NotificationPrefsState.Ready -> {
+                val p = st.prefs
+                val busy = st.saving
+                st.error?.let { item { MessageBanner(it, BannerKind.Error) } }
+                item {
+                    SettingsGroup {
+                        SettingsSectionTitle("Alerts on your phone")
+                        SettingsSwitchRow("Push notifications", p.pushEnabled, { v -> viewModel.change(NotificationPrefsChange(pushEnabled = v)) },
+                            subtitle = "Alerts when UniVibe is closed. Account and security notices always come through.",
+                            icon = VibeIcons.Bell, enabled = !busy)
+                        RowDivider()
+                        SettingsSwitchRow("Messages", p.pushMessages, { v -> viewModel.change(NotificationPrefsChange(pushMessages = v)) },
+                            enabled = p.pushEnabled && !busy, icon = VibeIcons.Comment)
+                        RowDivider()
+                        SettingsSwitchRow("Social activity", p.pushSocial, { v -> viewModel.change(NotificationPrefsChange(pushSocial = v)) },
+                            subtitle = "Followers, likes, comments and replies.", enabled = p.pushEnabled && !busy, icon = VibeIcons.Heart)
+                        RowDivider()
+                        SettingsSwitchRow("Events", p.pushEvents, { v -> viewModel.change(NotificationPrefsChange(pushEvents = v)) },
+                            enabled = p.pushEnabled && !busy, icon = VibeIcons.Events)
+                    }
+                }
+                item {
+                    SettingsGroup {
+                        SettingsSectionTitle("Notification list")
+                        SettingsSwitchRow("New followers", p.follows, { v -> viewModel.change(NotificationPrefsChange(follows = v)) }, enabled = !busy, icon = VibeIcons.Groups)
+                        RowDivider()
+                        SettingsSwitchRow("Likes", p.likes, { v -> viewModel.change(NotificationPrefsChange(likes = v)) }, enabled = !busy, icon = VibeIcons.Heart)
+                        RowDivider()
+                        SettingsSwitchRow("Comments and replies", p.comments, { v -> viewModel.change(NotificationPrefsChange(comments = v)) }, enabled = !busy, icon = VibeIcons.Comment)
+                        RowDivider()
+                        SettingsSwitchRow("Messages", p.messages, { v -> viewModel.change(NotificationPrefsChange(messages = v)) }, enabled = !busy, icon = VibeIcons.Comment)
+                        RowDivider()
+                        SettingsSwitchRow("Event updates", p.events, { v -> viewModel.change(NotificationPrefsChange(events = v)) }, enabled = !busy, icon = VibeIcons.Events)
+                        RowDivider()
+                        SettingsSwitchRow("Group invitations", p.groups, { v -> viewModel.change(NotificationPrefsChange(groups = v)) }, enabled = !busy, icon = VibeIcons.Groups)
+                    }
+                }
+                item {
+                    SettingsNote(
+                        (if (st.synced) "Saved to your account. Turning something off in the notification list stops it being created at all; "
+                        else "Preview build: these choices last for this session only. ") +
+                            "the phone alerts above only decide what also pops up on your phone.",
+                    )
+                }
             }
         }
         item {
             SettingsGroup {
-                SettingsSectionTitle("Notify me about")
-                SettingsSwitchRow("Likes", s.notifyLikes, { v -> viewModel.update { it.copy(notifyLikes = v) } }, enabled = on, icon = VibeIcons.Heart)
-                RowDivider()
-                SettingsSwitchRow("Comments", s.notifyComments, { v -> viewModel.update { it.copy(notifyComments = v) } }, enabled = on, icon = VibeIcons.Comment)
-                RowDivider()
-                SettingsSwitchRow("Messages", s.notifyMessages, { v -> viewModel.update { it.copy(notifyMessages = v) } }, enabled = on, icon = VibeIcons.Comment)
-                RowDivider()
-                SettingsSwitchRow("Events & reminders", s.notifyEvents, { v -> viewModel.update { it.copy(notifyEvents = v) } }, enabled = on, icon = VibeIcons.Events)
-                RowDivider()
-                SettingsSwitchRow("Communities", s.notifyCommunities, { v -> viewModel.update { it.copy(notifyCommunities = v) } }, enabled = on, icon = VibeIcons.Groups)
-            }
-        }
-        item {
-            SettingsGroup {
-                SettingsSwitchRow("Quiet hours", s.quietHours, { v -> viewModel.update { it.copy(quietHours = v) } },
-                    subtitle = "Pause alerts from 10 PM to 7 AM.", enabled = on, icon = Icons.Outlined.Bedtime)
-                RowDivider()
-                SettingsSwitchRow("Weekly email digest", s.emailDigest, { v -> viewModel.update { it.copy(emailDigest = v) } },
-                    subtitle = "A summary of what you missed.", icon = VibeIcons.Mail)
+                SettingsSwitchRow("Quiet hours", device.quietHours, { v -> settingsViewModel.update { it.copy(quietHours = v) } },
+                    subtitle = "On this phone, no alerts from 10 PM to 7 AM (security notices excepted).", icon = Icons.Outlined.Bedtime)
             }
         }
         item {
             VibeButton(
-                "Open system notification settings",
-                onClick = { openSystem(context, Settings.ACTION_APP_NOTIFICATION_SETTINGS, withPackage = true) },
+                if (allowed) "Open Android notification settings" else "Turn on in Android settings",
+                onClick = { openAppNotificationSettings(context) },
                 modifier = Modifier.fillMaxWidth(), style = VibeButtonStyle.Secondary,
                 leadingIcon = VibeIcons.Settings,
             )
         }
-        item { SettingsNote("Your choices are saved now. Real push notifications arrive once UniVibe has a server to send them.") }
+        item { SettingsNote("Sound, vibration and the look of each kind of alert are set per channel in Android's notification settings.") }
     }
 }
 
