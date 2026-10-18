@@ -12,6 +12,12 @@ import java.io.IOException
 /** A request that needs a signed-in student. Implemented by the repository that holds the session. */
 interface AuthedApi {
     suspend fun authedCall(method: String, path: String, body: JSONObject? = null): AuthResult<HttpResponse>
+
+    /**
+     * A usable access token for connections that cannot go through [authedCall] (the live socket), refreshed if it is
+     * about to expire. Pass [stale] when the server just rejected that token. Null when signed out.
+     */
+    suspend fun currentAccessToken(stale: String? = null): String? = null
 }
 
 /** The server answered, but not with what the app needed. [code] is the server's error code, for example "already_voted". */

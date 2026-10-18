@@ -434,6 +434,16 @@ describe.skipIf(!url)('push, jobs, reactions, settings, sync, search (needs TEST
       expect((await call('PATCH', `${V1}/messages/${m.id}`, a.token, { content: 'fixed again' })).status).toBe(200);
       expect((await call('PUT', `${V1}/conversations/${conv}/settings`, b.token, { pinned: true })).body.pinned).toBe(true);
     });
+    it('the conversation detail shows how far each member has read', async () => {
+      const { a, b, conv } = await pair();
+      const m = await say(a, conv, 'seen?');
+      const before = await call('GET', `${V1}/conversations/${conv}`, a.token);
+      expect(before.body.members.find((x: { id: string }) => x.id === b.id).lastReadSeq).toBe(0);
+      await call('POST', `${V1}/conversations/${conv}/read`, b.token, { upToSeq: m.seq });
+      const after = await call('GET', `${V1}/conversations/${conv}`, a.token);
+      expect(after.body.members.find((x: { id: string }) => x.id === b.id).lastReadSeq).toBe(m.seq);
+      expect((await call('GET', `${V1}/conversations/${conv}`, (await h.student()).token)).status).toBe(404);
+    });
     it('the conversation detail carries the viewer\'s own settings', async () => {
       const { b, conv } = await pair();
       await call('PATCH', `${V1}/conversations/${conv}/settings`, b.token, { pinned: true });

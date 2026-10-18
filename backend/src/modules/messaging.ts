@@ -272,7 +272,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
            from conversations c where c.id = $1`, [id])).rows[0];
       const mine = (await pool.query('select muted_until, archived, pinned from conversation_members where conversation_id = $1 and user_id = $2', [id, me.id])).rows[0];
       const { rows } = await pool.query(
-        `select m.role, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
+        `select m.role, m.last_read_seq, ${cardColumns('u')}, coalesce(ps.show_online, true) as show_online from conversation_members m
            join users u on u.id = m.user_id ${cardJoin('u')} left join privacy_settings ps on ps.user_id = u.id
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
       return {
@@ -280,7 +280,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         // The viewer's own settings for this conversation.
         mutedUntil: mine.muted_until, archived: mine.archived, pinned: mine.pinned, pinnedMessageId: conv.pinned_message_id,
         members: await Promise.all(rows.map(async (r) => ({
-          ...(await toCard(ctx, r as CardRow)), role: r.role,
+          ...(await toCard(ctx, r as CardRow)), role: r.role, lastReadSeq: Number(r.last_read_seq),
           // Online state is shown only for people who allow it (always to themselves).
           online: r.card_id === me.id ? hub.isOnline(me.id) : r.show_online ? hub.isOnline(r.card_id) : null,
         }))),
