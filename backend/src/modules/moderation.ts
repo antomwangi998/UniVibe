@@ -24,6 +24,8 @@ const reviewSchema = z.object({ status: z.enum(['under_review', 'dismissed']), n
 const actionSchema = z.object({
   action: z.enum(['remove_content', 'restore_content', 'suspend_user', 'unsuspend_user']),
   note: z.string().trim().max(500).default(''),
+  /** Shown to the person the action is about, in Settings → Account status. `note` stays internal. */
+  userMessage: z.string().trim().max(300).default(''),
   days: z.number().int().min(1).max(MAX_SUSPENSION_DAYS).default(7),
 }).strict();
 
@@ -152,7 +154,7 @@ export function moderationRoutes(ctx: Ctx) {
         const report = await loadReport(me, id, client);
         const { target_type: type, target_id: targetId } = report;
         const record = (targetType: string, tid: string) =>
-          client.query('insert into moderation_actions (report_id, moderator_id, action, target_type, target_id, note) values ($1, $2, $3, $4, $5, $6)', [id, me.id, b.action, targetType, tid, b.note]);
+          client.query('insert into moderation_actions (report_id, moderator_id, action, target_type, target_id, note, user_message) values ($1, $2, $3, $4, $5, $6, $7)', [id, me.id, b.action, targetType, tid, b.note, b.userMessage]);
 
         if (b.action === 'remove_content' || b.action === 'restore_content') {
           if (type !== 'post' && type !== 'comment') throw new HttpError(422, 'validation', 'Only posts and comments can be removed or restored.');

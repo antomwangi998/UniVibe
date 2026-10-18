@@ -78,6 +78,10 @@ import com.univibe.app.features.profile.ProfileScreen
 import com.univibe.app.features.settings.AboutScreen
 import com.univibe.app.features.settings.AccessibilityScreen
 import com.univibe.app.features.settings.AccountScreen
+import com.univibe.app.features.settings.AccountStatusScreen
+import com.univibe.app.features.settings.AppearanceScreen
+import com.univibe.app.features.settings.LoginActivityScreen
+import com.univibe.app.features.settings.SecurityScreen
 import com.univibe.app.features.settings.BlockedUsersScreen
 import com.univibe.app.features.settings.ChangePasswordScreen
 import com.univibe.app.features.settings.DeleteAccountScreen
@@ -90,6 +94,7 @@ import com.univibe.app.features.settings.PrivacyScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
 import com.univibe.app.features.settings.SettingsScreen
+import com.univibe.app.features.settings.TermsScreen
 import com.univibe.app.ui.components.LocalChromeHidden
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.VibeBottomBar
@@ -310,12 +315,18 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
 
                     subScreen(SettingsRoutes.ROOT) {
-                        SettingsScreen(themeMode, onThemeModeChange, onBack = back, onNavigate = open, onLogOut = onLogOut)
+                        SettingsScreen(onBack = back, onNavigate = open, onLogOut = onLogOut)
                     }
                     subScreen(SettingsRoutes.ACCOUNT) {
                         AccountScreen(onBack = back, onChangePassword = { open(SettingsRoutes.PASSWORD) }, onDelete = { open(SettingsRoutes.DELETE) })
                     }
                     subScreen(SettingsRoutes.PASSWORD) { ChangePasswordScreen(onBack = back) }
+                    subScreen(SettingsRoutes.SECURITY) {
+                        SecurityScreen(onBack = back, onPassword = { open(SettingsRoutes.PASSWORD) }, onLoginActivity = { open(SettingsRoutes.LOGIN_ACTIVITY) })
+                    }
+                    subScreen(SettingsRoutes.LOGIN_ACTIVITY) { LoginActivityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.APPEARANCE) { AppearanceScreen(themeMode, onThemeModeChange, onBack = back) }
+                    subScreen(SettingsRoutes.STATUS) { AccountStatusScreen(onBack = back, onGuidelines = { open(SettingsRoutes.GUIDELINES) }) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY) {
                         PrivacyScreen(
@@ -333,9 +344,11 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onBack = back,
                             onFaq = { open(SettingsRoutes.FAQ) }, onReport = { open(SettingsRoutes.REPORT) },
                             onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onAbout = { open(SettingsRoutes.ABOUT) },
+                            onTerms = { open(SettingsRoutes.TERMS) },
                         )
                     }
                     subScreen(SettingsRoutes.FAQ) { FaqScreen(onBack = back) }
+                    subScreen(SettingsRoutes.TERMS) { TermsScreen(onBack = back) }
                     subScreen(SettingsRoutes.REPORT) { ReportProblemScreen(onBack = back) }
                     subScreen(SettingsRoutes.GUIDELINES) { GuidelinesScreen(onBack = back) }
                     subScreen(SettingsRoutes.ABOUT) { AboutScreen(onBack = back) }
