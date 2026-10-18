@@ -290,40 +290,6 @@ class MockStore(val demo: Boolean = true) {
         val i = posts.indexOfFirst { it.id == postId }
         if (i >= 0) posts[i] = posts[i].copy(commentCount = (posts[i].commentCount + delta).coerceAtLeast(0))
     }
-
-    fun messageFlow(chatId: String): MutableStateFlow<List<Message>> = messageFlows.getOrPut(chatId) {
-        val chat = chats.firstOrNull { it.id == chatId }
-        val now = System.currentTimeMillis()
-        MutableStateFlow(
-            if (chat == null || chat.lastMessage.isBlank()) emptyList() else listOf(
-                Message("${chatId}-1", chatId, firstSender(chat).first, firstSender(chat).second, "Hey! Are we still meeting?", now - 3_600_000, false),
-                Message("${chatId}-2", chatId, MockData.ME_ID, "You", "Yes, 3pm works for me.", now - 3_500_000, true, MessageStatus.Seen),
-                Message("${chatId}-3", chatId, firstSender(chat).first, firstSender(chat).second, chat.lastMessage, now - 1_800_000, false),
-            ),
-        )
-    }
-
-    /** Sender id and display name for seeded incoming messages: a real member in groups, the other person in 1:1s. */
-    private fun firstSender(chat: Chat): Pair<String, String> {
-        val other = group(chat.id)?.members?.firstOrNull { !it.isMe && it.role != GroupRole.Member }?.student
-            ?: group(chat.id)?.members?.firstOrNull { !it.isMe }?.student
-        return if (other != null) other.id to other.name else "other" to chat.title.substringBefore(' ')
-    }
-
-    fun typingFlow(chatId: String): MutableStateFlow<Boolean> = typingFlows.getOrPut(chatId) { MutableStateFlow(false) }
-
-    fun appendMessage(message: Message) {
-        messageFlow(message.chatId).update { it + message }
-        val i = chats.indexOfFirst { it.id == message.chatId }
-        if (i >= 0) {
-            val preview = if (message.imagePath != null && message.text.isBlank()) "Photo" else message.text
-            chats[i] = chats[i].copy(
-                lastMessage = if (message.isMine) "You: $preview" else preview,
-                timeLabel = formatClock(message.timeMillis),
-                unread = if (message.isMine) 0 else chats[i].unread,
-            )
-        }
-    }
 }
 
 class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepository {
