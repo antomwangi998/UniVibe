@@ -500,7 +500,7 @@ class MockNotificationRepository : NotificationRepository {
         AppNotification("n3", NotificationType.Follow, "Kevin Mutua", "started following you", "1h", false, NotificationTarget.Student("s4"), MockData.kevin),
         AppNotification("n4", NotificationType.Event, "Campus Night", "starts tomorrow at 7:00 PM", "3h", false, NotificationTarget.Event("e1")),
         AppNotification("n5", NotificationType.Connection, "Amina Hassan", "also wants to connect with you", "5h", true, NotificationTarget.Student("s5"), MockData.amina),
-        AppNotification("n6", NotificationType.Community, "Tech Club", "invited you to join", "8h", true, NotificationTarget.Community("tech"), MockData.tech),
+        AppNotification("n6", NotificationType.Community, "Tech Club", "invited you to join", "8h", true, NotificationTarget.Community("tech")),
         AppNotification("n7", NotificationType.Message, "Grace Wanjiku", "sent you a message", "1d", true, NotificationTarget.Chat("c1"), MockData.grace),
         AppNotification("n8", NotificationType.System, "Welcome to UniVibe", "Add a photo and your interests so classmates can find you.", "2d", true),
     )
@@ -567,7 +567,7 @@ class MockMessageRepository(
         // Mirrors server rules: group posting permissions, and replies must point at a real message in this chat.
         store.group(chatId)?.let { check(it.canMessage) { "Only admins can send messages in this group." } }
         if (replyTo != null) require(store.messageFlow(chatId).value.any { it.id == replyTo.messageId }) { "Message not found" }
-        store.appendMessage(Message("m${System.nanoTime()}", chatId, MockData.ME_ID, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sent, imagePath, replyTo))
+        store.appendMessage(Message("m${System.nanoTime()}", chatId, MockData.ME_ID, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sent, imagePath, replyTo = replyTo))
         if (!autoReply) return
         // MOCK: a fake reply so the conversation feels alive. A real backend replaces all of this.
         scope.launch {
@@ -998,4 +998,224 @@ class MockProfileRepository(
         val stats = if (live() != null) runCatching { backend?.myStats() }.getOrNull() else null
         // With a real account the name, course, interests and bio come from it; only photos are still kept on this device.
         val student = if (live != null) base.student else base.student.copy(
-[...]
+            name = e.name ?: base.student.name,
+            course = e.course ?: base.student.course,
+            year = e.year ?: base.student.year,
+            interests = e.interests ?: base.student.interests,
+        )
+        return base.copy(
+            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = if (live != null) live.avatarUrl else e.avatarPath, coverPath = if (live != null) live.coverUrl else e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
+            posts = stats?.posts ?: (base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" }),
+            savedPosts = stats?.saved ?: store.saved.size,
+            followers = stats?.followers ?: base.followers,
+            following = stats?.following ?: store.following.size,
+        )
+    }
+
+    override suspend fun updateProfile(update: ProfileUpdate) {
+        val old = local.edits.first()
+        val signedIn = account()
+        if (signedIn != null) {
+            val edit = ProfileEdit(
+                update.name, update.course, update.year, update.interests, update.bio,
+                avatar = photoChange(update.avatarPath, signedIn.avatarUrl), cover = photoChange(update.coverPath, signedIn.coverUrl),
+            )
+            check(saveAccount(edit)) { "Profile not saved" }
+            MockData.applyAccount(account())
+            // The photos now live on the server; the temporary copies on this phone are no longer needed.
+            listOfNotNull(update.avatarPath, update.coverPath).filter { !it.startsWith("https://") }.forEach(PhotoStore::delete)
+        } else {
+            local.update {
+                it.copy(
+                    name = update.name.trim(), bio = update.bio.trim(), course = update.course.trim(), year = update.year,
+                    interests = update.interests, avatarPath = update.avatarPath, coverPath = update.coverPath,
+                )
+            }
+        }
+        if (old.avatarPath != update.avatarPath) PhotoStore.delete(old.avatarPath)
+        if (old.coverPath != update.coverPath) PhotoStore.delete(old.coverPath)
+    }
+
+    private fun photoChange(new: String?, current: String?): PhotoChange = when {
+        new == current -> PhotoChange.Keep
+        new == null -> PhotoChange.Remove
+        new.startsWith("https://") -> PhotoChange.Keep // an unchanged server photo (its link may differ from the saved one)
+        else -> PhotoChange.Replace(new)
+    }
+
+    override suspend fun addPhoto(path: String) { local.update { it.copy(photos = listOf(path) + it.photos) } }
+
+    override suspend fun setDiscoverPhoto(path: String?) {
+        val old = local.edits.first().discoverPhotoPath
+        local.update { it.copy(discoverPhotoPath = path) }
+        if (old != path) PhotoStore.delete(old)
+    }
+
+    override suspend fun removePhoto(path: String) {
+        local.update { it.copy(photos = it.photos - path) }
+        PhotoStore.delete(path)
+    }
+
+    override suspend fun getStudent(id: String): Student? {
+        if (live() != null) return getStudentProfile(id)?.student
+        return MockData.allStudents.firstOrNull { it.id == id }
+    }
+
+    override suspend fun getStudentProfile(id: String): StudentProfile? {
+        val account = live()
+        if (backend != null && account != null) {
+            if (id == account.id || id == MockData.ME_ID) {
+                val mine = getMyProfile()
+                return StudentProfile(mine.student, mine.bio, mine.posts, mine.followers, mine.following)
+            }
+            val found = backend.studentProfile(id) ?: return null
+            // The data layer computes what you have in common; the UI never guesses it.
+            val student = found.student.copy(
+                shared = found.student.interests.filter { it in account.interests },
+                sameCourse = found.student.course.isNotBlank() && found.student.course == account.course,
+            )
+            return found.copy(student = student)
+        }
+        if (id == MockData.ME_ID) {
+            val me = MockData.me
+            return StudentProfile(me.student, me.bio, me.posts, me.followers, me.following, listOf("tech", "photo", "debate"))
+        }
+        val student = MockData.allStudents.firstOrNull { it.id == id } ?: return null
+        val extra = MockData.studentExtras[id]
+        val me = MockData.aisha
+        // The data layer computes what you have in common; the UI never guesses it.
+        val withCommon = student.copy(shared = student.interests.filter { it in me.interests }, sameCourse = student.course == me.course)
+        return StudentProfile(
+            withCommon, extra?.bio.orEmpty(), extra?.posts ?: 0, extra?.followers ?: 0, extra?.following ?: 0,
+            extra?.communityIds.orEmpty(),
+        )
+    }
+
+    override suspend fun getFollowers(): List<FollowEntry> =
+        if (live() != null) backend!!.followers() else
+        listOf(MockData.kevin, MockData.amina, MockData.grace, MockData.brian).map { FollowEntry(it, it.id in store.following) }
+
+    override suspend fun getFollowing(): List<FollowEntry> =
+        if (live() != null) backend!!.following() else
+        MockData.allStudents.filter { it.id != MockData.ME_ID && it.id in store.following }.map { FollowEntry(it, true) }
+
+    override suspend fun setFollowing(studentId: String, following: Boolean) {
+        if (live() != null) {
+            backend!!.setFollowing(studentId, following)
+            return
+        }
+        if (following) store.following += studentId else store.following -= studentId
+    }
+}
+
+class MockGroupRepository(private val store: MockStore = MockStore()) : GroupRepository {
+    private fun need(chatId: String): GroupInfo = store.group(chatId) ?: throw IllegalArgumentException("Unknown group")
+
+    private fun save(info: GroupInfo) { store.groups[info.chatId] = info }
+
+    override suspend fun getGroup(chatId: String): GroupInfo? {
+        delay(250)
+        val g = store.group(chatId) ?: return null
+        if (g.members.none { it.isMe }) return null
+        return g.copy(muted = chatId in store.mutedChats)
+    }
+
+    override suspend fun updateInfo(chatId: String, name: String, description: String) {
+        val g = need(chatId)
+        check(g.canEditInfo) { "Only admins can edit this group." }
+        val n = name.trim()
+        require(n.length in 1..40) { "Name must be 1 to 40 characters" }
+        require(description.trim().length <= 200) { "Description is too long" }
+        save(g.copy(name = n, description = description.trim()))
+        store.renameChat(chatId, n)
+    }
+
+    override suspend fun setPhoto(chatId: String, path: String?) {
+        val g = need(chatId)
+        check(g.canEditInfo) { "Only admins can edit this group." }
+        if (g.photoPath != path) PhotoStore.delete(g.photoPath)
+        save(g.copy(photoPath = path))
+    }
+
+    override suspend fun getAddable(chatId: String): List<Student> {
+        val g = need(chatId)
+        check(g.canAddMembers) { "Only admins can add members." }
+        if (!store.demo) return emptyList() // no invented people with a real backend
+        // Community accounts (like Tech Club) are not people and can't join chats.
+        return MockData.allStudents.filter { s -> s.id != MockData.tech.id && g.members.none { it.student.id == s.id } }
+    }
+
+    override suspend fun addMembers(chatId: String, studentIds: List<String>) {
+        val g = need(chatId)
+        check(g.canAddMembers) { "Only admins can add members." }
+        val toAdd = studentIds.distinct().mapNotNull { id -> MockData.allStudents.firstOrNull { it.id == id && it.id != MockData.tech.id } }
+            .filter { s -> g.members.none { it.student.id == s.id } }
+        require(g.members.size + toAdd.size <= 256) { "Groups can have up to 256 members" }
+        save(g.copy(members = g.members + toAdd.map { GroupMember(it, GroupRole.Member) }))
+    }
+
+    override suspend fun removeMember(chatId: String, studentId: String) {
+        val g = need(chatId)
+        check(g.iAmAdmin) { "Only admins can remove members." }
+        val target = g.members.firstOrNull { it.student.id == studentId } ?: return
+        check(!target.isMe) { "Use Leave group to remove yourself." }
+        check(target.role != GroupRole.Owner) { "The owner can't be removed." }
+        check(target.role != GroupRole.Admin || g.myRole == GroupRole.Owner) { "Only the owner can remove an admin." }
+        save(g.copy(members = g.members - target))
+    }
+
+    override suspend fun setRole(chatId: String, studentId: String, role: GroupRole) {
+        val g = need(chatId)
+        check(g.myRole == GroupRole.Owner) { "Only the owner can change admins." }
+        require(role != GroupRole.Owner) { "Ownership can't be assigned here." }
+        val target = g.members.firstOrNull { it.student.id == studentId } ?: return
+        check(!target.isMe && target.role != GroupRole.Owner) { "You can't change that role." }
+        save(g.copy(members = g.members.map { if (it == target) it.copy(role = role) else it }))
+    }
+
+    override suspend fun setPermissions(chatId: String, onlyAdminsCanMessage: Boolean, onlyAdminsCanEditInfo: Boolean, onlyAdminsCanAddMembers: Boolean) {
+        val g = need(chatId)
+        check(g.iAmAdmin) { "Only admins can change these settings." }
+        save(g.copy(onlyAdminsCanMessage = onlyAdminsCanMessage, onlyAdminsCanEditInfo = onlyAdminsCanEditInfo, onlyAdminsCanAddMembers = onlyAdminsCanAddMembers))
+    }
+
+    override suspend fun leave(chatId: String) {
+        val g = need(chatId)
+        var members = g.members.filterNot { it.isMe }
+        if (g.myRole == GroupRole.Owner && members.isNotEmpty()) {
+            // Ownership passes to the longest-standing admin, otherwise the first member.
+            val heir = members.firstOrNull { it.role == GroupRole.Admin } ?: members.first()
+            members = members.map { if (it == heir) it.copy(role = GroupRole.Owner) else it }
+        }
+        save(g.copy(members = members))
+        store.archived += chatId
+    }
+
+    override suspend fun report(chatId: String, reason: String) = Unit // mock: nothing is sent
+
+    override suspend fun getContacts(): List<Student> {
+        delay(250)
+        if (!store.demo) return emptyList() // no invented people with a real backend
+        return MockData.allStudents.filter { it.id != MockData.tech.id && it.id != MockData.aisha.id }
+    }
+
+    override suspend fun createGroup(name: String, description: String, photoPath: String?, memberIds: List<String>): String {
+        delay(400)
+        val n = name.trim()
+        require(n.length in 1..40) { "Name must be 1 to 40 characters" }
+        require(description.trim().length <= 200) { "Description is too long" }
+        val members = memberIds.distinct().mapNotNull { id ->
+            MockData.allStudents.firstOrNull { it.id == id && it.id != MockData.tech.id && it.id != MockData.aisha.id }
+        }
+        require(members.isNotEmpty()) { "Add at least one person" }
+        require(members.size <= 255) { "Groups can have up to 256 members" }
+        val id = "g${System.nanoTime()}"
+        store.chats.add(0, Chat(id, n, "", "", isGroup = true))
+        store.groups[id] = GroupInfo(
+            chatId = id, name = n, description = description.trim(), photoPath = photoPath,
+            createdBy = "You", createdLabel = "Created today",
+            members = listOf(GroupMember(MockData.aisha, GroupRole.Owner, isMe = true)) + members.map { GroupMember(it, GroupRole.Member) },
+        )
+        return id
+    }
+}
