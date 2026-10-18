@@ -8,7 +8,7 @@ import com.univibe.app.data.net.ApiException
 import java.io.IOException
 import com.univibe.app.data.media.VideoStore
 import com.univibe.app.data.model.FeedFilter
-import com.univibe.app.data.settings.BlockedUser
+import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.PostLimits
@@ -52,6 +52,7 @@ data class HomeUiState(
 class HomeViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
+    private val privacy: PrivacyRepository = AppContainer.privacyRepository,
 ) : ViewModel() {
     /** False when the server can't store photos and videos yet: the composer then hides those buttons. */
     val supportsMedia: Boolean = repository.supportsMedia
@@ -151,12 +152,19 @@ class HomeViewModel(
 
     fun blockAuthor() {
         val author = _state.value.menuPost?.author ?: return
+        _state.update { it.copy(menuPost = null) }
         viewModelScope.launch {
-            settings.update { s ->
-                if (s.blocked.any { it.id == author.id }) s else s.copy(blocked = s.blocked + BlockedUser(author.id, author.name))
+            // Only say "blocked" once the server has actually recorded it.
+            val notice = try {
+                privacy.block(author.id, author.name)
+                "${author.name} blocked. You can undo this in Settings."
+            } catch (e: IOException) {
+                "Couldn't block ${author.name}. Check your connection and try again."
+            } catch (e: ApiException) {
+                "Couldn't block ${author.name}. Try again."
             }
+            _state.update { it.copy(notice = notice) }
         }
-        _state.update { it.copy(menuPost = null, notice = "${author.name} blocked. You can undo this in Settings.") }
     }
 
     fun reportPost(reason: String) {

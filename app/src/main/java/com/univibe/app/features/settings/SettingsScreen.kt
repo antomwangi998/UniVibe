@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Accessibility
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.Lock
@@ -119,6 +120,8 @@ fun SettingsScreen(
                     SettingsNavRow(Icons.Outlined.Palette, "Appearance", { onNavigate(SettingsRoutes.APPEARANCE) })
                     RowDivider()
                     SettingsNavRow(Icons.Outlined.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
+                    RowDivider()
+                    SettingsNavRow(Icons.Outlined.AdminPanelSettings, "Permissions", { onNavigate(SettingsRoutes.PERMISSIONS) })
                 }
             }
             item {
@@ -156,6 +159,7 @@ private fun iconFor(category: String): ImageVector = when (category) {
     SettingsCategories.NOTIFICATIONS -> VibeIcons.Bell
     SettingsCategories.APPEARANCE -> Icons.Outlined.Palette
     SettingsCategories.ACCESSIBILITY -> Icons.Outlined.Accessibility
+    SettingsCategories.PERMISSIONS -> Icons.Outlined.AdminPanelSettings
     SettingsCategories.STATUS -> Icons.Outlined.Gavel
     else -> Icons.AutoMirrored.Outlined.HelpOutline
 }

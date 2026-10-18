@@ -26,6 +26,7 @@ object SettingsCategories {
     const val NOTIFICATIONS = "Notifications"
     const val APPEARANCE = "Appearance"
     const val ACCESSIBILITY = "Accessibility"
+    const val PERMISSIONS = "Permissions"
     const val STATUS = "Account status"
     const val HELP = "Help & support"
 }
@@ -56,9 +57,8 @@ object SettingsRegistry {
         e("safety", "Safety tips", "Staying safe on campus and online", SettingsRoutes.SAFETY, SettingsCategories.PRIVACY, "Safety tips"),
         // Notifications
         e("notifications", "Notifications", "Choose which alerts you get", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, keywords = listOf("alerts", "push", "mute notifications")),
-        e("notify-types", "Likes, comments, messages and events", "Pick the activity that notifies you", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Alert types", keywords = listOf("likes", "comments", "messages", "events", "communities")),
-        e("quiet-hours", "Quiet hours", "Pause alerts at set times", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Quiet hours", keywords = listOf("do not disturb", "silence", "night")),
-        e("email-digest", "Email digest", "A summary email of what you missed", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Email digest", keywords = listOf("weekly", "email")),
+        e("notify-types", "Likes, comments, messages and events", "Pick which activity notifies you and which alerts reach your phone", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Alert types", keywords = listOf("likes", "comments", "messages", "events", "communities")),
+        e("quiet-hours", "Quiet hours", "No alerts on this phone from 10 PM to 7 AM", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Quiet hours", keywords = listOf("do not disturb", "silence", "night")),
         // Appearance
         e("appearance", "Appearance", "Light, dark or match your phone", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, keywords = listOf("theme")),
         e("theme", "Theme", "System, Light or Dark", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, "Theme", keywords = listOf("dark mode", "light mode", "night mode", "system default")),
@@ -66,6 +66,10 @@ object SettingsRegistry {
         e("accessibility", "Accessibility", "Text size and motion", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY),
         e("text-size", "Text size", "Make text larger", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY, "Text size", keywords = listOf("font", "bigger text", "font scaling", "large")),
         e("reduce-motion", "Reduce motion", "Fewer animations", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY, "Reduce motion", keywords = listOf("animations", "transitions")),
+        // Permissions
+        e("permissions", "Permissions", "What UniVibe is allowed to do on your phone", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, keywords = listOf("allow", "access", "android settings")),
+        e("perm-notifications", "Notification permission", "Allow or block alerts from UniVibe", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Notifications", keywords = listOf("notifications blocked", "turn on notifications")),
+        e("perm-photos", "Photos and videos access", "How UniVibe gets the photos you choose", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Photos and videos", keywords = listOf("camera", "gallery", "storage", "microphone", "contacts", "location")),
         // Status
         e("status", "Account status", "Your standing, removed content and notices from moderators", SettingsRoutes.STATUS, SettingsCategories.STATUS, keywords = listOf("suspended", "suspension", "restriction", "moderation", "warning", "banned")),
         // Help

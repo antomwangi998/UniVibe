@@ -30,6 +30,30 @@ describe.skipIf(!url)('messaging (needs TEST_DATABASE_URL)', () => {
     await h.close();
   });
 
+  it('read receipts off: the other person is not told, in live events or in conversation data', async () => {
+    const a = await h.student();
+    const b = await h.student();
+    expect((await call('GET', `${V1}/me/privacy`, b.token)).body.readReceipts).toBe(true);
+    expect((await call('PUT', `${V1}/me/privacy`, b.token, { readReceipts: false })).body.readReceipts).toBe(false);
+    expect((await call('PUT', `${V1}/me/privacy`, b.token, { readReceipts: 'no' })).status).toBe(400);
+    const conv = await direct(a, b);
+    await call('POST', `${V1}/conversations/${conv}/messages`, a.token, { content: 'hi' });
+    await call('POST', `${V1}/conversations/${conv}/delivered`, b.token, { upToSeq: 1_000_000 });
+    const aSocket = await connect(a.token);
+    expect((await call('POST', `${V1}/conversations/${conv}/read`, b.token, {})).status).toBe(204);
+    await quiet();
+    expect(aSocket.events.some((e) => e.type === 'message:read')).toBe(false);
+    const row = (await call('GET', `${V1}/conversations`, a.token)).body.items.find((x: { id: string }) => x.id === conv);
+    expect(row.lastMessage.delivery).toBe('delivered');
+    const members = (await call('GET', `${V1}/conversations/${conv}`, a.token)).body.members;
+    expect(members.find((m: { id: string }) => m.id === b.id).lastReadSeq).toBe(0);
+    // b still has it marked read for themselves
+    expect((await call('GET', `${V1}/conversations`, b.token)).body.items.find((x: { id: string }) => x.id === conv).unreadCount).toBe(0);
+    // turning it back on shows read state again from the next read
+    await call('PUT', `${V1}/me/privacy`, b.token, { readReceipts: true });
+    expect((await call('GET', `${V1}/conversations`, a.token)).body.items.find((x: { id: string }) => x.id === conv).lastMessage.delivery).toBe('read');
+  });
+
   /** Opens a socket, authenticates, and records every event so tests can wait for specific ones. */
   async function connect(token: string | null, authenticate = true) {
     const ws = new WebSocket(`ws://127.0.0.1:${port}${V1}/ws`);

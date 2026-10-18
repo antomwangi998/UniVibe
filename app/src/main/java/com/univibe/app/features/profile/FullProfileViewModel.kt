@@ -12,7 +12,7 @@ import com.univibe.app.data.repository.DiscoverRepository
 import com.univibe.app.data.repository.FeedRepository
 import com.univibe.app.data.repository.MessageRepository
 import com.univibe.app.data.repository.ProfileRepository
-import com.univibe.app.data.settings.BlockedUser
+import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +45,7 @@ class FullProfileViewModel(
     private val feed: FeedRepository = AppContainer.feedRepository,
     private val messages: MessageRepository = AppContainer.messageRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
+    private val privacy: PrivacyRepository = AppContainer.privacyRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FullProfileUiState())
     val state: StateFlow<FullProfileUiState> = _state.asStateFlow()
@@ -121,10 +122,17 @@ class FullProfileViewModel(
 
     fun block() {
         val student = _state.value.profile?.student ?: return
+        _state.update { it.copy(menuOpen = false) }
         viewModelScope.launch {
-            settings.update { s -> if (s.blocked.any { it.id == student.id }) s else s.copy(blocked = s.blocked + BlockedUser(student.id, student.name)) }
+            try {
+                privacy.block(student.id, student.name)
+                _state.update { it.copy(canDecide = false, notice = "${student.name} blocked. You can undo this in Settings.") }
+            } catch (e: java.io.IOException) {
+                _state.update { it.copy(notice = "Couldn't block ${student.name}. Check your connection and try again.") }
+            } catch (e: com.univibe.app.data.net.ApiException) {
+                _state.update { it.copy(notice = "Couldn't block ${student.name}. Try again.") }
+            }
         }
-        _state.update { it.copy(menuOpen = false, canDecide = false, notice = "${student.name} blocked. You can undo this in Settings.") }
     }
 
     fun report() = _state.update { it.copy(menuOpen = false, notice = "Thanks. We'll review this profile.") }
