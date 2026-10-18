@@ -127,7 +127,20 @@ class ConversationViewModel(
     private fun fail(e: Exception, fallback: String) =
         _state.update { it.copy(notice = e.message?.takeIf { m -> m.length < 90 } ?: fallback) }
 
-    fun onInput(v: String) = _state.update { it.copy(input = v) }
+    fun onInput(v: String) {
+        _state.update { it.copy(input = v) }
+        notifyTyping(v.isNotBlank())
+    }
+
+    private var lastTypingPing = 0L
+
+    /** Tells the others we are typing at most every 3 seconds, and once when we stop. The server expires it by itself too. */
+    private fun notifyTyping(typing: Boolean) {
+        val now = System.currentTimeMillis()
+        if (typing) { if (now - lastTypingPing < 3_000) return } else if (lastTypingPing == 0L) return
+        lastTypingPing = if (typing) now else 0L
+        viewModelScope.launch { runCatching { messages.typingChanged(chatId, typing) } }
+    }
 
     fun loadOlder() {
         viewModelScope.launch {
@@ -151,6 +164,7 @@ class ConversationViewModel(
         }
         val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
         _state.update { it.copy(input = "", replyTo = null) }
+        notifyTyping(false)
         viewModelScope.launch {
             try {
                 messages.send(chatId, s.input, null, reply)

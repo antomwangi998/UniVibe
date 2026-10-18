@@ -15,11 +15,23 @@ through history 50 at a time · **photos**: pick one, it uploads (resized to 160
 the chat to open it full screen with pinch-zoom. Your own photos open from the copy on your phone (instant, works offline);
 other people's open from a temporary server link. Photos from a chat also appear in the group info photo grid.
 
-New messages arrive by **polling every 3 seconds while a chat is open** (this also refreshes edits, unsends, reactions and the
-pinned message). The server already supports a live WebSocket; moving the app to it is the next step.
+**Live connection.** While signed in, the app keeps one WebSocket (`wss://<server>/api/v1/ws`, OkHttp) open. It signs in with
+the first frame (the token is never in the URL), reconnects with exponential backoff and jitter, asks for a fresh token if the
+server rejects one, and re-syncs everything on screen after each reconnect. With it: new messages, edits, unsends, reactions and
+pins appear at once · **typing indicator** (sent at most every 3 s, expires by itself) · **seen ticks** (a message is Seen when the
+other person has read up to it; in a group, when everyone has) · the chat list and the notification bell update by themselves.
+The server stays the source of truth: an event only tells the app to look again, so a missed event cannot leave the screen wrong.
+If the connection is down, chats fall back to polling every 3 seconds (20 seconds as a safety net while it is up).
 
 ## Not available yet (the app says so instead of pretending)
 Voice, video and files in chat (the server accepts photos only) · several photos in one message · forwarding photos ·  a failed photo upload is not kept for retry: the notice says so and you pick the photo again ·
-typing indicator and "seen" ticks (need the WebSocket) · group info screen (name, photo, members and admin rules still use
+group info screen (name, photo, members and admin rules still use
 mock data, so group chats open without those controls) · a forward that fails partway for one target (for example a blocked
 person) can leave earlier targets already sent.
+
+## Known limits of the live connection
+* The server keeps live connections in one process's memory, so run a single web instance (see V1_API.md).
+* Seen ticks are not a per-person privacy setting on the server: the server tells people when you have read a chat. The app's
+  "read receipts" switch only hides ticks on your own screen for now.
+* Delivered (double tick) is not shown; only Sent and Seen.
+* Presence ("online") events arrive but the app does not show them yet.

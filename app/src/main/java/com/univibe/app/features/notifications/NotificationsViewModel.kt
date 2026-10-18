@@ -7,9 +7,11 @@ import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.NotificationTarget
 import com.univibe.app.data.repository.NotificationRepository
 import com.univibe.app.data.settings.SettingsRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -35,6 +37,7 @@ class NotificationsViewModel(
 
     init {
         load()
+        viewModelScope.launch { repository.changes().conflate().collect { delay(300); load(silent = true) } }
         viewModelScope.launch {
             settings.settings.collect { s -> _state.update { it.copy(blocked = s.blocked.map { b -> b.id }.toSet()) } }
         }

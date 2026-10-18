@@ -12,6 +12,7 @@ junit = "4.13.2"
 coil = "2.7.0"
 osmdroid = "6.1.18"
 firebaseBom = "33.4.0"
+okhttp = "4.12.0"
 googleServices = "4.4.2"
 
 [libraries]
@@ -35,6 +36,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

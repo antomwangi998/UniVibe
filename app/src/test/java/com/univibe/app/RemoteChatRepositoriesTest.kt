@@ -4,12 +4,21 @@ import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.ChatEvent
 import com.univibe.app.data.net.FileUploader
 import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.HttpResponse
+import com.univibe.app.data.net.LiveConnection
 import com.univibe.app.data.repository.RemoteChatRepository
+import com.univibe.app.data.repository.RemoteNotificationRepository
 import com.univibe.app.data.repository.RemoteMessageRepository
 import com.univibe.app.domain.auth.AuthResult
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -53,6 +62,24 @@ class RemoteChatRepositoriesTest {
             path.contains("/messages") -> ok("""{"items":[],"nextBefore":null,"pinnedMessageId":null}""")
             else -> ok(membersJson)
         }
+    }
+
+    private class FakeLive(connected: Boolean = true) : LiveConnection {
+        val bus = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 16)
+        override val events: SharedFlow<ChatEvent> = bus
+        val up = MutableStateFlow(connected)
+        override val connected: StateFlow<Boolean> = up
+        val sent = mutableListOf<JSONObject>()
+        override fun send(frame: JSONObject): Boolean { sent += frame; return true }
+    }
+
+    /** Conversation detail with read positions: ours (ignored) and the other person's. */
+    private fun membersWith(otherRead: Int) = """{"id":"c1","kind":"direct","title":null,"mutedUntil":null,"pinned":false,"members":[
+        {"id":"me","fullName":"Me","handle":"me","lastReadSeq":3},{$card,"online":true,"lastReadSeq":$otherRead}]}"""
+
+    private fun mineServer(otherRead: Int) = FakeApi { _, path, _ ->
+        if (path.contains("/messages")) ok("""{"items":[${message("m1", 1, me, "hello")}],"nextBefore":null,"pinnedMessageId":null}""")
+        else ok(membersWith(otherRead))
     }
 
     private fun ok(json: String, status: Int = 200) = HttpResponse(status, json)
@@ -318,4 +345,125 @@ class RemoteChatRepositoriesTest {
         assertEquals(listOf("m1", "m2"), repo.messages("c1").first().map { it.id })
         assertFalse(repo.hasOlder("c1").first())
     }
+    // ---- live events
+
+    @Test fun aNewMessageEventRefreshesAtOnceInsteadOfWaitingForThePoll() = runBlocking {
+        var delivered = false
+        val api = FakeApi { _, path, _ ->
+            if (path.contains("/messages")) {
+                ok("""{"items":[${if (delivered) message("m1", 1, "u2", "hi") else ""}],"nextBefore":null,"pinnedMessageId":null}""")
+            } else ok(membersJson)
+        }
+        val live = FakeLive()
+        val repo = RemoteMessageRepository(api, null, live) { me }
+        val arrived = CompletableDeferred<Unit>()
+        val job = launch { repo.messages("c1").collect { if (it.any { m -> m.id == "m1" }) arrived.complete(Unit) } }
+        withTimeout(5_000) { while (api.calls.none { it.second.contains("/messages") }) delay(10) }
+        live.bus.subscriptionCount.first { it >= 1 }
+        delivered = true
+        live.bus.emit(ChatEvent.MessageNew("c1"))
+        withTimeout(5_000) { arrived.await() } // with the link up the poll is every 20 s, so only the event can explain this
+        job.cancel()
+    }
+
+    @Test fun otherChatsEventsDoNotTriggerARefresh() = runBlocking {
+        val api = serverFor()
+        val live = FakeLive()
+        val repo = RemoteMessageRepository(api, null, live) { me }
+        val job = launch { repo.messages("c1").collect { } }
+        withTimeout(5_000) { while (api.calls.none { it.second.contains("/messages") }) delay(10) }
+        live.bus.subscriptionCount.first { it >= 1 }
+        delay(250) // the reconnect re-sync that every new subscription triggers settles first
+        val before = api.calls.size
+        live.bus.emit(ChatEvent.MessageNew("some-other-chat"))
+        delay(150)
+        assertEquals(before, api.calls.size)
+        job.cancel()
+    }
+
+    @Test fun theOtherPersonsTypingShowsAndClears() = runBlocking {
+        val live = FakeLive()
+        val repo = RemoteMessageRepository(serverFor(), null, live) { me }
+        val seen = mutableListOf<Boolean>()
+        val job = launch { repo.typing("c1").collect { seen += it } }
+        live.bus.subscriptionCount.first { it >= 1 }
+        live.bus.emit(ChatEvent.Typing("c1", "u2", true))
+        withTimeout(5_000) { while (true !in seen) delay(10) }
+        live.bus.emit(ChatEvent.Typing("c1", "u2", false))
+        withTimeout(5_000) { while (seen.last()) delay(10) }
+        live.bus.emit(ChatEvent.Typing("c1", me, true)) // our own other device: not shown to us
+        live.bus.emit(ChatEvent.Typing("c2", "u2", true)) // another chat: not shown here
+        delay(100)
+        assertFalse(seen.last())
+        job.cancel()
+    }
+
+    @Test fun typingChangesAreSentOverTheLiveLink() = runBlocking {
+        val live = FakeLive()
+        val repo = RemoteMessageRepository(serverFor(), null, live) { me }
+        repo.typingChanged("c1", true)
+        repo.typingChanged("c1", false)
+        assertEquals(listOf("typing:start", "typing:stop"), live.sent.map { it.getString("type") })
+        assertEquals("c1", live.sent[0].getString("conversationId"))
+    }
+
+    @Test fun withoutALiveLinkTypingIsQuietAndSendingItDoesNothing() = runBlocking {
+        val repo = RemoteMessageRepository(serverFor()) { me }
+        assertFalse(repo.typing("c1").first())
+        repo.typingChanged("c1", true) // must not crash
+    }
+
+    @Test fun seenComesFromTheOtherPersonsReadPosition() = runBlocking {
+        val repo = RemoteMessageRepository(mineServer(otherRead = 1)) { me }
+        val list = withTimeout(5_000) { repo.messages("c1").first { it.isNotEmpty() } }
+        assertEquals(MessageStatus.Seen, list.single().status)
+    }
+
+    @Test fun unreadByTheOtherPersonStaysSentAndOurOwnPositionIsIgnored() = runBlocking {
+        val repo = RemoteMessageRepository(mineServer(otherRead = 0)) { me }
+        val list = withTimeout(5_000) { repo.messages("c1").first { it.isNotEmpty() } }
+        assertEquals(MessageStatus.Sent, list.single().status) // our own lastReadSeq of 3 must not count
+    }
+
+    @Test fun aReadEventTurnsSentIntoSeenLive() = runBlocking {
+        val live = FakeLive()
+        val repo = RemoteMessageRepository(mineServer(otherRead = 0), null, live) { me }
+        val latest = java.util.concurrent.atomic.AtomicReference<List<com.univibe.app.data.model.Message>>(emptyList())
+        val job = launch { repo.messages("c1").collect { latest.set(it) } }
+        withTimeout(5_000) { while (latest.get().firstOrNull()?.status != MessageStatus.Sent) delay(10) }
+        live.bus.subscriptionCount.first { it >= 1 }
+        live.bus.emit(ChatEvent.Read("c1", "u2", 1))
+        withTimeout(5_000) { while (latest.get().firstOrNull()?.status != MessageStatus.Seen) delay(10) }
+        job.cancel()
+    }
+
+    @Test fun theChatListReloadsOnMessageEventsOnly() = runBlocking {
+        val live = FakeLive()
+        val repo = RemoteChatRepository(serverFor(), live) { me }
+        val got = mutableListOf<Unit>()
+        val job = launch { repo.changes().collect { got += it } }
+        live.bus.subscriptionCount.first { it >= 1 }
+        live.bus.emit(ChatEvent.Typing("c1", "u2", true))
+        live.bus.emit(ChatEvent.Presence("u2", true))
+        delay(100)
+        assertTrue(got.isEmpty())
+        live.bus.emit(ChatEvent.MessageNew("c1"))
+        withTimeout(5_000) { while (got.isEmpty()) delay(10) }
+        job.cancel()
+    }
+
+    @Test fun notificationChangesAreReportedAndNothingElse() = runBlocking {
+        val live = FakeLive()
+        val repo = RemoteNotificationRepository(serverFor(), live)
+        val got = mutableListOf<Unit>()
+        val job = launch { repo.changes().collect { got += it } }
+        live.bus.subscriptionCount.first { it >= 1 }
+        live.bus.emit(ChatEvent.MessageNew("c1"))
+        delay(100)
+        assertTrue(got.isEmpty())
+        live.bus.emit(ChatEvent.NotificationsChanged(2))
+        withTimeout(5_000) { while (got.isEmpty()) delay(10) }
+        job.cancel()
+    }
+
 }

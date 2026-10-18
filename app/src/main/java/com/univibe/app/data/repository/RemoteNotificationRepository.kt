@@ -4,19 +4,34 @@ import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.NotificationTarget
 import com.univibe.app.data.model.NotificationType
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.ChatEvent
+import com.univibe.app.data.net.LiveConnection
 import com.univibe.app.data.net.parseStudent
 import com.univibe.app.data.net.send
 import com.univibe.app.data.net.timeAgo
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import org.json.JSONObject
 
 /**
  * Notifications from the UniVibe server. The server creates them (from real likes, comments, follows, messages
  * and event updates) and decides who receives them; this app only shows them and marks them read.
  */
-class RemoteNotificationRepository(private val api: AuthedApi) : NotificationRepository {
+class RemoteNotificationRepository(
+    private val api: AuthedApi,
+    /** Live events, so new notifications show up without a refresh. Optional. */
+    private val live: LiveConnection? = null,
+) : NotificationRepository {
+    override fun changes(): Flow<Unit> = live?.events
+        ?.filter { it is ChatEvent.NotificationsChanged || it is ChatEvent.Connected }
+        ?.map { }
+        ?: emptyFlow()
+
     private val _unread = MutableStateFlow(0)
     override val unreadCount: StateFlow<Int> = _unread.asStateFlow()
 

@@ -33,7 +33,9 @@ import com.univibe.app.data.repository.RemoteChatRepository
 import com.univibe.app.data.repository.RemoteMessageRepository
 import com.univibe.app.data.repository.ProfileRepository
 import com.univibe.app.data.net.AuthedApi
+import com.univibe.app.data.net.ChatSocket
 import com.univibe.app.data.net.MediaUploader
+import com.univibe.app.data.net.OkHttpSocketFactory
 import com.univibe.app.data.net.UrlConnectionFileUploader
 import com.univibe.app.data.repository.MockData
 import com.univibe.app.data.repository.RemoteCommentRepository
@@ -75,9 +77,16 @@ object AppContainer {
         // Once signed in, make sure this device's push address is registered with the server (cheap no-op when unchanged).
         appScope.launch {
             authRepository.session.collect { state ->
-                if (state is AuthState.Authenticated) appScope.launch { pushRegistrar.registerIfNeeded() }
+                if (state is AuthState.Authenticated) {
+                    chatSocket?.start() // live messages, typing, seen and notifications while signed in
+                    appScope.launch { pushRegistrar.registerIfNeeded() }
+                } else {
+                    chatSocket?.stop()
+                }
             }
         }
+        // The bell badge follows the server: any notification change (or a reconnect) re-reads its count.
+        appScope.launch { notificationRepository.changes().collect { runCatching { notificationRepository.refreshUnread() } } }
     }
 
     private fun accountOf(state: AuthState): AuthUser? = when (state) {
@@ -92,6 +101,19 @@ object AppContainer {
     /** The server connection, when the app runs against a real backend (null in offline demo mode). */
     private val api: AuthedApi? get() = authRepository as? AuthedApi
 
+    /** The live connection (wss://.../api/v1/ws), only when the app talks to a real server. */
+    private val chatSocket: ChatSocket? by lazy {
+        val authed = api ?: return@lazy null
+        val base = BuildConfig.API_BASE_URL.trim().trimEnd('/')
+        if (base.isEmpty()) return@lazy null
+        ChatSocket(
+            url = base.replaceFirst("http", "ws") + "/api/v1/ws", // https -> wss, http -> ws
+            factory = OkHttpSocketFactory(),
+            token = { stale -> authed.currentAccessToken(stale) },
+            scope = appScope,
+        )
+    }
+
     val feedRepository: FeedRepository by lazy {
         api?.let { RemoteFeedRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value) } }
             ?: MockFeedRepository(mockStore)
@@ -99,10 +121,10 @@ object AppContainer {
     val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
     val groupRepository: GroupRepository by lazy { MockGroupRepository(mockStore) }
     val chatRepository: ChatRepository by lazy {
-        api?.let { RemoteChatRepository(it) { accountOf(authRepository.session.value)?.id } } ?: MockChatRepository(mockStore)
+        api?.let { RemoteChatRepository(it, chatSocket) { accountOf(authRepository.session.value)?.id } } ?: MockChatRepository(mockStore)
     }
     val messageRepository: MessageRepository by lazy {
-        api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value)?.id } }
+        api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id } }
             ?: MockMessageRepository(mockStore)
     }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
@@ -112,7 +134,7 @@ object AppContainer {
     val discoverRepository: DiscoverRepository by lazy {
         api?.let { RemoteDiscoverRepository(it) { accountOf(authRepository.session.value) } } ?: MockDiscoverRepository()
     }
-    val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it) } ?: MockNotificationRepository() }
+    val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it, chatSocket) } ?: MockNotificationRepository() }
     val eventRepository: EventRepository by lazy { MockEventRepository(mockStore) }
     val profileRepository: ProfileRepository by lazy {
         MockProfileRepository(
