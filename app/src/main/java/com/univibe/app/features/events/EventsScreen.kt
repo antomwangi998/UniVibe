@@ -1,5 +1,6 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,12 +58,12 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Events", actions = { VibeIconButton(Icons.Outlined.Add, "Create event", onCreateEvent) })
+        VibeTopBar("Events", actions = { VibeIconButton(VibeIcons.Add, "Create event", onCreateEvent) })
         VibeTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,
             placeholder = "Search events",
-            leadingIcon = Icons.Outlined.Search,
+            leadingIcon = VibeIcons.Search,
             modifier = Modifier.padding(horizontal = Spacing.md),
         )
         Row(
@@ -92,7 +93,7 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
             state.error != null -> ErrorState(state.error!!, onRetry = viewModel::load)
             state.visible.isEmpty() -> EmptyState(
-                icon = Icons.Outlined.CalendarMonth,
+                icon = VibeIcons.Events,
                 title = when (state.tab) {
                     EventsTab.MyEvents -> "No RSVPs yet"
                     EventsTab.Past -> "No past events"
@@ -121,9 +122,9 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
         VibeBottomSheet(onDismiss = viewModel::closeRsvp) {
             Text(event.title, style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.size(Spacing.sm))
-            RsvpOption(Icons.Outlined.Check, "Going", event.rsvp == RsvpState.Going) { viewModel.chooseRsvp(RsvpState.Going) }
+            RsvpOption(VibeIcons.Check, "Going", event.rsvp == RsvpState.Going) { viewModel.chooseRsvp(RsvpState.Going) }
             RsvpOption(Icons.Outlined.StarOutline, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
-            RsvpOption(Icons.Outlined.Close, "Not going", event.rsvp == RsvpState.None) { viewModel.chooseRsvp(RsvpState.None) }
+            RsvpOption(VibeIcons.Close, "Not going", event.rsvp == RsvpState.None) { viewModel.chooseRsvp(RsvpState.None) }
         }
     }
 
@@ -157,6 +158,6 @@ private fun RsvpOption(icon: ImageVector, label: String, selected: Boolean, onCl
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        if (selected) Icon(Icons.Outlined.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+        if (selected) Icon(VibeIcons.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
     }
 }

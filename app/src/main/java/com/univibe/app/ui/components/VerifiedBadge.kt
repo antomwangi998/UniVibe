@@ -42,6 +42,6 @@ fun VerifiedBadge(
             .semantics { contentDescription = "Verified student" },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Filled.Check, contentDescription = null, tint = colors.onPrimary, modifier = Modifier.size(size * 0.5f))
+        Icon(VibeIcons.Check, contentDescription = null, tint = colors.onPrimary, modifier = Modifier.size(size * 0.5f))
     }
 }

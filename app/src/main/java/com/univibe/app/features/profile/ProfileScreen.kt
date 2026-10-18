@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -90,7 +91,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
         val profile = state.profile
         // The cover carries its own icons; the plain top bar is only for loading/error.
         val showCover = !state.loading && state.error == null && profile != null
-        if (!showCover) VibeTopBar("Profile", actions = { VibeIconButton(Icons.Outlined.Settings, "Settings", actions.onOpenSettings) })
+        if (!showCover) VibeTopBar("Profile", actions = { VibeIconButton(VibeIcons.Settings, "Settings", actions.onOpenSettings) })
         when {
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             state.error != null || profile == null -> ErrorState(state.error ?: "Something went wrong.", viewModel::load)
@@ -133,7 +134,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                 }
                 item {
                     VibeCard(onClick = actions.onOpenSaved) {
-                        NavLine(Icons.Outlined.BookmarkBorder, "Saved posts", "${profile.savedPosts} saved")
+                        NavLine(VibeIcons.Bookmark, "Saved posts", "${profile.savedPosts} saved")
                     }
                 }
                 item {
@@ -155,13 +156,13 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                                 Box(
                                     Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(accentGradient(group.accent))),
                                     contentAlignment = Alignment.Center,
-                                ) { Icon(Icons.Outlined.Groups, contentDescription = null, tint = Color.White) }
+                                ) { Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White) }
                                 Spacer(Modifier.width(Spacing.md))
                                 Column(Modifier.weight(1f)) {
                                     Text(group.name, style = MaterialTheme.typography.titleSmall)
                                     Text("${group.members} members", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(VibeIcons.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -185,7 +186,7 @@ private fun NavLine(icon: ImageVector, title: String, subtitle: String) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(VibeIcons.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -197,7 +198,7 @@ private fun PhotoPreview(photos: List<String>, onOpen: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(Modifier.padding(Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(VibeIcons.Photo, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text("Add your first photo", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = Spacing.md))
             }
         }
@@ -227,7 +228,7 @@ private fun Header(profile: MyProfile, actions: ProfileActions) {
             coverPath = profile.coverPath,
             modifier = Modifier.fullBleed(Spacing.md),
             leading = { CoverBellButton(actions.unreadNotifications, actions.onOpenNotifications) },
-            actions = { CoverIconButton(Icons.Outlined.Settings, "Settings", actions.onOpenSettings) },
+            actions = { CoverIconButton(VibeIcons.Settings, "Settings", actions.onOpenSettings) },
             avatar = {
                 Box {
                     Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
@@ -254,8 +255,8 @@ private fun Header(profile: MyProfile, actions: ProfileActions) {
         )
         Row(Modifier.fillMaxWidth().padding(vertical = Spacing.md), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Stat(Icons.Outlined.GridView, profile.posts.toString(), "Posts", Modifier.weight(1f), null)
-            Stat(Icons.Outlined.Groups, compact(profile.followers), "Followers", Modifier.weight(1f), actions.onOpenFollowers)
-            Stat(Icons.Outlined.PersonAdd, profile.following.toString(), "Following", Modifier.weight(1f), actions.onOpenFollowing)
+            Stat(VibeIcons.Groups, compact(profile.followers), "Followers", Modifier.weight(1f), actions.onOpenFollowers)
+            Stat(VibeIcons.PersonAdd, profile.following.toString(), "Following", Modifier.weight(1f), actions.onOpenFollowing)
         }
         VibeButton("Edit profile", onClick = actions.onEditProfile, modifier = Modifier.fillMaxWidth())
     }

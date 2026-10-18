@@ -15,6 +15,13 @@ val FloatingBarClearance = 96.dp
 val LocalFloatingBarVisible = compositionLocalOf { true }
 
 /**
+ * True while the user has scrolled content away (down) and the app chrome should get out of the way.
+ * Driven by the same scroll connection as the floating bar in AppShell, so the top toolbar and the
+ * bottom bar always show and hide together.
+ */
+val LocalChromeHidden = compositionLocalOf { false }
+
+/**
  * Bottom padding that lets the last item of a scrolling screen rest fully above the floating bar.
  * Content itself runs edge to edge underneath it.
  */

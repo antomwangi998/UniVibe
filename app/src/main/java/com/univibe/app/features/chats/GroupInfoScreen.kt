@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -118,9 +119,9 @@ fun GroupInfoScreen(
     val group = s.group
     if (group == null) {
         Column(Modifier.fillMaxSize()) {
-            VibeTopBar("Group info", compactTitle = true, navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) })
+            VibeTopBar("Group info", compactTitle = true, navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) })
             if (s.loading) LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
-            else EmptyState(Icons.Outlined.Groups, "Group not found", "You may have left this group, or it no longer exists.", actionLabel = "Back", onAction = onBack)
+            else EmptyState(VibeIcons.Groups, "Group not found", "You may have left this group, or it no longer exists.", actionLabel = "Back", onAction = onBack)
         }
         return
     }
@@ -129,8 +130,8 @@ fun GroupInfoScreen(
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             "Group info", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-            actions = { if (group.canEditInfo) VibeIconButton(Icons.Outlined.Edit, "Edit group", { viewModel.edit(true) }) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
+            actions = { if (group.canEditInfo) VibeIconButton(VibeIcons.Edit, "Edit group", { viewModel.edit(true) }) },
         )
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -148,7 +149,7 @@ fun GroupInfoScreen(
                                     .clickable(role = Role.Button, onClickLabel = "Change group photo") {
                                         photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                     },
-                            ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = "Change group photo", modifier = Modifier.size(18.dp)) } }
+                            ) { Box(contentAlignment = Alignment.Center) { Icon(VibeIcons.Photo, contentDescription = "Change group photo", modifier = Modifier.size(18.dp)) } }
                         }
                     }
                     Text(group.name, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.sm))
@@ -157,12 +158,12 @@ fun GroupInfoScreen(
                         Text(group.description, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.xs))
                     }
                     Row(Modifier.fillMaxWidth().padding(top = Spacing.md), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        if (group.canAddMembers) QuickAction(Icons.Outlined.PersonAdd, "Add", viewModel::openAdd)
+                        if (group.canAddMembers) QuickAction(VibeIcons.PersonAdd, "Add", viewModel::openAdd)
                         QuickAction(
-                            if (group.muted) Icons.Outlined.NotificationsOff else Icons.Outlined.NotificationsActive,
+                            if (group.muted) VibeIcons.BellOff else VibeIcons.BellFilled,
                             if (group.muted) "Unmute" else "Mute", viewModel::toggleMute,
                         )
-                        QuickAction(Icons.Outlined.ChatBubbleOutline, "Chat", onBack)
+                        QuickAction(VibeIcons.Comment, "Chat", onBack)
                     }
                 }
             }
@@ -181,7 +182,7 @@ fun GroupInfoScreen(
                 SettingsGroup {
                     SettingsSectionTitle("${group.members.size} ${if (group.members.size == 1) "member" else "members"}")
                     if (group.canAddMembers) {
-                        SettingsNavRow(Icons.Outlined.PersonAdd, "Add members", viewModel::openAdd, showChevron = false)
+                        SettingsNavRow(VibeIcons.PersonAdd, "Add members", viewModel::openAdd, showChevron = false)
                         RowDivider()
                     }
                     group.members.sortedWith(compareBy<GroupMember>({ -it.role.ordinal }, { !it.isMe }, { it.student.name })).forEachIndexed { i, m ->
@@ -208,9 +209,9 @@ fun GroupInfoScreen(
                 onOnlyAdminsEdit = { viewModel.setPermissions(onlyAdminsEdit = it) }, onOnlyAdminsAdd = { viewModel.setPermissions(onlyAdminsAdd = it) }) }
             item {
                 SettingsGroup {
-                    SettingsNavRow(Icons.Outlined.Delete, "Clear chat", { viewModel.confirm(GroupConfirm.ClearChat) }, subtitle = "Removes messages for you only.", destructive = true, showChevron = false)
+                    SettingsNavRow(VibeIcons.Delete, "Clear chat", { viewModel.confirm(GroupConfirm.ClearChat) }, subtitle = "Removes messages for you only.", destructive = true, showChevron = false)
                     RowDivider()
-                    SettingsNavRow(Icons.Outlined.Flag, "Report group", { viewModel.reporting(true) }, destructive = true, showChevron = false)
+                    SettingsNavRow(VibeIcons.Report, "Report group", { viewModel.reporting(true) }, destructive = true, showChevron = false)
                     RowDivider()
                     SettingsNavRow(Icons.AutoMirrored.Outlined.ExitToApp, "Leave group", { viewModel.confirm(GroupConfirm.Leave) }, destructive = true, showChevron = false)
                 }
@@ -266,7 +267,7 @@ fun GroupInfoScreen(
     if (s.reporting) {
         VibeBottomSheet(onDismiss = { viewModel.reporting(false) }) {
             Text("Why are you reporting this group?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm))
-            ReportReasons.forEach { r -> SheetRow(Icons.Outlined.Flag, r, false) { viewModel.report(r) } }
+            ReportReasons.forEach { r -> SheetRow(VibeIcons.Report, r, false) { viewModel.report(r) } }
         }
     }
 
@@ -299,7 +300,7 @@ fun GroupAvatar(photoPath: String?, size: androidx.compose.ui.unit.Dp) {
         Box(Modifier.size(size).clip(CircleShape)) { PhotoImage(photoPath, contentDescription = "Group photo", modifier = Modifier.fillMaxSize()) }
     } else {
         Surface(shape = CircleShape, color = colors.primaryContainer, modifier = Modifier.size(size)) {
-            Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Groups, contentDescription = null, tint = colors.onPrimaryContainer, modifier = Modifier.size(size / 2)) }
+            Box(contentAlignment = Alignment.Center) { Icon(VibeIcons.Groups, contentDescription = null, tint = colors.onPrimaryContainer, modifier = Modifier.size(size / 2)) }
         }
     }
 }
@@ -424,11 +425,11 @@ private fun MemberSheet(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        SheetRow(Icons.Outlined.Person, "View profile", false, onProfile)
-        SheetRow(Icons.Outlined.ChatBubbleOutline, "Message", false, onMessage)
+        SheetRow(VibeIcons.Profile, "View profile", false, onProfile)
+        SheetRow(VibeIcons.Comment, "Message", false, onMessage)
         if (isOwner && member.role == GroupRole.Member) SheetRow(Icons.Outlined.AdminPanelSettings, "Make group admin", false, onMakeAdmin)
         if (isOwner && member.role == GroupRole.Admin) SheetRow(Icons.Outlined.AdminPanelSettings, "Remove as admin", false, onRemoveAdmin)
-        if (canRemove) SheetRow(Icons.Outlined.PersonRemove, "Remove from group", true, onRemove)
+        if (canRemove) SheetRow(VibeIcons.PersonRemove, "Remove from group", true, onRemove)
         Spacer(Modifier.size(Spacing.md))
     }
 }

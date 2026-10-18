@@ -1,5 +1,6 @@
 package com.univibe.app.features.auth
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -44,7 +45,7 @@ fun AuthScaffold(
             .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        if (onBack != null) VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack, Modifier.padding(start = 0.dp))
+        if (onBack != null) VibeIconButton(VibeIcons.Back, "Back", onBack, Modifier.padding(start = 0.dp))
         else Spacer(Modifier.height(48.dp))
         Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         if (subtitle != null) {

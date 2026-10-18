@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -66,7 +67,7 @@ fun EditProfileScreen(onBack: () -> Unit, viewModel: EditProfileViewModel = view
     Column(Modifier.fillMaxSize().imePadding()) {
         VibeTopBar(
             title = "Edit profile", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", requestBack) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", requestBack) },
             actions = { VibeButton("Save", viewModel::save, compact = true, enabled = s.dirty, loading = s.saving) },
         )
         when {
@@ -85,12 +86,12 @@ fun EditProfileScreen(onBack: () -> Unit, viewModel: EditProfileViewModel = view
                                 .background(Brush.linearGradient(accentGradient(1))),
                         ) { s.coverPath?.let { PhotoImage(it, "Cover photo preview") } }
                         Row(Modifier.padding(top = Spacing.sm), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                            VibeButton("Change cover", pickCover, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.PhotoCamera)
+                            VibeButton("Change cover", pickCover, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = VibeIcons.Camera)
                             if (s.coverPath != null) TextButton(onClick = viewModel::removeCover) { Text("Remove") }
                         }
                         Row(Modifier.padding(top = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                             StudentAvatar(s.name.ifBlank { "You" }, size = 72.dp, imagePath = s.avatarPath)
-                            VibeButton("Change photo", pickAvatar, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.PhotoCamera)
+                            VibeButton("Change photo", pickAvatar, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = VibeIcons.Camera)
                             if (s.avatarPath != null) TextButton(onClick = viewModel::removeAvatar) { Text("Remove") }
                         }
                     }

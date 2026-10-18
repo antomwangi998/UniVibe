@@ -1,5 +1,6 @@
 package com.univibe.app.features.settings
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,7 +69,7 @@ fun AccountScreen(
             SettingsGroup {
                 SettingsNavRow(Icons.Outlined.LockReset, "Change password", onChangePassword)
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.DeleteOutline, "Delete account", onDelete, destructive = true)
+                SettingsNavRow(VibeIcons.Delete, "Delete account", onDelete, destructive = true)
             }
         }
         item {

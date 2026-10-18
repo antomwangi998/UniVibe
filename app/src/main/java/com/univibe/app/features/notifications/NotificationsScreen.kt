@@ -1,5 +1,6 @@
 package com.univibe.app.features.notifications
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -73,14 +74,14 @@ fun NotificationCenterScreen(
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             "Notifications", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-            actions = { VibeIconButton(Icons.Outlined.Settings, "Notification settings", onOpenSettings) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
+            actions = { VibeIconButton(VibeIcons.Settings, "Notification settings", onOpenSettings) },
         )
         when {
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 4)
             s.error != null -> ErrorState(s.error!!, onRetry = viewModel::load)
             s.visible.isEmpty() -> EmptyState(
-                Icons.Outlined.Notifications, "You're all caught up",
+                VibeIcons.Bell, "You're all caught up",
                 "Likes, comments, follows and event reminders will show up here.",
             )
             else -> LazyColumn(
@@ -110,14 +111,14 @@ fun NotificationCenterScreen(
 }
 
 private fun NotificationType.icon(): ImageVector = when (this) {
-    NotificationType.Like -> Icons.Outlined.Favorite
-    NotificationType.Comment -> Icons.Outlined.ChatBubbleOutline
-    NotificationType.Follow -> Icons.Outlined.PersonAdd
-    NotificationType.Connection -> Icons.Outlined.Favorite
-    NotificationType.Event -> Icons.Outlined.Event
-    NotificationType.Community -> Icons.Outlined.Groups
-    NotificationType.Message -> Icons.Outlined.ChatBubble
-    NotificationType.System -> Icons.Outlined.Notifications
+    NotificationType.Like -> VibeIcons.Heart
+    NotificationType.Comment -> VibeIcons.Comment
+    NotificationType.Follow -> VibeIcons.PersonAdd
+    NotificationType.Connection -> VibeIcons.Heart
+    NotificationType.Event -> VibeIcons.Events
+    NotificationType.Community -> VibeIcons.Groups
+    NotificationType.Message -> VibeIcons.Comment
+    NotificationType.System -> VibeIcons.Bell
 }
 
 @Composable

@@ -69,11 +69,11 @@ private fun BarDark() = PreviewHost(true) { SampleBar() }
 private fun SampleBar() {
     VibeBottomBar(
         items = listOf(
-            VibeBarItem("home", "Home", Icons.Outlined.Home, Icons.Filled.Home),
-            VibeBarItem("discover", "Discover", Icons.Outlined.Explore, Icons.Filled.Explore),
-            VibeBarItem("chats", "Chats", Icons.Outlined.ChatBubbleOutline, Icons.Filled.ChatBubble),
-            VibeBarItem("events", "Events", Icons.Outlined.CalendarMonth, Icons.Filled.CalendarMonth),
-            VibeBarItem("profile", "Profile", Icons.Outlined.Person, Icons.Filled.Person),
+            VibeBarItem("home", "Home", VibeIcons.Home, VibeIcons.HomeSelected),
+            VibeBarItem("discover", "Discover", VibeIcons.Discover, VibeIcons.DiscoverSelected),
+            VibeBarItem("chats", "Chats", VibeIcons.Chats, VibeIcons.ChatsSelected),
+            VibeBarItem("events", "Events", VibeIcons.Events, VibeIcons.EventsSelected),
+            VibeBarItem("profile", "Profile", VibeIcons.Profile, VibeIcons.ProfileSelected),
         ),
         selectedRoute = "home",
         onSelect = {},

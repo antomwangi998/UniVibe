@@ -6,6 +6,10 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import com.univibe.app.ui.components.VibeIcons
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -102,7 +106,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        VibeTopBar("Comments", compactTitle = true, navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) })
+        VibeTopBar("Comments", compactTitle = true, navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) })
         Column(Modifier.weight(1f)) {
             when {
                 s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
@@ -138,7 +142,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                         }
                     }
                     if (threads.isEmpty()) item(key = "empty") {
-                        EmptyState(Icons.Outlined.ChatBubbleOutline, "No comments yet", "Start the conversation.")
+                        EmptyState(VibeIcons.Comment, "No comments yet", "Start the conversation.")
                     }
                     threads.forEach { thread ->
                         item(key = thread.parent.id) {
@@ -183,7 +187,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                     s.replyingTo?.let { target ->
                         Row(Modifier.fillMaxWidth().padding(start = Spacing.md, end = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                             Text("Replying to ${target.author.name}", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant, modifier = Modifier.weight(1f))
-                            IconButton(onClick = viewModel::cancelReply) { Icon(Icons.Outlined.Close, contentDescription = "Cancel reply") }
+                            IconButton(onClick = viewModel::cancelReply) { Icon(VibeIcons.Close, contentDescription = "Cancel reply") }
                         }
                     }
                 }
@@ -202,7 +206,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                         modifier = Modifier.padding(top = 4.dp),
                     ) {
                         IconButton(onClick = viewModel::send, enabled = s.canSend, modifier = Modifier.size(52.dp)) {
-                            Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = if (s.replyingTo != null) "Post reply" else "Post comment")
+                            Icon(VibeIcons.Send, contentDescription = if (s.replyingTo != null) "Post reply" else "Post comment")
                         }
                     }
                 }
@@ -212,18 +216,18 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
 
     s.menuComment?.let { c ->
         VibeBottomSheet(onDismiss = { viewModel.openMenu(null) }) {
-            SheetRow(Icons.AutoMirrored.Outlined.Reply, "Reply", false) { viewModel.startReply(c) }
-            SheetRow(Icons.Outlined.ContentCopy, "Copy text", false) { clipboard.setText(AnnotatedString(c.text)); viewModel.openMenu(null) }
-            if (!c.isMine) SheetRow(Icons.Outlined.Person, "View ${c.author.name}'s profile", false) { viewModel.openMenu(null); onOpenStudent(c.author.id) }
-            if (c.isMine) SheetRow(Icons.Outlined.DeleteOutline, "Delete comment", true) { viewModel.askDelete(c) }
-            else SheetRow(Icons.Outlined.Flag, "Report comment", true) { viewModel.startReport(c) }
+            SheetRow(VibeIcons.Reply, "Reply", false) { viewModel.startReply(c) }
+            SheetRow(VibeIcons.Copy, "Copy text", false) { clipboard.setText(AnnotatedString(c.text)); viewModel.openMenu(null) }
+            if (!c.isMine) SheetRow(VibeIcons.Profile, "View ${c.author.name}'s profile", false) { viewModel.openMenu(null); onOpenStudent(c.author.id) }
+            if (c.isMine) SheetRow(VibeIcons.Delete, "Delete comment", true) { viewModel.askDelete(c) }
+            else SheetRow(VibeIcons.Report, "Report comment", true) { viewModel.startReport(c) }
         }
     }
 
     s.reporting?.let {
         VibeBottomSheet(onDismiss = viewModel::dismissReport) {
             Text("Why are you reporting this comment?", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm))
-            ReportReasons.forEach { r -> SheetRow(Icons.Outlined.Flag, r, false) { viewModel.report(r) } }
+            ReportReasons.forEach { r -> SheetRow(VibeIcons.Report, r, false) { viewModel.report(r) } }
         }
     }
 
@@ -278,17 +282,17 @@ private fun CommentRow(c: Comment, isReply: Boolean, onLike: () -> Unit, onReply
                     contentAlignment = Alignment.CenterStart,
                 ) { Text("Reply", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant) }
                 IconButton(onClick = onMore, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Outlined.MoreHoriz, contentDescription = "More options for this comment", tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                    Icon(VibeIcons.More, contentDescription = "More options for this comment", tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 }
             }
         }
         Column(
-            Modifier.heightIn(min = 44.dp).clickable(role = Role.Button, onClick = onLike)
+            Modifier.heightIn(min = 44.dp).widthIn(min = 44.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = onLike)
                 .semantics { contentDescription = if (c.likedByMe) "Unlike comment, ${c.likeCount} likes" else "Like comment, ${c.likeCount} likes" },
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
             Icon(
-                if (c.likedByMe) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, contentDescription = null,
+                if (c.likedByMe) VibeIcons.HeartFilled else VibeIcons.Heart, contentDescription = null,
                 tint = if (c.likedByMe) colors.error else colors.onSurfaceVariant, modifier = Modifier.size(18.dp),
             )
             if (c.likeCount > 0) Text("${c.likeCount}", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)

@@ -87,17 +87,17 @@ fun EventCard(
         }
         Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Text(event.title, style = MaterialTheme.typography.titleMedium)
-            MetaRow(Icons.Outlined.Schedule, event.timeLabel)
-            MetaRow(Icons.Outlined.Place, event.location)
-            if (event.isPast) MetaRow(Icons.Outlined.DeleteOutline, "Removed on ${formatDate(event.expiresAtMillis)}")
+            MetaRow(VibeIcons.Clock, event.timeLabel)
+            MetaRow(VibeIcons.Place, event.location)
+            if (event.isPast) MetaRow(VibeIcons.Delete, "Removed on ${formatDate(event.expiresAtMillis)}")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                MetaRow(Icons.Outlined.Groups, "${event.going} going · ${event.interested} interested", Modifier.weight(1f))
+                MetaRow(VibeIcons.Groups, "${event.going} going · ${event.interested} interested", Modifier.weight(1f))
                 Spacer(Modifier.width(Spacing.sm))
                 when {
                     event.cancelled -> Text("Cancelled", style = MaterialTheme.typography.labelLarge, color = colors.error)
                     event.isPast -> Text("Ended", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
                     event.rsvp == RsvpState.Going ->
-                        VibeButton("Going", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.Check)
+                        VibeButton("Going", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = VibeIcons.Check)
                     event.rsvp == RsvpState.Interested ->
                         VibeButton("Interested", onRsvpClick, style = VibeButtonStyle.Secondary, compact = true, leadingIcon = Icons.Outlined.StarOutline)
                     else -> VibeButton("RSVP", onRsvpClick, compact = true)

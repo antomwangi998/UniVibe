@@ -22,8 +22,20 @@ fun PhotoImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
 ) {
+    val model = rememberPhotoModel(path)
+    AsyncImage(
+        model = model,
+        contentDescription = contentDescription,
+        modifier = modifier.fillMaxSize(),
+        contentScale = contentScale,
+    )
+}
+
+/** The Coil model for a photo path: a cache-keyed request for server links, a File for local storage. */
+@Composable
+fun rememberPhotoModel(path: String): Any {
     val context = LocalContext.current
-    val model: Any = remember(path) {
+    return remember(path) {
         if (path.startsWith("https://")) {
             val key = path.substringBefore('?')
             ImageRequest.Builder(context).data(path).memoryCacheKey(key).diskCacheKey(key).build()
@@ -31,10 +43,4 @@ fun PhotoImage(
             File(path)
         }
     }
-    AsyncImage(
-        model = model,
-        contentDescription = contentDescription,
-        modifier = modifier.fillMaxSize(),
-        contentScale = contentScale,
-    )
 }

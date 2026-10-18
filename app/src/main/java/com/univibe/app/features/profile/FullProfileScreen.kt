@@ -1,5 +1,7 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.FollowButton
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -90,7 +92,7 @@ fun FullProfileScreen(
     val profile = s.profile
     if (s.loading || s.notFound || profile == null) {
         Column(Modifier.fillMaxSize()) {
-            VibeTopBar("Profile", compactTitle = true, navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) })
+            VibeTopBar("Profile", compactTitle = true, navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) })
             if (s.loading) LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             else ErrorState("This profile isn't available.", onBack, title = "Not found")
         }
@@ -111,8 +113,8 @@ fun FullProfileScreen(
                         accent = student.accent + 1,
                         coverPath = null,
                         modifier = Modifier.fullBleed(Spacing.md),
-                        leading = { CoverIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-                        actions = { if (!s.isMe) CoverIconButton(Icons.Outlined.MoreHoriz, "More options", { viewModel.openMenu(true) }) },
+                        leading = { CoverIconButton(VibeIcons.Back, "Back", onBack) },
+                        actions = { if (!s.isMe) CoverIconButton(VibeIcons.More, "More options", { viewModel.openMenu(true) }) },
                         avatar = {
                             Box {
                                 Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
@@ -148,13 +150,10 @@ fun FullProfileScreen(
                     if (s.isMe) {
                         VibeButton("Edit profile", onEditProfile, Modifier.weight(1f))
                     } else {
-                        VibeButton(
-                            if (s.following) "Following" else "Follow", viewModel::toggleFollow, Modifier.weight(1f),
-                            style = if (s.following) VibeButtonStyle.Secondary else VibeButtonStyle.Primary,
-                        )
+                        FollowButton(s.following, viewModel::toggleFollow, Modifier.weight(1f))
                         VibeButton(
                             "Message", { viewModel.message(onOpenChat) }, Modifier.weight(1f),
-                            style = VibeButtonStyle.Secondary, loading = s.opening, leadingIcon = Icons.Outlined.ChatBubbleOutline,
+                            style = VibeButtonStyle.Secondary, loading = s.opening, leadingIcon = VibeIcons.Comment,
                         )
                     }
                 }
@@ -202,7 +201,7 @@ fun FullProfileScreen(
                                 Box(
                                     Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(accentGradient(c.accent))),
                                     contentAlignment = Alignment.Center,
-                                ) { Icon(Icons.Outlined.Groups, contentDescription = null, tint = Color.White) }
+                                ) { Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White) }
                                 Spacer(Modifier.width(Spacing.md))
                                 Column(Modifier.weight(1f)) {
                                     Text(c.name, style = MaterialTheme.typography.titleSmall)
@@ -239,8 +238,8 @@ fun FullProfileScreen(
                     HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.55f))
                     Column(Modifier.navigationBarsPadding().padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                            VibeButton("Pass", { viewModel.decide(false, onBack) }, Modifier.weight(1f), style = VibeButtonStyle.Secondary, enabled = !s.deciding, leadingIcon = Icons.Outlined.Close)
-                            VibeButton("Connect", { viewModel.decide(true, onBack) }, Modifier.weight(1f), loading = s.deciding, leadingIcon = Icons.Filled.Favorite)
+                            VibeButton("Pass", { viewModel.decide(false, onBack) }, Modifier.weight(1f), style = VibeButtonStyle.Secondary, enabled = !s.deciding, leadingIcon = VibeIcons.Close)
+                            VibeButton("Connect", { viewModel.decide(true, onBack) }, Modifier.weight(1f), loading = s.deciding, leadingIcon = VibeIcons.HeartFilled)
                         }
                         Text(
                             "A connection only happens when you both say yes.",
@@ -255,8 +254,8 @@ fun FullProfileScreen(
 
     if (s.menuOpen) {
         VibeBottomSheet(onDismiss = { viewModel.openMenu(false) }) {
-            MenuRow(Icons.Outlined.Flag, "Report ${student.name}", false, viewModel::report)
-            MenuRow(Icons.Outlined.Block, "Block ${student.name}", true, viewModel::block)
+            MenuRow(VibeIcons.Report, "Report ${student.name}", false, viewModel::report)
+            MenuRow(VibeIcons.Block, "Block ${student.name}", true, viewModel::block)
         }
     }
 }
@@ -280,7 +279,7 @@ private fun LinkRow(onClick: () -> Unit, onClickLabel: String, content: @Composa
         verticalAlignment = Alignment.CenterVertically,
     ) {
         content()
-        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(VibeIcons.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

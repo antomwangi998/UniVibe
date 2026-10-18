@@ -1,5 +1,6 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.ui.components.VibeIcons
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.provider.CalendarContract
@@ -93,7 +94,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
             VibeTopBar("Event", compactTitle = true, navigationIcon = { BackButton(onBack) })
             when {
                 s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
-                s.notFound -> EmptyState(Icons.Outlined.CalendarMonth, "Event not found", "It may have been removed, or the link is wrong.", actionLabel = "Back to events", onAction = onBack)
+                s.notFound -> EmptyState(VibeIcons.Events, "Event not found", "It may have been removed, or the link is wrong.", actionLabel = "Back to events", onAction = onBack)
                 else -> ErrorState(s.error ?: "Something went wrong.", viewModel::load)
             }
         }
@@ -113,7 +114,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
                     InfoCard(details)
                     if (status == EventStatus.Upcoming || status == EventStatus.Live) {
                         TextButton(onClick = { addToCalendar(ctx, event, details.description) }) {
-                            Icon(Icons.Outlined.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(VibeIcons.Events, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Add to calendar")
                         }
@@ -138,8 +139,8 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
         ) {
             BackButton(onBack)
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                if (event.mine && status != EventStatus.Ended) VibeIconButton(Icons.Outlined.MoreHoriz, "Manage event", { viewModel.openManage(true) })
-                VibeIconButton(Icons.Outlined.Share, "Share event", {
+                if (event.mine && status != EventStatus.Ended) VibeIconButton(VibeIcons.More, "Manage event", { viewModel.openManage(true) })
+                VibeIconButton(VibeIcons.Share, "Share event", {
                     val text = "${event.title}\n${event.timeLabel}\n${event.location}"
                     val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
                     context.startActivity(Intent.createChooser(send, "Share event"))
@@ -150,9 +151,9 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
 
     if (s.manageOpen) {
         VibeBottomSheet(onDismiss = { viewModel.openManage(false) }) {
-            SheetRow(Icons.Outlined.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
+            SheetRow(VibeIcons.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
             if (status != EventStatus.Cancelled) SheetRow(Icons.Outlined.EventBusy, "Cancel event", true) { viewModel.confirm(EventConfirm.Cancel) }
-            SheetRow(Icons.Outlined.DeleteOutline, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
+            SheetRow(VibeIcons.Delete, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
         }
     }
     when (s.confirm) {
@@ -208,7 +209,7 @@ private fun StatusBanner(e: CampusEvent) {
 }
 
 @Composable
-private fun BackButton(onBack: () -> Unit) = VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack)
+private fun BackButton(onBack: () -> Unit) = VibeIconButton(VibeIcons.Back, "Back", onBack)
 
 @Composable
 private fun Hero(details: EventDetails) {
@@ -254,9 +255,9 @@ private fun InfoCard(details: EventDetails) {
     val event = details.event
     VibeCard {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            InfoLine(Icons.Outlined.Schedule, "When", event.timeLabel)
-            InfoLine(Icons.Outlined.Place, "Where", event.location)
-            InfoLine(Icons.Outlined.Groups, "Attending", "${event.going} going · ${event.interested} interested")
+            InfoLine(VibeIcons.Clock, "When", event.timeLabel)
+            InfoLine(VibeIcons.Place, "Where", event.location)
+            InfoLine(VibeIcons.Groups, "Attending", "${event.going} going · ${event.interested} interested")
             details.capacity?.let { capacity ->
                 val progress = (event.going.toFloat() / capacity).coerceIn(0f, 1f)
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -319,7 +320,7 @@ private fun VenueSection(details: EventDetails) {
         Text("Venue", style = MaterialTheme.typography.titleMedium)
         VenueMap(lat, lng, venue, onClick = { openInMaps(context, lat, lng, venue) })
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Icon(VibeIcons.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(Spacing.sm))
             Text(venue, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
@@ -346,14 +347,14 @@ private fun ActionBar(details: EventDetails, onGoing: () -> Unit, onInterested: 
                     VibeButton(
                         text = "Interested", onClick = onInterested,
                         style = if (interested) VibeButtonStyle.Primary else VibeButtonStyle.Secondary,
-                        leadingIcon = if (interested) Icons.Outlined.Check else Icons.Outlined.StarOutline,
+                        leadingIcon = if (interested) VibeIcons.Check else Icons.Outlined.StarOutline,
                         modifier = Modifier.weight(1f).semantics { selected = interested },
                     )
                     VibeButton(
                         text = if (details.isFull) "Event full" else "Going", onClick = onGoing,
                         style = if (going) VibeButtonStyle.Primary else VibeButtonStyle.Secondary,
                         enabled = !details.isFull,
-                        leadingIcon = if (going) Icons.Outlined.Check else null,
+                        leadingIcon = if (going) VibeIcons.Check else null,
                         modifier = Modifier.weight(1f).semantics { selected = going },
                     )
                 }

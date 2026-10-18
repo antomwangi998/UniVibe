@@ -1,5 +1,7 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.FollowButton
+import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -99,7 +101,7 @@ fun PhotosScreen(onBack: () -> Unit, viewModel: PhotosViewModel = viewModel()) {
     val pick = rememberPhotoPicker("gallery") { viewModel.add(it) }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Photos", compactTitle = true, navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) })
+        VibeTopBar("Photos", compactTitle = true, navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) })
         when {
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             s.error != null -> ErrorState(s.error!!, viewModel::load)
@@ -117,7 +119,7 @@ fun PhotosScreen(onBack: () -> Unit, viewModel: PhotosViewModel = viewModel()) {
                             modifier = Modifier.aspectRatio(1f),
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = "Add photo", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Icon(VibeIcons.Photo, contentDescription = "Add photo", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                             }
                         }
                     }
@@ -143,8 +145,8 @@ fun PhotosScreen(onBack: () -> Unit, viewModel: PhotosViewModel = viewModel()) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 PhotoImage(path, "Photo", contentScale = ContentScale.Fit)
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(Spacing.sm), horizontalArrangement = Arrangement.SpaceBetween) {
-                    IconButton(onClick = { selected = null }) { Icon(Icons.Outlined.Close, contentDescription = "Close", tint = Color.White) }
-                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete photo", tint = Color.White) }
+                    IconButton(onClick = { selected = null }) { Icon(VibeIcons.Close, contentDescription = "Close", tint = Color.White) }
+                    IconButton(onClick = { confirmDelete = true }) { Icon(VibeIcons.Delete, contentDescription = "Delete photo", tint = Color.White) }
                 }
             }
         }
@@ -169,18 +171,17 @@ fun SavedPostsScreen(
     val s by viewModel.state.collectAsStateWithLifecycle()
     val shareContext = LocalContext.current
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Saved posts", compactTitle = true, navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) })
+        VibeTopBar("Saved posts", compactTitle = true, navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) })
         when {
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
             s.error != null -> ErrorState(s.error!!, viewModel::load)
             s.posts.isEmpty() -> EmptyState(
-                Icons.Outlined.BookmarkBorder, "Nothing saved yet",
+                VibeIcons.Bookmark, "Nothing saved yet",
                 "Tap the bookmark on a post to keep it here.",
             )
             else -> LazyColumn(
                 Modifier.fillMaxSize().navigationBarsPadding(),
-                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.sm, bottom = Spacing.lg),
-                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                contentPadding = PaddingValues(top = Spacing.sm, bottom = Spacing.lg),
             ) {
                 items(s.posts, key = { it.id }) { post ->
                     CampusPostCard(
@@ -208,7 +209,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (Strin
             s.error != null -> item { ErrorState(s.error!!, viewModel::load) }
             s.entries.isEmpty() -> item {
                 EmptyState(
-                    Icons.Outlined.PeopleOutline,
+                    VibeIcons.Groups,
                     if (kind == FollowKind.Followers) "No followers yet" else "Not following anyone yet",
                     "Students you connect with will appear here.",
                 )
@@ -226,10 +227,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (Strin
                                 Text(entry.student.name, style = MaterialTheme.typography.titleSmall)
                                 Text(entry.student.course.ifBlank { entry.student.handle }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            VibeButton(
-                                if (entry.isFollowing) "Following" else "Follow", { viewModel.toggle(entry.student.id) },
-                                style = if (entry.isFollowing) VibeButtonStyle.Secondary else VibeButtonStyle.Primary, compact = true,
-                            )
+                            FollowButton(entry.isFollowing, { viewModel.toggle(entry.student.id) }, compact = true)
                         }
                     }
                 }
@@ -250,8 +248,8 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             title = s.student?.name ?: "Profile", compactTitle = true,
-            navigationIcon = { VibeIconButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back", onBack) },
-            actions = { if (s.student != null && !s.isMe) VibeIconButton(Icons.Outlined.MoreHoriz, "More options", { viewModel.openMenu(true) }) },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
+            actions = { if (s.student != null && !s.isMe) VibeIconButton(VibeIcons.More, "More options", { viewModel.openMenu(true) }) },
         )
         val student = s.student
         when {
@@ -301,7 +299,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
                             )
                             VibeButton(
                                 "Message", { viewModel.message(onOpenChat) }, Modifier.weight(1f),
-                                style = VibeButtonStyle.Secondary, loading = s.opening, leadingIcon = Icons.Outlined.ChatBubbleOutline,
+                                style = VibeButtonStyle.Secondary, loading = s.opening, leadingIcon = VibeIcons.Comment,
                             )
                         }
                     }
@@ -322,8 +320,8 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
 
     if (s.menuOpen && s.student != null) {
         VibeBottomSheet(onDismiss = { viewModel.openMenu(false) }) {
-            SheetRow(Icons.Outlined.Flag, "Report ${s.student!!.name}", false, viewModel::report)
-            SheetRow(Icons.Outlined.Block, "Block ${s.student!!.name}", true, viewModel::block)
+            SheetRow(VibeIcons.Report, "Report ${s.student!!.name}", false, viewModel::report)
+            SheetRow(VibeIcons.Block, "Block ${s.student!!.name}", true, viewModel::block)
         }
     }
 }

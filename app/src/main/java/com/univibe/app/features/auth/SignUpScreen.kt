@@ -1,5 +1,6 @@
 package com.univibe.app.features.auth
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,14 +60,14 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
 
         VibeTextField(
             value = state.fullName, onValueChange = viewModel::onName, label = "Full name",
-            leadingIcon = Icons.Outlined.PersonOutline,
+            leadingIcon = VibeIcons.Profile,
             isError = state.nameError != null, supportingText = state.nameError,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
             keyboardActions = next,
         )
         VibeTextField(
             value = state.email, onValueChange = viewModel::onEmail, label = "University email",
-            leadingIcon = Icons.Outlined.MailOutline,
+            leadingIcon = VibeIcons.Mail,
             isError = state.emailError != null, supportingText = state.emailError ?: state.domainHint,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
             keyboardActions = next,

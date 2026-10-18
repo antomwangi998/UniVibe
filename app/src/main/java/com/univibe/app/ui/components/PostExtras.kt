@@ -8,6 +8,7 @@ import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.Image
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -92,10 +93,10 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
                     Box(Modifier.fillMaxHeight().fillMaxWidth(share.coerceIn(0f, 1f)).background(colors.primaryContainer.copy(alpha = 0.6f)))
                 }
                 Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(option.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(option.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     if (showResults) {
                         if (chosen) {
-                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
+                            Icon(VibeIcons.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                         }
                         Text("${(share * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
@@ -112,12 +113,14 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
     }
 }
 
+private class VideoFrame(val poster: ImageBitmap?, val ratio: Float?)
+
 /** Poster frame with a play button; tapping plays the video in place. Videos are local files in this build. */
 @Composable
 fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier) {
     var playing by remember(path) { mutableStateOf(false) }
     val remote = path.startsWith("https://")
-    val poster by produceState<ImageBitmap?>(null, path) {
+    val frame by produceState<VideoFrame?>(null, path) {
         // A server video is streamed, so no poster frame is fetched up front (it would download the file).
         value = if (remote) null else withContext(Dispatchers.IO) {
             runCatching {
@@ -125,15 +128,22 @@ fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier) {
                 try {
                     retriever.setDataSource(path)
                     val bitmap: Bitmap? = retriever.getFrameAtTime(0)
-                    bitmap?.asImageBitmap()
+                    val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull()
+                    val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull()
+                    val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                    val ratio = if (w != null && h != null && w > 0f && h > 0f) (if (rotation == 90 || rotation == 270) h / w else w / h) else null
+                    VideoFrame(bitmap?.asImageBitmap(), ratio)
                 } finally {
                     retriever.release()
                 }
             }.getOrNull()
         }
     }
+    val poster = frame?.poster
+    // Keep the video's own shape (portrait stays portrait), within sane limits, so nothing is stretched or cut off.
+    val ratio = (frame?.ratio ?: (16f / 9f)).coerceIn(0.62f, 2f)
     Box(
-        modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp)).background(Color.Black),
+        modifier.fillMaxWidth().animateContentSize().aspectRatio(ratio).clip(PostMediaShape).background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
         if (playing) {

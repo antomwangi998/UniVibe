@@ -1,5 +1,6 @@
 package com.univibe.app.features.auth
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,7 +47,7 @@ fun LoginScreen(
             value = state.email,
             onValueChange = viewModel::onEmail,
             label = "Email",
-            leadingIcon = Icons.Outlined.MailOutline,
+            leadingIcon = VibeIcons.Mail,
             isError = state.emailError != null,
             supportingText = state.emailError,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),

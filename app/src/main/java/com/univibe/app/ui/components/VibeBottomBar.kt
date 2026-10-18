@@ -8,7 +8,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -36,7 +35,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -102,17 +100,16 @@ private fun BarItem(item: VibeBarItem, selected: Boolean, onClick: () -> Unit, m
         if (it) colors.primary else colors.onSurfaceVariant
     }
     val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.9f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = tween(durationMillis = 120),
         label = "pressScale",
     )
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
             .selectable(
                 selected = selected,
                 interactionSource = interaction,
-                indication = LocalIndication.current,
+                indication = null,
                 role = Role.Tab,
                 onClick = onClick,
             )
@@ -131,7 +128,10 @@ private fun BarItem(item: VibeBarItem, selected: Boolean, onClick: () -> Unit, m
                 imageVector = if (selected) item.selectedIcon else item.icon,
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(VibeIconSize.Navigation).graphicsLayer {
+                    val emphasis = 1f + 0.06f * indicator
+                    scaleX = emphasis; scaleY = emphasis
+                },
             )
         }
         Text(item.label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1, overflow = TextOverflow.Clip)

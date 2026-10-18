@@ -1,5 +1,6 @@
 package com.univibe.app.features.settings
 
+import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -70,11 +71,11 @@ fun SettingsScreen(
         }
         item {
             SettingsGroup {
-                SettingsNavRow(Icons.Outlined.AccountCircle, "Account", { onNavigate(SettingsRoutes.ACCOUNT) }, subtitle = user?.email)
+                SettingsNavRow(VibeIcons.Profile, "Account", { onNavigate(SettingsRoutes.ACCOUNT) }, subtitle = user?.email)
                 RowDivider()
                 SettingsNavRow(Icons.Outlined.Shield, "Privacy & safety", { onNavigate(SettingsRoutes.PRIVACY) })
                 RowDivider()
-                SettingsNavRow(Icons.Outlined.Notifications, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
+                SettingsNavRow(VibeIcons.Bell, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
                 RowDivider()
                 SettingsNavRow(Icons.Outlined.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
                 RowDivider()
