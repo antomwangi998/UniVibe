@@ -198,6 +198,9 @@ class MockStore(val demo: Boolean = true) {
     val liked = mutableSetOf<String>()
     val saved = mutableSetOf<String>()
     val following: MutableSet<String> = if (demo) mutableSetOf("s2", "s3", "s6") else mutableSetOf()
+    private val messageFlows = mutableMapOf<String, MutableStateFlow<List<Message>>>()
+    private val typingFlows = mutableMapOf<String, MutableStateFlow<Boolean>>()
+    val chats = mutableListOf<Chat>()
 
     /** Events with real times, seeded relative to now so the Past tab and auto-expiry can be seen. */
     val events: MutableList<EventDetails> = run {
@@ -291,25 +294,7 @@ class MockStore(val demo: Boolean = true) {
         if (i >= 0) posts[i] = posts[i].copy(commentCount = (posts[i].commentCount + delta).coerceAtLeast(0))
     }
 
-    fun messageFlow(chatId: String): MutableStateFlow<List<Message>> = messageFlows.getOrPut(chatId) {
-        val chat = chats.firstOrNull { it.id == chatId }
-        val now = System.currentTimeMillis()
-        MutableStateFlow(
-            if (chat == null || chat.lastMessage.isBlank()) emptyList() else listOf(
-                Message("${chatId}-1", chatId, firstSender(chat).first, firstSender(chat).second, "Hey! Are we still meeting?", now - 3_600_000, false),
-                Message("${chatId}-2", chatId, MockData.ME_ID, "You", "Yes, 3pm works for me.", now - 3_500_000, true, MessageStatus.Seen),
-                Message("${chatId}-3", chatId, firstSender(chat).first, firstSender(chat).second, chat.lastMessage, now - 1_800_000, false),
-            ),
-        )
-    }
-
-    /** Sender id and display name for seeded incoming messages: a real member in groups, the other person in 1:1s. */
-    private fun firstSender(chat: Chat): Pair<String, String> {
-        val other = group(chat.id)?.members?.firstOrNull { !it.isMe && it.role != GroupRole.Member }?.student
-            ?: group(chat.id)?.members?.firstOrNull { !it.isMe }?.student
-        return if (other != null) other.id to other.name else "other" to chat.title.substringBefore(' ')
-    }
-
+    fun messageFlow(chatId: String): MutableStateFlow<List<Message>> = messageFlows.getOrPut(chatId) { MutableStateFlow(emptyList()) }
     fun typingFlow(chatId: String): MutableStateFlow<Boolean> = typingFlows.getOrPut(chatId) { MutableStateFlow(false) }
 
     fun appendMessage(message: Message) {
@@ -842,7 +827,7 @@ class MockProfileRepository(
             interests = e.interests ?: base.student.interests,
         )
         return base.copy(
-            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = if (live != null) live.avatarUrl else e.avatarPath, coverPath = if (live != null) live.coverUrl else e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
+            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = if (live != null) live.avatarUrl else e.avatarPath, coverPath = if (live != null) live.coverUrl else e.coverPath,
             posts = stats?.posts ?: (base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" }),
             savedPosts = stats?.saved ?: store.saved.size,
             followers = stats?.followers ?: base.followers,
