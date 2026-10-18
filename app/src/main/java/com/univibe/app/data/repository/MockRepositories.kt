@@ -218,6 +218,11 @@ class MockStore(val demo: Boolean = true) {
         if (demo) it["tech"] = mutableListOf(MockData.amina, MockData.kevin)
     }
 
+    // Mock chat/message state used by the repository methods that seed and mutate conversation previews.
+    private val chats: MutableList<Chat> = mutableListOf()
+    private val messageFlows: MutableMap<String, MutableStateFlow<List<Message>>> = mutableMapOf()
+    private val typingFlows: MutableMap<String, MutableStateFlow<Boolean>> = mutableMapOf()
+
     /** Mock-only member lists. A real backend stores memberships; counts shown in lists come from the server. */
     fun membersOf(id: String): MutableList<CommunityMember> = communityMembers.getOrPut(id) {
         val c = communities.first { it.id == id }
@@ -842,7 +847,7 @@ class MockProfileRepository(
             interests = e.interests ?: base.student.interests,
         )
         return base.copy(
-            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = if (live != null) live.avatarUrl else e.avatarPath, coverPath = if (live != null) live.coverUrl else e.coverPath, photos = e.photos, discoverPhotoPath = e.discoverPhotoPath,
+            student = student, bio = if (live != null) base.bio else e.bio ?: base.bio, avatarPath = if (live != null) live.avatarUrl else e.avatarPath, coverPath = if (live != null) live.coverUrl else e.coverPath,
             posts = stats?.posts ?: (base.posts + store.posts.count { it.author.id == MockData.ME_ID && it.id.startsWith("p") && it.timeAgo == "now" }),
             savedPosts = stats?.saved ?: store.saved.size,
             followers = stats?.followers ?: base.followers,
