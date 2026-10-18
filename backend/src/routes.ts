@@ -8,6 +8,8 @@ import { moderationRoutes } from './modules/moderation';
 import { notificationRoutes } from './modules/notifications';
 import { privacyRoutes } from './modules/privacy';
 import { searchRoutes } from './modules/search';
+import { accountStatusRoutes } from './modules/account_status';
+import { sessionRoutes } from './modules/sessions';
 import { wsRoutes } from './modules/ws';
 import { Hub } from './realtime';
 
@@ -25,6 +27,8 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(eventRoutes(ctx));
     await app.register(moderationRoutes(ctx));
     await app.register(searchRoutes(ctx));
+    await app.register(sessionRoutes(ctx));
+    await app.register(accountStatusRoutes(ctx));
     await app.register(notificationRoutes(ctx, hub));
   };
 }

@@ -42,6 +42,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.univibe.app.BuildConfig
+import com.univibe.app.features.legal.LegalContact
+import com.univibe.app.features.legal.privacyPolicyItems
+import com.univibe.app.features.legal.termsOfServiceItems
 import com.univibe.app.features.auth.LegalDoc
 import com.univibe.app.features.auth.LegalSheet
 import com.univibe.app.ui.components.InterestChip
@@ -49,11 +52,11 @@ import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.theme.Spacing
 
-/** PLACEHOLDER address: replace with a real, monitored support mailbox before launch. */
-private const val SUPPORT_EMAIL = "support@univibe.example"
+/** The support mailbox (temporary address on another project's domain; update with [LegalContact.EMAIL]). */
+private const val SUPPORT_EMAIL = LegalContact.EMAIL
 
 @Composable
-fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGuidelines: () -> Unit, onAbout: () -> Unit) {
+fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGuidelines: () -> Unit, onAbout: () -> Unit, onTerms: () -> Unit, onPrivacyPolicy: () -> Unit) {
     SettingsPage("Help & support", onBack) {
         item {
             SettingsGroup {
@@ -62,6 +65,10 @@ fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGu
                 SettingsNavRow(Icons.Outlined.BugReport, "Report a problem", onReport, subtitle = "Opens your email app")
                 RowDivider()
                 SettingsNavRow(Icons.Outlined.Gavel, "Community guidelines", onGuidelines)
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Description, "Terms of Service", onTerms)
+                RowDivider()
+                SettingsNavRow(Icons.Outlined.Policy, "Privacy Policy", onPrivacyPolicy)
                 RowDivider()
                 SettingsNavRow(VibeIcons.Info, "About UniVibe", onAbout)
             }
@@ -211,4 +218,16 @@ private fun AboutLine(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** Settings → Help & support → Terms of Service. The same text is shown from the sign-up screen. */
+@Composable
+fun TermsScreen(onBack: () -> Unit) {
+    SettingsPage("Terms of Service", onBack) { termsOfServiceItems() }
+}
+
+/** Settings → Help & support → Privacy Policy. The same text is shown from the sign-up screen and About. */
+@Composable
+fun PrivacyPolicyScreen(onBack: () -> Unit) {
+    SettingsPage("Privacy Policy", onBack) { privacyPolicyItems() }
 }

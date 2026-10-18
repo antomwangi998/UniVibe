@@ -21,6 +21,8 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://settings/help/report` | Report a problem |
 | `univibe://settings/help/guidelines` | Community guidelines |
 | `univibe://settings/help/about` | About |
+| `univibe://settings/help/terms` | Terms of Service |
+| `univibe://settings/help/privacy-policy` | Privacy Policy |
 | `univibe://chats/{chatId}` | A conversation (e.g. `univibe://chats/c1`) |
 | `univibe://post/{postId}/comments` | Comments on a post |
 | `univibe://student/{studentId}` | Another student's full profile (opened from Discover cards; links on to chat, communities and post comments) |
@@ -38,6 +40,10 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://communities/{communityId}` | Community details (e.g. `univibe://communities/tech`) |
 | `univibe://profile/edit` | Edit profile |
 | `univibe://profile/photos` | Your photos |
+| `univibe://settings/security` | Security |
+| `univibe://settings/security/login-activity` | Login activity (devices you're logged in on) |
+| `univibe://settings/appearance` | Appearance (theme) |
+| `univibe://settings/status` | Account status |
 | `univibe://profile/saved` | Saved posts |
 | `univibe://profile/followers` `univibe://profile/following` | Follower lists |
 

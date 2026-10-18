@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.univibe.app.features.legal.PrivacyPolicyBox
+import com.univibe.app.features.legal.TermsOfServiceBox
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.theme.Spacing
@@ -57,17 +59,14 @@ fun AuthScaffold(
 
 enum class LegalDoc(val title: String) { Terms("Terms of Service"), Privacy("Privacy Policy") }
 
-/** Placeholder: replace with your real, lawyer-reviewed documents before launch. */
+/** The Terms of Service and the Privacy Policy are real documents (see features/legal), shown in a sheet. */
 @Composable
 fun LegalSheet(doc: LegalDoc, onDismiss: () -> Unit) {
     VibeBottomSheet(onDismiss = onDismiss) {
-        Text(doc.title, style = MaterialTheme.typography.titleLarge)
-        Text(
-            "Placeholder text. The real ${doc.title} must be written and reviewed before UniVibe is released to students, " +
-                "and linked here from a hosted page.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = Spacing.sm),
-        )
+        Text(doc.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
+        when (doc) {
+            LegalDoc.Terms -> TermsOfServiceBox()
+            LegalDoc.Privacy -> PrivacyPolicyBox()
+        }
     }
 }

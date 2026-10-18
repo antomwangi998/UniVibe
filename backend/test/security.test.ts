@@ -63,3 +63,15 @@ describe('student email domains', () => {
     expect(sec.emailMatchesDomains('a@gmail.com', domains)).toBe(false);
   });
 });
+
+describe('access token session claim', () => {
+  it('carries the login id and still verifies as before', async () => {
+    const withSid = await sec.signAccessToken('user-1', SECRET, 'family-1');
+    expect(await sec.verifyAccessClaims(withSid, SECRET)).toEqual({ userId: 'user-1', sessionId: 'family-1' });
+    expect(await sec.verifyAccessToken(withSid, SECRET)).toBe('user-1');
+    const legacy = await sec.signAccessToken('user-1', SECRET);
+    expect(await sec.verifyAccessClaims(legacy, SECRET)).toEqual({ userId: 'user-1', sessionId: null });
+    expect(await sec.verifyAccessClaims('nope', SECRET)).toBeNull();
+  });
+});
+
