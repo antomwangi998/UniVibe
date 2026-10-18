@@ -117,6 +117,8 @@ fun SettingsScreen(
                     RowDivider()
                     SettingsNavRow(VibeIcons.Bell, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
                     RowDivider()
+                    SettingsNavRow(VibeIcons.Chats, "Messages", { onNavigate(SettingsRoutes.MESSAGING) })
+                    RowDivider()
                     SettingsNavRow(VibeIcons.Palette, "Appearance", { onNavigate(SettingsRoutes.APPEARANCE) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
@@ -159,6 +161,7 @@ private fun iconFor(category: String): ImageVector = when (category) {
     SettingsCategories.SECURITY -> VibeIcons.Lock
     SettingsCategories.PRIVACY -> VibeIcons.Shield
     SettingsCategories.NOTIFICATIONS -> VibeIcons.Bell
+    SettingsCategories.MESSAGES -> VibeIcons.Chats
     SettingsCategories.APPEARANCE -> VibeIcons.Palette
     SettingsCategories.ACCESSIBILITY -> VibeIcons.Accessibility
     SettingsCategories.PERMISSIONS -> VibeIcons.Shield

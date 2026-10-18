@@ -12,6 +12,8 @@ data class ServerPrivacy(
     val showOnline: Boolean,
     val readReceipts: Boolean,
     val messagePolicy: MessagePolicy,
+    /** When off, other people are never told you are typing. Enforced by the server. */
+    val typingIndicators: Boolean = true,
 )
 
 /** Only the fields that are set are sent. */
@@ -20,10 +22,12 @@ data class PrivacyChange(
     val showOnline: Boolean? = null,
     val readReceipts: Boolean? = null,
     val messagePolicy: MessagePolicy? = null,
+    val typingIndicators: Boolean? = null,
 )
 
 fun ServerPrivacy.updated(c: PrivacyChange) = ServerPrivacy(
     c.discoverable ?: discoverable, c.showOnline ?: showOnline, c.readReceipts ?: readReceipts, c.messagePolicy ?: messagePolicy,
+    c.typingIndicators ?: typingIndicators,
 )
 
 interface PrivacyRepository {
@@ -40,7 +44,7 @@ interface PrivacyRepository {
 class LocalPrivacyRepository(private val settings: SettingsRepository) : PrivacyRepository {
     override val syncedWithServer = false
     private suspend fun current(): ServerPrivacy = settings.settings.first().let {
-        ServerPrivacy(it.discoverable, it.showOnline, it.showReadReceipts, it.messagePolicy)
+        ServerPrivacy(it.discoverable, it.showOnline, it.showReadReceipts, it.messagePolicy, it.showTyping)
     }
     override suspend fun load() = current()
     override suspend fun save(change: PrivacyChange): ServerPrivacy {
@@ -48,6 +52,7 @@ class LocalPrivacyRepository(private val settings: SettingsRepository) : Privacy
             s.copy(
                 discoverable = change.discoverable ?: s.discoverable, showOnline = change.showOnline ?: s.showOnline,
                 showReadReceipts = change.readReceipts ?: s.showReadReceipts, messagePolicy = change.messagePolicy ?: s.messagePolicy,
+                showTyping = change.typingIndicators ?: s.showTyping,
             )
         }
         return current()
@@ -70,6 +75,7 @@ class RemotePrivacyRepository(private val api: AuthedApi, private val settings: 
         discoverable = json.optBoolean("discoverable", true),
         showOnline = json.optBoolean("showOnline", true),
         readReceipts = json.optBoolean("readReceipts", true),
+        typingIndicators = json.optBoolean("typingIndicators", true),
         messagePolicy = when (json.optString("messagePermission")) {
             "followers" -> MessagePolicy.Following
             "nobody" -> MessagePolicy.Nobody
@@ -78,7 +84,7 @@ class RemotePrivacyRepository(private val api: AuthedApi, private val settings: 
     )
 
     private suspend fun cache(p: ServerPrivacy): ServerPrivacy {
-        settings.update { it.copy(discoverable = p.discoverable, showOnline = p.showOnline, showReadReceipts = p.readReceipts, messagePolicy = p.messagePolicy) }
+        settings.update { it.copy(discoverable = p.discoverable, showOnline = p.showOnline, showReadReceipts = p.readReceipts, messagePolicy = p.messagePolicy, showTyping = p.typingIndicators) }
         return p
     }
 
@@ -89,6 +95,7 @@ class RemotePrivacyRepository(private val api: AuthedApi, private val settings: 
         change.discoverable?.let { body.put("discoverable", it) }
         change.showOnline?.let { body.put("showOnline", it) }
         change.readReceipts?.let { body.put("readReceipts", it) }
+        change.typingIndicators?.let { body.put("typingIndicators", it) }
         change.messagePolicy?.let {
             body.put("messagePermission", when (it) { MessagePolicy.Everyone -> "everyone"; MessagePolicy.Following -> "followers"; MessagePolicy.Nobody -> "nobody" })
         }

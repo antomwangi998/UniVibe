@@ -16,8 +16,8 @@ class UniVibeMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val event = PushPayload.parse(message.data) ?: return
         // Quiet hours are a device setting, so the phone applies them. This runs on FCM's background thread.
-        val quiet = runBlocking { AppContainer.settingsRepository.settings.first().quietHours }
-        if (!PushPolicy.shouldShow(event, quiet, LocalTime.now().hour)) return
-        PushNotifier.show(applicationContext, event)
+        val prefs = runBlocking { AppContainer.settingsRepository.settings.first() }
+        if (!PushPolicy.shouldShow(event, prefs.quietHours, LocalTime.now().hour)) return
+        PushNotifier.show(applicationContext, PushPolicy.forDisplay(event, prefs.showMessagePreview))
     }
 }

@@ -14,6 +14,8 @@ object SettingsRoutes {
     const val ACCOUNT = "settings/account"
     const val PASSWORD = "settings/account/password"
     const val PERMISSIONS = "settings/permissions"
+    const val MESSAGING = "settings/messages"
+    const val MUTED_CHATS = "settings/messages/muted"
     const val DATA_STORAGE = "settings/data-storage"
     const val SECURITY = "settings/security"
     const val LOGIN_ACTIVITY = "settings/security/login-activity"
