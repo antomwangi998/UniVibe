@@ -71,6 +71,8 @@ android {
 }
 
 dependencies {
+    // Installs the baseline profile (this project's and the libraries') on first run, also for sideloaded APKs.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

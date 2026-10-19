@@ -1,6 +1,8 @@
 package com.univibe.app.app
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.univibe.app.BuildConfig
 import com.univibe.app.data.auth.CredentialManagerGoogleProvider
 import com.univibe.app.data.auth.GoogleCredentialProvider
@@ -76,11 +78,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class UniVibeApplication : Application() {
+class UniVibeApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         AppContainer.init(this)
     }
+
+    /**
+     * One shared image loader: photos fade in instead of popping, and a photo already on disk is reused even if the
+     * server marks it uncacheable (the links are signed and change hourly; PhotoImage keys the cache without the signature).
+     */
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .crossfade(160)
+        .respectCacheHeaders(false)
+        .build()
 }
 
 /** Minimal service locator; swap in Hilt/Koin only if the project outgrows this. */

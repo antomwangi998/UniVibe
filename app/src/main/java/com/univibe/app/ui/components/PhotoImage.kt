@@ -1,5 +1,6 @@
 package com.univibe.app.ui.components
 
+import android.content.Context
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -7,6 +8,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import java.io.File
 
@@ -42,5 +45,21 @@ fun rememberPhotoModel(path: String): Any {
         } else {
             File(path)
         }
+    }
+}
+
+/**
+ * Warms the disk cache for photos that are about to scroll into view, so they appear without waiting for the network.
+ * Server links only. Decodes at a tiny size and keeps nothing in memory, so it costs almost no memory or CPU.
+ */
+fun prefetchPhotos(context: Context, paths: List<String>) {
+    val loader = context.imageLoader
+    for (path in paths) {
+        if (!path.startsWith("https://")) continue
+        val key = path.substringBefore('?')
+        loader.enqueue(
+            ImageRequest.Builder(context).data(path).memoryCacheKey(key).diskCacheKey(key)
+                .size(1).memoryCachePolicy(CachePolicy.DISABLED).build(),
+        )
     }
 }
