@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws';
+import type { JoinState } from './modules/community_state';
 
 export type ServerEvent =
   | { type: 'message:new'; conversationId: string; message: unknown }
@@ -11,7 +12,8 @@ export type ServerEvent =
   | { type: 'conversation:updated'; conversationId: string }
   | { type: 'message:reaction'; conversationId: string; messageId: string; userId: string; reaction: string | null; reactions: Record<string, number> }
   | { type: 'notification:created'; notification: { id: string; type: string; actorId: string | null; entityType: string | null; entityId: string | null; createdAt: string }; unreadCount: number }
-  | { type: 'notification:unread'; unreadCount: number };
+  | { type: 'notification:unread'; unreadCount: number }
+  | { type: 'community:membership'; communityId: string; membership: JoinState; memberCount: number };
 
 /**
  * Tracks live WebSocket connections per user (several devices per user are fine).

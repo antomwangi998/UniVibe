@@ -103,12 +103,12 @@ fun ChangePasswordScreen(onBack: () -> Unit, viewModel: ChangePasswordViewModel 
                 state.error?.let { MessageBanner(it, BannerKind.Error) }
                 VibePasswordField(
                     value = state.current, onValueChange = viewModel::onCurrent, label = "Current password",
-                    modifier = Modifier.loginPasswordAutofill(),
+                    modifier = Modifier.loginPasswordAutofill(viewModel::onCurrent),
                     isError = state.currentError != null, supportingText = state.currentError, keyboardActions = next,
                 )
                 VibePasswordField(
                     value = state.new, onValueChange = viewModel::onNew, label = "New password",
-                    modifier = Modifier.newPasswordAutofill(),
+                    modifier = Modifier.newPasswordAutofill(viewModel::onNew),
                     isError = state.newError != null,
                     supportingText = state.newError ?: "At least ${AuthValidators.MIN_PASSWORD} characters with a letter and a number.",
                     keyboardActions = next,
@@ -116,7 +116,7 @@ fun ChangePasswordScreen(onBack: () -> Unit, viewModel: ChangePasswordViewModel 
                 PasswordStrengthMeter(AuthValidators.passwordStrength(state.new))
                 VibePasswordField(
                     value = state.confirm, onValueChange = viewModel::onConfirm, label = "Confirm new password",
-                    modifier = Modifier.newPasswordAutofill(),
+                    modifier = Modifier.newPasswordAutofill(viewModel::onConfirm),
                     isError = state.confirmError != null, supportingText = state.confirmError,
                     imeAction = ImeAction.Done,
                     keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.submit(savePassword) }),
