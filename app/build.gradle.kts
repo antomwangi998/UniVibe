@@ -28,7 +28,21 @@ android {
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
     }
 
+    signingConfigs {
+        create("univibeDebug") {
+            storeFile = file("univibe-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            if (file("univibe-debug.keystore").exists()) {
+                signingConfig = signingConfigs.getByName("univibeDebug")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
