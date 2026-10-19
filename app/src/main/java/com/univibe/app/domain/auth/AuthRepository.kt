@@ -25,6 +25,21 @@ interface AuthRepository {
     suspend fun completeOnboarding(profile: OnboardingProfile): AuthResult<Unit>
     /** Saves edits to the signed-in student's profile on the server and refreshes the session user. */
     suspend fun updateProfile(edit: ProfileEdit): AuthResult<Unit> = AuthResult.Failure(AuthError.Unknown)
+    /** True when this build can offer Google sign-in (a server client id and a real backend are configured). */
+    val googleSignInAvailable: Boolean get() = false
+    /** A fresh single-use nonce to put into the Google request, so a copied ID token cannot be replayed. */
+    suspend fun googleNonce(): AuthResult<String> = AuthResult.Failure(AuthError.GoogleUnavailable)
+    /**
+     * Sends the Google ID token to the server, which verifies it. Success means the session state moved on:
+     * signed in, [AuthState.GoogleRegistrationRequired] (new person) or [AuthState.GoogleLinkRequired] (existing email).
+     */
+    suspend fun signInWithGoogle(idToken: String, nonce: String): AuthResult<Unit> = AuthResult.Failure(AuthError.GoogleUnavailable)
+    /** Creates the account for a new Google person. Only valid in [AuthState.GoogleRegistrationRequired]. */
+    suspend fun completeGoogleRegistration(request: GoogleRegistrationRequest): AuthResult<Unit> = AuthResult.Failure(AuthError.GoogleUnavailable)
+    /** Links Google to the existing account after the account's password confirms it. Only valid in [AuthState.GoogleLinkRequired]. */
+    suspend fun linkGoogleAccount(password: String): AuthResult<Unit> = AuthResult.Failure(AuthError.GoogleUnavailable)
+    /** Abandons registration or linking and returns to the signed-out screens. */
+    fun cancelGoogleFlow() {}
     suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit>
     /** Permanently deletes the account after re-checking the password. */
     suspend fun deleteAccount(password: String): AuthResult<Unit>

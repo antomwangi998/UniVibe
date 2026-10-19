@@ -64,7 +64,8 @@ class ForgotPasswordViewModel(
         }
     }
 
-    fun resetPassword() {
+    /** [afterReset] runs after the new password was accepted (the screen offers to update the saved login). */
+    fun resetPassword(afterReset: suspend (email: String, password: String) -> Unit = { _, _ -> }) {
         val s = _state.value
         if (s.submitting) return
         val codeError = AuthValidators.verificationCode(s.code)
@@ -77,7 +78,10 @@ class ForgotPasswordViewModel(
         viewModelScope.launch {
             _state.update { it.copy(submitting = true, error = null) }
             when (val r = repository.resetPassword(s.email, s.code, s.password)) {
-                is AuthResult.Success -> _state.update { it.copy(submitting = false, step = ResetStep.Done, password = "", confirm = "", code = "") }
+                is AuthResult.Success -> {
+                    _state.update { it.copy(submitting = false, step = ResetStep.Done, password = "", confirm = "", code = "") }
+                    runCatching { afterReset(s.email.trim().lowercase(), s.password) }
+                }
                 is AuthResult.Failure -> _state.update { it.copy(submitting = false, error = r.error.userMessage()) }
             }
         }

@@ -36,3 +36,6 @@ services:
       # Push notifications. Optional: without it push is skipped and in-app notifications still work.
       - key: FCM_SERVICE_ACCOUNT_JSON
         sync: false
+      # Sign in with Google (OAuth web client id, not a secret). Optional: without it the Google button answers 503.
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false

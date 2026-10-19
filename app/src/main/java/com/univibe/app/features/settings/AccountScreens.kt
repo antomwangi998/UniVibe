@@ -33,6 +33,9 @@ import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibePasswordField
+import com.univibe.app.ui.components.loginPasswordAutofill
+import com.univibe.app.ui.components.newPasswordAutofill
+import com.univibe.app.ui.components.rememberPasswordSaver
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
@@ -90,6 +93,7 @@ private fun InfoLine(label: String, value: String) {
 fun ChangePasswordScreen(onBack: () -> Unit, viewModel: ChangePasswordViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
+    val savePassword = rememberPasswordSaver()
     val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) })
 
     SettingsPage("Change password", onBack) {
@@ -99,10 +103,12 @@ fun ChangePasswordScreen(onBack: () -> Unit, viewModel: ChangePasswordViewModel 
                 state.error?.let { MessageBanner(it, BannerKind.Error) }
                 VibePasswordField(
                     value = state.current, onValueChange = viewModel::onCurrent, label = "Current password",
+                    modifier = Modifier.loginPasswordAutofill(),
                     isError = state.currentError != null, supportingText = state.currentError, keyboardActions = next,
                 )
                 VibePasswordField(
                     value = state.new, onValueChange = viewModel::onNew, label = "New password",
+                    modifier = Modifier.newPasswordAutofill(),
                     isError = state.newError != null,
                     supportingText = state.newError ?: "At least ${AuthValidators.MIN_PASSWORD} characters with a letter and a number.",
                     keyboardActions = next,
@@ -110,11 +116,12 @@ fun ChangePasswordScreen(onBack: () -> Unit, viewModel: ChangePasswordViewModel 
                 PasswordStrengthMeter(AuthValidators.passwordStrength(state.new))
                 VibePasswordField(
                     value = state.confirm, onValueChange = viewModel::onConfirm, label = "Confirm new password",
+                    modifier = Modifier.newPasswordAutofill(),
                     isError = state.confirmError != null, supportingText = state.confirmError,
                     imeAction = ImeAction.Done,
-                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.submit() }),
+                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.submit(savePassword) }),
                 )
-                VibeButton("Update password", viewModel::submit, Modifier.fillMaxWidth(), loading = state.submitting)
+                VibeButton("Update password", { viewModel.submit(savePassword) }, Modifier.fillMaxWidth(), loading = state.submitting)
             }
         }
     }

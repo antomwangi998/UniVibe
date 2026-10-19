@@ -13,6 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -27,6 +30,8 @@ import com.univibe.app.ui.components.MessageBanner
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibePasswordField
 import com.univibe.app.ui.components.VibeTextField
+import com.univibe.app.ui.components.loginEmailAutofill
+import com.univibe.app.ui.components.loginPasswordAutofill
 
 @Composable
 fun LoginScreen(
@@ -38,14 +43,23 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
+    var legal by remember { mutableStateOf<LegalDoc?>(null) }
 
-    AuthScaffold(title = "Welcome back", subtitle = "Log in with your university or registered email.", onBack = onBack) {
+    AuthScaffold(
+        title = "Welcome back",
+        subtitle = "Log in to pick up where you left off.",
+        onBack = onBack,
+        showLogo = true,
+    ) {
         if (notice != null) MessageBanner(notice, BannerKind.Info)
-        state.error?.let { MessageBanner(it, BannerKind.Error) }
 
+        GoogleSection()
+
+        state.error?.let { MessageBanner(it, BannerKind.Error) }
         VibeTextField(
             value = state.email,
             onValueChange = viewModel::onEmail,
+            modifier = Modifier.loginEmailAutofill(),
             label = "Email",
             leadingIcon = VibeIcons.Mail,
             isError = state.emailError != null,
@@ -56,6 +70,7 @@ fun LoginScreen(
         VibePasswordField(
             value = state.password,
             onValueChange = viewModel::onPassword,
+            modifier = Modifier.loginPasswordAutofill(),
             label = "Password",
             isError = state.passwordError != null,
             supportingText = state.passwordError,
@@ -73,5 +88,7 @@ fun LoginScreen(
             Text("New to UniVibe?", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = onSignUp) { Text("Create account") }
         }
+        LegalNotice(onOpen = { legal = it })
     }
+    legal?.let { LegalSheet(it) { legal = null } }
 }
