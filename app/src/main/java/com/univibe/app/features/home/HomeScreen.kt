@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.animateColorAsState
@@ -158,7 +159,7 @@ fun HomeScreen(
         }
         LaunchedEffect(nearEnd, state.posts.size) { if (nearEnd) viewModel.loadMore() }
 
-        LazyColumn(
+        VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = statusTop, bottom = rememberBottomClearance()),
@@ -229,7 +230,7 @@ fun HomeScreen(
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             }
-        }
+        } }
 
         // Compact toolbar: only once the full header has scrolled away, and it follows the bottom bar, hiding
         // while the student scrolls down and returning on the first scroll up (same scroll connection, see AppShell).

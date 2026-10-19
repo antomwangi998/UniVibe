@@ -66,6 +66,8 @@ data class Post(
     val videoRatio: Float? = null,
     /** Small feed copies of [imagePaths], same order and length, or empty when the server made none. */
     val thumbPaths: List<String> = emptyList(),
+    /** Why Discover is showing this post, from a real ranking signal (see [DiscoverReason]); null when none applies. */
+    val discoverReason: String? = null,
 ) {
     /** True when the post carries something besides text, so its text may be empty. */
     val hasAttachment: Boolean

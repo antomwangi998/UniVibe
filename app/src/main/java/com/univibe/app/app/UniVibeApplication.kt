@@ -21,7 +21,16 @@ import com.univibe.app.data.profile.DataStoreProfileLocalStore
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.CommentRepository
 import com.univibe.app.data.repository.CommunityRepository
+import com.univibe.app.data.repository.DiscoverContentRepository
 import com.univibe.app.data.repository.DiscoverRepository
+import com.univibe.app.data.repository.FeedBackedDiscoverContent
+import com.univibe.app.data.repository.PrefsRecentSearches
+import com.univibe.app.data.repository.RecentSearches
+import com.univibe.app.data.repository.RemoteDiscoverContentRepository
+import com.univibe.app.data.repository.RemoteSearchRepository
+import com.univibe.app.data.repository.SearchRepository
+import com.univibe.app.data.repository.UnavailableSearchRepository
+import com.univibe.app.data.repository.RemoteEventRepository
 import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.repository.MockDiscoverRepository
 import com.univibe.app.data.repository.GroupRepository
@@ -148,8 +157,15 @@ object AppContainer {
     val discoverRepository: DiscoverRepository by lazy {
         api?.let { RemoteDiscoverRepository(it) { accountOf(authRepository.session.value) } } ?: MockDiscoverRepository()
     }
+    /** Discover's posts, trending, photos, videos and topics. Offline demo builds them from the sample feed. */
+    val discoverContentRepository: DiscoverContentRepository by lazy {
+        api?.let { RemoteDiscoverContentRepository(it) } ?: FeedBackedDiscoverContent(feedRepository)
+    }
+    /** Search the campus (students, posts, events). Needs the server; the offline demo says so. */
+    val searchRepository: SearchRepository by lazy { api?.let { RemoteSearchRepository(it) } ?: UnavailableSearchRepository }
+    val recentSearches: RecentSearches by lazy { PrefsRecentSearches(app) }
     val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it, chatSocket) } ?: MockNotificationRepository() }
-    val eventRepository: EventRepository by lazy { MockEventRepository(mockStore) }
+    val eventRepository: EventRepository by lazy { api?.let { RemoteEventRepository(it) } ?: MockEventRepository(mockStore) }
     val profileRepository: ProfileRepository by lazy {
         MockProfileRepository(
             mockStore, DataStoreProfileLocalStore(app),

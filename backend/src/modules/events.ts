@@ -9,7 +9,7 @@ import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { notify } from './notify';
 
-export const CATEGORIES = ['academic', 'workshops', 'sports', 'social', 'clubs', 'technology', 'entrepreneurship', 'arts', 'other'] as const;
+export const CATEGORIES = ['academic', 'workshops', 'sports', 'social', 'clubs', 'technology', 'entrepreneurship', 'arts', 'other', 'career', 'party'] as const;
 const MAX_DURATION_HOURS = 48;
 const MIN_LEAD_MINUTES = 5;
 const MAX_AHEAD_DAYS = 365;

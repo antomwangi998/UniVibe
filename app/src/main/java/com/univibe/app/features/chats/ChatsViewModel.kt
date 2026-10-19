@@ -17,6 +17,7 @@ enum class ChatFilter(val label: String) { All("All"), Unread("Unread"), Groups(
 
 data class ChatsUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val query: String = "",
     val filter: ChatFilter = ChatFilter.All,
@@ -63,23 +64,27 @@ class ChatsViewModel(
         viewModelScope.launch { repository.typingByChat().collect { t -> _state.update { it.copy(typing = t) } } }
     }
 
-    fun load(silent: Boolean = false) {
+    fun load(silent: Boolean = false, pull: Boolean = false) {
         viewModelScope.launch {
             if (!silent) _state.update { it.copy(loading = true, error = null) }
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 val chats = repository.getChats()
                 _state.update { s ->
                     // A chat we are changing right now keeps our version: the answer may have been computed before the change.
                     val local = s.all.associateBy { it.id }
                     val merged = chats.mapNotNull { c -> if (c.id in s.busy) local[c.id] else c }
-                    s.copy(loading = false, all = merged)
+                    s.copy(loading = false, refreshing = false, all = merged)
                 }
             } catch (e: Exception) {
+                _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your messages.") }
             }
         }
     }
+
+    fun pullRefresh() { load(silent = true, pull = true); if (_state.value.filter == ChatFilter.Archived) loadArchived() }
 
     fun refresh() { load(silent = true); if (_state.value.filter == ChatFilter.Archived) loadArchived() }
 

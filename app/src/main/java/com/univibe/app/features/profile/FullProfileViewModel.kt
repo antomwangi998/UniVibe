@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 
 data class FullProfileUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val notFound: Boolean = false,
     val profile: StudentProfile? = null,
     val isMe: Boolean = false,
@@ -52,13 +53,15 @@ class FullProfileViewModel(
 
     init { load() }
 
-    fun load() {
+    fun pullRefresh() = load(pull = true)
+
+    fun load(pull: Boolean = false) {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, notFound = false) }
+            _state.update { if (pull) it.copy(refreshing = true) else it.copy(loading = true, notFound = false) }
             try {
                 val profile = repository.getStudentProfile(studentId)
                 if (profile == null) {
-                    _state.update { it.copy(loading = false, notFound = true) }
+                    _state.update { it.copy(loading = false, refreshing = false, notFound = true) }
                     return@launch
                 }
                 val isMe = repository.getMyProfile().student.id == studentId
@@ -70,14 +73,14 @@ class FullProfileViewModel(
                 val posts = runCatching { feed.getPostsBy(studentId, 3) }.getOrDefault(emptyList())
                 _state.update {
                     it.copy(
-                        loading = false,
+                        loading = false, refreshing = false,
                         profile = if (candidate != null) profile.copy(student = candidate) else profile,
                         isMe = isMe, following = following, canDecide = candidate != null,
                         communities = communities, posts = posts,
                     )
                 }
             } catch (e: Exception) {
-                _state.update { it.copy(loading = false, notFound = true) }
+                _state.update { if (pull && it.profile != null) it.copy(refreshing = false) else it.copy(loading = false, refreshing = false, notFound = true) }
             }
         }
     }
