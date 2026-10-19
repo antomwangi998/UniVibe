@@ -1,5 +1,6 @@
 package com.univibe.app.features.notifications
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,7 +85,7 @@ fun NotificationCenterScreen(
                 VibeIcons.Bell, "You're all caught up",
                 "Likes, comments, follows and event reminders will show up here.",
             )
-            else -> LazyColumn(
+            else -> VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = Spacing.lg),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -105,7 +106,7 @@ fun NotificationCenterScreen(
                     items(s.earlier, key = { it.id }) { n -> NotificationRow(n) { viewModel.open(n, onOpenTarget) } }
                 }
                 item(key = "end") { Spacer(Modifier.navigationBarsPadding()) }
-            }
+            } }
         }
     }
 }

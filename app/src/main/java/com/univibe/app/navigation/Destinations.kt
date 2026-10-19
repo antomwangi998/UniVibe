@@ -48,6 +48,7 @@ object AppRoutes {
     const val EVENT_EDIT = "event/{eventId}/edit"
     const val CREATE_POST = "post/new"
     const val NOTIFICATIONS = "notifications"
+    const val SEARCH = "search"
     const val STUDENT = "student/{studentId}"
     const val COMMUNITIES = "communities"
     const val COMMUNITY = "communities/{communityId}"

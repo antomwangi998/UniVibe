@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 
 enum class DiscoverCategory(val label: String) {
-    ForYou("For You"), Trending("Trending"), People("People"), Photos("Photos"), Videos("Videos"), Topics("Topics"),
+    ForYou("For You"), Trending("Trending"), People("People"), Photos("Photos"), Videos("Videos"), Events("Events"), Topics("Topics"),
 }
 
 /** Which list of posts. Each keeps its own posts, cursor and scroll position, so switching tabs reloads nothing. */
@@ -53,6 +53,7 @@ data class PostListState(
 data class TopicsState(
     val topics: List<DiscoverTopic> = emptyList(),
     val loading: Boolean = false,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val loaded: Boolean = false,
 )
@@ -76,7 +77,7 @@ data class DiscoverContentState(
             DiscoverCategory.Photos -> ListKey.Photos
             DiscoverCategory.Videos -> ListKey.Videos
             DiscoverCategory.Topics -> openTopic?.let { ListKey.Topic(it) }
-            DiscoverCategory.People -> null
+            DiscoverCategory.People, DiscoverCategory.Events -> null
         }
 }
 
@@ -186,7 +187,7 @@ class DiscoverContentViewModel(
         val cur = _state.value.topics
         if (!force && (cur.loaded || cur.loading)) return
         topicsJob?.cancel()
-        _state.update { it.copy(topics = it.topics.copy(loading = it.topics.topics.isEmpty(), error = null)) }
+        _state.update { it.copy(topics = it.topics.copy(loading = it.topics.topics.isEmpty(), refreshing = it.topics.topics.isNotEmpty(), error = null)) }
         topicsJob = viewModelScope.launch {
             try {
                 val topics = content.topics()
@@ -194,7 +195,7 @@ class DiscoverContentViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(topics = it.topics.copy(loading = false, error = if (it.topics.topics.isEmpty()) message(e) else null)) }
+                _state.update { it.copy(topics = it.topics.copy(loading = false, refreshing = false, error = if (it.topics.topics.isEmpty()) message(e) else null)) }
             }
         }
     }

@@ -2,6 +2,7 @@
 
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -128,7 +129,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
             else -> {
                 val pinned = state.pinned
                 val others = state.others
-                LazyColumn(
+                VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                     contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.xs, bottom = rememberBottomClearance()),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -144,7 +145,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
                             ChatListItem(chat, state, viewModel, onOpenChat)
                         }
                     }
-                }
+                } }
             }
         }
     }

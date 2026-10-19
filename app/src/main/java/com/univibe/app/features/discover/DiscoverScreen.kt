@@ -3,6 +3,7 @@ package com.univibe.app.features.discover
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.core.Animatable
+import com.univibe.app.ui.components.VibeIconButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -80,11 +81,23 @@ import kotlin.math.roundToInt
 fun DiscoverScreen(
     onOpenStudent: (String) -> Unit = {},
     onOpenComments: (String) -> Unit = {},
+    onOpenEvent: (String) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
     peopleViewModel: DiscoverViewModel = viewModel(),
     viewModel: DiscoverContentViewModel = viewModel(),
+    eventsViewModel: DiscoverEventsViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val eventsState by eventsViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val eventsList = rememberLazyListState()
+    LaunchedEffect(state.category) { if (state.category == DiscoverCategory.Events) eventsViewModel.ensureLoaded() }
+    LaunchedEffect(eventsState.notice) {
+        eventsState.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            eventsViewModel.consumeNotice()
+        }
+    }
     // One scroll position per list, kept while the student moves between categories.
     val forYouList = rememberLazyListState()
     val trendingDay = rememberLazyListState()
@@ -107,7 +120,7 @@ fun DiscoverScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Discover")
+        VibeTopBar("Discover", actions = { VibeIconButton(VibeIcons.Search, "Search", onOpenSearch) })
         CategoryChips(state.category, viewModel::select)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state.category) {
@@ -144,6 +157,7 @@ fun DiscoverScreen(
                     onRetry = { viewModel.load(ListKey.Videos, force = true) },
                     onLoadMore = { viewModel.loadMore(ListKey.Videos) }, onRetryMore = { viewModel.retryMore(ListKey.Videos) },
                 )
+                DiscoverCategory.Events -> DiscoverEventsList(eventsState, eventsList, eventsViewModel, onOpenEvent)
                 DiscoverCategory.Topics -> {
                     val open = state.openTopic
                     if (open == null) {

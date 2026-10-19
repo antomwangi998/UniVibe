@@ -1,5 +1,6 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.app.AppContainer
 import com.univibe.app.ui.components.VibeIcons
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -344,12 +345,14 @@ private fun ActionBar(details: EventDetails, onGoing: () -> Unit, onInterested: 
                 val going = event.rsvp == RsvpState.Going
                 val interested = event.rsvp == RsvpState.Interested
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    if (AppContainer.eventRepository.supportsInterested) {
                     VibeButton(
                         text = "Interested", onClick = onInterested,
                         style = if (interested) VibeButtonStyle.Primary else VibeButtonStyle.Secondary,
                         leadingIcon = if (interested) VibeIcons.Check else VibeIcons.Star,
                         modifier = Modifier.weight(1f).semantics { selected = interested },
                     )
+                    }
                     VibeButton(
                         text = if (details.isFull) "Event full" else "Going", onClick = onGoing,
                         style = if (going) VibeButtonStyle.Primary else VibeButtonStyle.Secondary,

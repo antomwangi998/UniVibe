@@ -23,6 +23,7 @@ val AllInterests = listOf(
 
 data class ProfileUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val profile: MyProfile? = null,
     val groups: List<Community> = emptyList(),
@@ -39,10 +40,12 @@ class ProfileViewModel(
     init { load() }
 
     fun refresh() = load(silent = true)
+    fun pullRefresh() = load(silent = true, pull = true)
 
-    fun load(silent: Boolean = false) {
+    fun load(silent: Boolean = false, pull: Boolean = false) {
         viewModelScope.launch {
             if (!silent) _state.update { it.copy(loading = true, error = null) }
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 // Never show the badge from mock profile data: it must follow what the server told the auth layer.
                 val account = (auth.session.value as? AuthState.Authenticated)?.user
@@ -50,8 +53,9 @@ class ProfileViewModel(
                 val profile = if (account == null) loaded
                 else loaded.copy(student = loaded.student.copy(verified = account.studentVerified))
                 val groups = communities.getCommunities().filter { it.role != CommunityRole.None }
-                _state.update { it.copy(loading = false, profile = profile, groups = groups) }
+                _state.update { it.copy(loading = false, refreshing = false, profile = profile, groups = groups) }
             } catch (e: Exception) {
+                _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your profile.") }
             }

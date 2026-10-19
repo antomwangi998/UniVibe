@@ -18,6 +18,7 @@ val EventCategories = listOf("All") + EventCategoryOptions
 
 data class EventsUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val tab: EventsTab = EventsTab.Upcoming,
     val query: String = "",
@@ -27,6 +28,7 @@ data class EventsUiState(
     val rsvpFor: CampusEvent? = null,
     /** Event awaiting "cancel RSVP" confirmation. */
     val pendingCancel: CampusEvent? = null,
+    val notice: String? = null,
 ) {
     val visible: List<CampusEvent>
         get() = events.asSequence()
@@ -71,6 +73,19 @@ class EventsViewModel(
         }
     }
 
+    /** Pull down to refresh: the spinner shows until the server has answered. */
+    fun pullRefresh() {
+        _state.update { it.copy(refreshing = true) }
+        viewModelScope.launch {
+            try {
+                val events = repository.getEvents()
+                _state.update { it.copy(events = events, error = null, refreshing = false) }
+            } catch (e: Exception) {
+                _state.update { it.copy(refreshing = false, notice = "Couldn't refresh events.") }
+            }
+        }
+    }
+
     fun setTab(tab: EventsTab) = _state.update { it.copy(tab = tab) }
     fun setQuery(query: String) = _state.update { it.copy(query = query) }
     fun setCategory(category: String) = _state.update { it.copy(category = category) }
@@ -111,6 +126,14 @@ class EventsViewModel(
                 }
             })
         }
-        viewModelScope.launch { runCatching { repository.setRsvp(id, newState) } }
+        viewModelScope.launch {
+            try { repository.setRsvp(id, newState) } catch (e: Exception) {
+                // The server said no (full, closed, offline): show what it really has instead of a false "Going".
+                _state.update { it.copy(notice = e.message?.takeIf { m -> m.length < 90 } ?: "Couldn't save your RSVP.") }
+                runCatching { repository.getEvents() }.onSuccess { events -> _state.update { it.copy(events = events) } }
+            }
+        }
     }
+
+    fun consumeNotice() = _state.update { it.copy(notice = null) }
 }

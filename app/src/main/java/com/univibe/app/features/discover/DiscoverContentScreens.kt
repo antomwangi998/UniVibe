@@ -51,6 +51,7 @@ import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.VibeBottomSheet
+import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import com.univibe.app.ui.components.sharePost
@@ -95,6 +96,7 @@ internal fun DiscoverPostList(
     }
     LaunchedEffect(nearEnd, list.posts.size) { if (nearEnd) onLoadMore() }
     val context = LocalContext.current
+    VibePullToRefresh(refreshing = list.refreshing, onRefresh = onRetry) {
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = rememberBottomClearance())) {
         if (header != null) item(key = "header") { header() }
         if (list.stale && list.posts.isNotEmpty()) item(key = "stale") {
@@ -160,6 +162,7 @@ internal fun DiscoverPostList(
             )
         }
     }
+    }
 }
 
 /** Everything a post card can do, so the list composables do not each take eight lambdas. */
@@ -206,7 +209,7 @@ internal fun DiscoverPhotoGrid(
             icon = VibeIcons.Photo, title = "No photos yet", message = "Photos from students on your campus will show up here.",
             modifier = Modifier.padding(Spacing.md), actionLabel = "Refresh", onAction = onRetry,
         )
-        else -> LazyVerticalStaggeredGrid(
+        else -> VibePullToRefresh(refreshing = list.refreshing, onRefresh = onRetry) { LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(2),
             state = gridState,
             modifier = Modifier.fillMaxSize(),
@@ -230,7 +233,7 @@ internal fun DiscoverPhotoGrid(
                 }
             }
             if (list.moreFailed) item(key = "moreFailed") { TextButton(onClick = onRetryMore) { Text("Retry") } }
-        }
+        } }
     }
 }
 
@@ -240,6 +243,7 @@ internal fun TopicList(
     onOpen: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
+    VibePullToRefresh(refreshing = topics.refreshing, onRefresh = onRetry) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = rememberBottomClearance())) {
         when {
             topics.loading -> item(key = "loading") { Box(Modifier.padding(Spacing.md)) { LoadingSkeleton() } }
@@ -253,6 +257,7 @@ internal fun TopicList(
             }
             else -> items(topics.topics, key = { it.tag }) { t -> TopicRow(t) { onOpen(t.tag) } }
         }
+    }
     }
 }
 

@@ -1,5 +1,11 @@
 package com.univibe.app.navigation
 
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.AnimatedContentTransitionScope
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -124,6 +130,54 @@ private class BarScrollConnection(
     }
 }
 
+/**
+ * Which way a swipe moves through the tabs. With this true, swiping right goes to the next tab (Home -> Discover) and
+ * swiping left goes back. Set it to false for the usual pager feel, where swiping left goes to the next tab.
+ */
+private const val SWIPE_RIGHT_GOES_FORWARD = true
+private const val SWIPE_DISTANCE_DP = 96
+
+/**
+ * A horizontal swipe on a tab screen moves to the neighbouring tab. It only counts when nothing inside the screen used
+ * the swipe (a chip row, a photo gallery, the swipe-to-connect deck and video seek bars all use their own swipes first),
+ * and it does nothing on screens that are not tabs.
+ */
+private fun Modifier.swipeBetweenTabs(currentRoute: String?, tabRoutes: List<String>, selectTab: (String) -> Unit): Modifier =
+    pointerInput(currentRoute) {
+        val index = tabRoutes.indexOf(currentRoute)
+        if (index < 0) return@pointerInput
+        val threshold = SWIPE_DISTANCE_DP.dp.toPx()
+        var total = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { total = 0f },
+            onDragCancel = { total = 0f },
+            onDragEnd = {
+                if (kotlin.math.abs(total) >= threshold) {
+                    val forward = (total > 0f) == SWIPE_RIGHT_GOES_FORWARD
+                    tabRoutes.getOrNull(if (forward) index + 1 else index - 1)?.let(selectTab)
+                }
+                total = 0f
+            },
+            onHorizontalDrag = { _, dx -> total += dx },
+        )
+    }
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSlideIn(from: String?, to: String?, tabs: List<String>): EnterTransition? {
+    val a = tabs.indexOf(from)
+    val b = tabs.indexOf(to)
+    if (a < 0 || b < 0 || a == b) return null
+    val side = if (b > a) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right
+    return slideIntoContainer(side, tween(260)) + fadeIn(tween(200))
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSlideOut(from: String?, to: String?, tabs: List<String>): ExitTransition? {
+    val a = tabs.indexOf(from)
+    val b = tabs.indexOf(to)
+    if (a < 0 || b < 0 || a == b) return null
+    val side = if (b > a) AnimatedContentTransitionScope.SlideDirection.Left else AnimatedContentTransitionScope.SlideDirection.Right
+    return slideOutOfContainer(side, tween(260)) + fadeOut(tween(160))
+}
+
 @Composable
 fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit) {
     val navController = rememberNavController()
@@ -132,6 +186,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     val barItems = remember { TopLevelDestination.entries.map { it.toBarItem() } }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val isTopLevel = TopLevelDestination.entries.any { it.route == currentRoute }
+    val tabRoutes = remember { TopLevelDestination.entries.map { it.route } }
 
     val hiddenByScroll = remember { mutableStateOf(false) }
     LaunchedEffect(currentRoute) { hiddenByScroll.value = false }
@@ -179,11 +234,12 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 NavHost(
                     navController = navController,
                     startDestination = TopLevelDestination.Home.route,
-                    modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection),
-                    enterTransition = { fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f) },
-                    exitTransition = { fadeOut(tween(90)) },
-                    popEnterTransition = { fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f) },
-                    popExitTransition = { fadeOut(tween(90)) },
+                    modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
+                    // Moving between two tabs slides toward the tab's side; every other change keeps the soft fade.
+                    enterTransition = { tabSlideIn(initialState.destination.route, targetState.destination.route, tabRoutes) ?: (fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f)) },
+                    exitTransition = { tabSlideOut(initialState.destination.route, targetState.destination.route, tabRoutes) ?: fadeOut(tween(90)) },
+                    popEnterTransition = { tabSlideIn(initialState.destination.route, targetState.destination.route, tabRoutes) ?: (fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f)) },
+                    popExitTransition = { tabSlideOut(initialState.destination.route, targetState.destination.route, tabRoutes) ?: fadeOut(tween(90)) },
                 ) {
                     tab(TopLevelDestination.Home.route) {
                         HomeScreen(
@@ -195,7 +251,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
                         )
                     }
-                    tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }, onOpenComments = { open(AppRoutes.comments(it)) }) }
+                    tab(TopLevelDestination.Discover.route) {
+                        DiscoverScreen(
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                            onOpenComments = { open(AppRoutes.comments(it)) },
+                            onOpenEvent = { open(AppRoutes.event(it)) },
+                            onOpenSearch = { open(AppRoutes.SEARCH) },
+                        )
+                    }
                     tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }, onCreateEvent = { open(AppRoutes.EVENT_NEW) }) }
                     tab(TopLevelDestination.Profile.route) {
@@ -245,6 +308,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
                     subScreen(AppRoutes.COMMENTS, stringArgs("postId")) { entry ->
                         CommentsScreen(postId = entry.arg("postId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
+                    }
+                    subScreen(AppRoutes.SEARCH) {
+                        com.univibe.app.features.search.SearchScreen(
+                            onBack = back,
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                            onOpenPost = { open(AppRoutes.comments(it)) },
+                            onOpenEvent = { open(AppRoutes.event(it)) },
+                        )
                     }
                     subScreen(AppRoutes.NOTIFICATIONS) {
                         NotificationCenterScreen(
