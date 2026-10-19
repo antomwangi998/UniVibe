@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -191,7 +192,7 @@ fun SavedPostsScreen(
                   }
               }
               LaunchedEffect(nearEnd, s.posts.size) { if (nearEnd) viewModel.loadMore() }
-              LazyColumn(
+              VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().navigationBarsPadding(),
                 contentPadding = PaddingValues(top = Spacing.sm, bottom = Spacing.lg),
@@ -211,7 +212,7 @@ fun SavedPostsScreen(
                         CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     }
                 }
-              }
+              } }
             }
         }
     }
@@ -222,7 +223,7 @@ fun SavedPostsScreen(
 fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (String) -> Unit) {
     val viewModel = keyedViewModel("follow-${kind.name}") { FollowListViewModel(kind) }
     val s by viewModel.state.collectAsStateWithLifecycle()
-    SettingsPage(if (kind == FollowKind.Followers) "Followers" else "Following", onBack) {
+    SettingsPage(if (kind == FollowKind.Followers) "Followers" else "Following", onBack, onRefresh = viewModel::pullRefresh, refreshing = s.refreshing) {
         when {
             s.loading -> item { LoadingSkeleton(itemCount = 2) }
             s.error != null -> item { ErrorState(s.error!!, viewModel::load) }
@@ -274,7 +275,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
         when {
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             s.notFound || student == null -> ErrorState("This profile isn't available.", onBack, title = "Not found")
-            else -> LazyColumn(
+            else -> VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 Modifier.fillMaxSize().navigationBarsPadding(),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = Spacing.xl),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -333,7 +334,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
                         }
                     }
                 }
-            }
+            } }
         }
     }
 
