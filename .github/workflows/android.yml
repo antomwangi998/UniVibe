@@ -28,6 +28,15 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
+      - name: Build fast APK (not debuggable; use this one to judge smoothness)
+        run: gradle assembleFast --stacktrace
+
+      - name: Upload fast APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: univibe-fast-apk
+          path: app/build/outputs/apk/fast/*.apk
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

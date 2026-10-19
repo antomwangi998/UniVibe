@@ -209,7 +209,7 @@ fun HomeScreen(
                         )
                     }
                 }
-                else -> items(state.visiblePosts, key = { it.id }) { post ->
+                else -> items(state.visiblePosts, key = { it.id }, contentType = { "post" }) { post ->
                     CampusPostCard(
                         post = post,
                         onLike = { viewModel.toggleLike(post.id) },
