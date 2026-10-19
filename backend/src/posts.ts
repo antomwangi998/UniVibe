@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { blockedBetween, notSuspended } from './access';
+import { enqueue } from './jobs';
 import { notify, retract } from './modules/notify';
 import { assertMayPostInCommunity, joinState } from './modules/community_state';
 import type { Pool } from 'pg';
@@ -27,6 +28,8 @@ const createSchema = z.object({
   audience: z.enum(['campus', 'followers']).default('campus'),
   /** Publish into a community instead of the personal feed. Membership and posting rights are checked on the server. */
   communityId: z.string().uuid().optional(),
+  /** Moderators only: an announcement notifies members (subject to their settings) and is flagged in the feed. */
+  announcement: z.boolean().optional(),
   poll: pollSchema.optional(),
   mediaIds: z.array(z.string().uuid()).max(4, 'You can add up to 4 photos.').optional(),
 });
@@ -80,7 +83,7 @@ export const commentShown = (c: string) =>
   `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
 
 export const POST_COLS =
-  'p.id, p.text, p.audience, p.community_id, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
+  'p.id, p.text, p.audience, p.community_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
   ', pc.name as c_name, pc.slug as c_slug, pc.visibility as c_visibility, pc.membership_policy as c_policy' +
@@ -103,7 +106,7 @@ export const POST_FROM =
   'left join communities pc on pc.id = p.community_id';
 
 export type PostRow = AuthorCols & {
-  id: string; text: string; audience: string; community_id: string | null; share_count: number; poll_options: string[] | null;
+  id: string; text: string; audience: string; community_id: string | null; is_announcement: boolean; share_count: number; poll_options: string[] | null;
   created_at: Date; edited_at: Date | null; age_seconds: number;
   c_name: string | null; c_slug: string | null; c_visibility: string | null; c_policy: string | null; c_members: number | null;
   c_status: string | null; c_avatar_key: string | null; c_avatar_url?: string | null;
@@ -124,6 +127,7 @@ function postJson(r: PostRow, media: MediaOut[]) {
     ageSeconds: r.age_seconds,
     text: r.text,
     audience: r.audience,
+    announcement: r.is_announcement,
     community: r.community_id
       ? {
           id: r.community_id, name: r.c_name, slug: r.c_slug, visibility: r.c_visibility, memberCount: r.c_members,
@@ -274,7 +278,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     // (Public community posts reach non-members through Discover and community pages, not Home.)
     const communityGate = author
       ? ''
-      : "and (p.audience <> 'community' or exists (select 1 from community_members hm where hm.community_id = p.community_id and hm.user_id = $1 and hm.status = 'active' and hm.notification_level <> 'muted')) ";
+      : "and (p.audience <> 'community' or exists (select 1 from community_members hm where hm.community_id = p.community_id and hm.user_id = $1 and hm.status = 'active' and hm.notification_level <> 'muted') and not exists (select 1 from community_mutes hmu where hmu.user_id = $1 and hmu.community_id = p.community_id) and not exists (select 1 from discover_feedback hf where hf.user_id = $1 and hf.kind = 'not_interested' and hf.post_id = p.id)) ";
     params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
       `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${communityGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
@@ -320,12 +324,19 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     if (b.text === '' && mediaIds.length === 0) throw new HttpError(400, 'validation', 'Write something first.');
 
     const postId = await withTx(pool, async (client) => {
-      if (b.communityId) await assertMayPostInCommunity(client, user.id, user.university_id, b.communityId);
+      let role: string | null = null;
+      if (b.communityId) role = (await assertMayPostInCommunity(client, user.id, user.university_id, b.communityId)).role;
+      if (b.announcement && (!b.communityId || (role !== 'owner' && role !== 'moderator'))) {
+        throw new HttpError(403, 'forbidden', 'Only community moderators can post announcements.');
+      }
+      if (b.announcement) ctx.tooMany(`announce:${b.communityId}`, 3, 86400);
       const created = await client.query<{ id: string }>(
-        'insert into posts (author_id, text, audience, community_id, poll_options) values ($1, $2, $3, $4, $5) returning id',
-        [user.id, b.text, b.communityId ? 'community' : b.audience, b.communityId ?? null, b.poll ? b.poll.options : null],
+        'insert into posts (author_id, text, audience, community_id, poll_options, is_announcement) values ($1, $2, $3, $4, $5, $6) returning id',
+        [user.id, b.text, b.communityId ? 'community' : b.audience, b.communityId ?? null, b.poll ? b.poll.options : null, b.announcement === true],
       );
       const id = created.rows[0].id;
+      // Fan-out happens in a background job (queued in this transaction), never inside the request.
+      if (b.announcement) await enqueue(client, 'community.announce', { postId: id, communityId: b.communityId as string }, { dedupeKey: id });
       if (mediaIds.length > 0) {
         // Only files this student uploaded, finished uploading, and has not used before.
         const usable = await client.query<{ id: string; kind: string }>(

@@ -36,5 +36,12 @@ Types: `community_join_request`, `community_join_approved`, `community_join_decl
 - Admin recovery: `POST /moderation/communities/:id/reassign-owner`, audited.
 - Deleting is soft: posts vanish because deleted communities are unreadable; pending requests and invitations are closed.
 
+## Added in migration 023
+- **Discover:** `discoverAudience()` lets posts of public, active communities into For You, Trending, Photos, Videos and topic pages (never private, archived or suspended ones). Each post still passes `visible()`. A post appears once, as the same post id.
+- **Mute:** `PUT/DELETE /communities/:id/mute` hides a community from the viewer's Discover and Home (works for non-members). Hiding one post reuses `POST /discover/feedback {kind:"not_interested"}`, which now also applies to Home for community posts.
+- **Suggestions:** `GET /communities/suggested` ranks by interest match and real posts and posters in the last 14 days, max 2 per category, excludes joined, muted and pending. `reason` is `interests`, `active` or null, never "trending".
+- **Announcements:** `POST /posts {communityId, announcement:true}` (staff only, 3 per day per community). A background job `community.announce` notifies members in pages of 200 (cap 5000), skipping muted members and the author, honoring the `communities` switch, idempotent on retry. Type `community_announcement`.
+- **Invitation expiry:** hourly sweep in `server.ts`; reads also ignore expired invitations.
+
 ## Not built yet
-Discover integration (community posts in For You/Photos/Videos, community cards), community feed ranking/diversity, hide-post / show-fewer, announcements, mention/comment/reaction community notifications, per-community "highlights" semantics, invitation-expiry job (expiry is enforced lazily on read), digests, a separate administrator tier, post-approval queue, caching, metrics, Android wiring to these endpoints.
+Mention, reaction and repost notifications specific to community posts (ordinary comment and like notifications already reach the post author), digests, a separate administrator tier, post-approval queue, Redis/response caching, Prometheus metrics, and all Android wiring.
