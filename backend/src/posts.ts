@@ -1,10 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { blockedBetween, notSuspended } from './access';
 import { notify, retract } from './modules/notify';
+import type { Pool } from 'pg';
 import { z } from 'zod';
 import { withTx } from './db';
 import { HttpError } from './errors';
 import { READ_LINK_SECONDS } from './media';
+import type { Storage } from './storage';
 import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId, signAuthors } from './shared';
 
 const TEXT_MAX = 280;
@@ -59,7 +61,7 @@ export const visible = (p: string, author: string) =>
 export const commentShown = (c: string) =>
   `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
 
-const POST_COLS =
+export const POST_COLS =
   'p.id, p.text, p.audience, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
@@ -71,9 +73,9 @@ const POST_COLS =
   ", (select coalesce(json_object_agg(t.option_index, t.n), '{}'::json) from " +
   '(select option_index, count(*)::int as n from poll_votes where post_id = p.id group by option_index) t) as vote_counts';
 
-const POST_FROM = 'from posts p join users a on a.id = p.author_id join universities uni on uni.id = a.university_id';
+export const POST_FROM = 'from posts p join users a on a.id = p.author_id join universities uni on uni.id = a.university_id';
 
-type PostRow = AuthorCols & {
+export type PostRow = AuthorCols & {
   id: string; text: string; audience: string; share_count: number; poll_options: string[] | null;
   created_at: Date; edited_at: Date | null; age_seconds: number;
   like_count: number; comment_count: number; liked: boolean; saved: boolean;
@@ -102,6 +104,25 @@ function postJson(r: PostRow, media: MediaOut[]) {
       ? { options: r.poll_options.map((t, i) => ({ text: t, votes: counts[String(i)] ?? 0 })), myVote: r.my_vote }
       : null,
   };
+}
+
+/** Posts as the API returns them, with short-lived links to their photos and videos. Shared with Discover. */
+export async function presentPosts(pool: Pool, storage: Storage | null | undefined, rows: PostRow[]) {
+  if (rows.length === 0) return [];
+  await signAuthors(storage ?? undefined, rows);
+  const byPost = new Map<string, MediaOut[]>();
+  if (storage) {
+    const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string; thumb_key: string | null; width: number | null; height: number | null }>(
+      "select post_id, id, kind, object_key, thumb_key, width, height from media where post_id = any($1::uuid[]) and status = 'ready' order by position",
+      [rows.map((r) => r.id)],
+    );
+    for (const f of files) {
+      const url = await storage.signedUrl(f.object_key, READ_LINK_SECONDS);
+      const thumbUrl = f.thumb_key ? await storage.signedUrl(f.thumb_key, READ_LINK_SECONDS) : null;
+      byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url, thumbUrl, width: f.width, height: f.height }]);
+    }
+  }
+  return rows.map((r) => postJson(r, byPost.get(r.id) ?? []));
 }
 
 const COMMENT_COLS =
@@ -149,23 +170,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   }
 
   /** Posts as the API returns them, with short-lived links to their photos and videos. */
-  async function present(rows: PostRow[]) {
-    if (rows.length === 0) return [];
-    await signAuthors(ctx.storage, rows);
-    const byPost = new Map<string, MediaOut[]>();
-    if (ctx.storage) {
-      const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string; thumb_key: string | null; width: number | null; height: number | null }>(
-        "select post_id, id, kind, object_key, thumb_key, width, height from media where post_id = any($1::uuid[]) and status = 'ready' order by position",
-        [rows.map((r) => r.id)],
-      );
-      for (const f of files) {
-        const url = await ctx.storage.signedUrl(f.object_key, READ_LINK_SECONDS);
-        const thumbUrl = f.thumb_key ? await ctx.storage.signedUrl(f.thumb_key, READ_LINK_SECONDS) : null;
-        byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url, thumbUrl, width: f.width, height: f.height }]);
-      }
-    }
-    return rows.map((r) => postJson(r, byPost.get(r.id) ?? []));
-  }
+  const present = (rows: PostRow[]) => presentPosts(pool, ctx.storage, rows);
 
   async function presentOne(user: SignedInUser, id: string) {
     const row = await fetchPost(user, id);

@@ -3,6 +3,10 @@ package com.univibe.app.features.discover
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import android.widget.Toast
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -73,13 +77,103 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
-fun DiscoverScreen(onOpenStudent: (String) -> Unit = {}, viewModel: DiscoverViewModel = viewModel()) {
+fun DiscoverScreen(
+    onOpenStudent: (String) -> Unit = {},
+    onOpenComments: (String) -> Unit = {},
+    peopleViewModel: DiscoverViewModel = viewModel(),
+    viewModel: DiscoverContentViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // One scroll position per list, kept while the student moves between categories.
+    val forYouList = rememberLazyListState()
+    val trendingDay = rememberLazyListState()
+    val trendingWeek = rememberLazyListState()
+    val videosList = rememberLazyListState()
+    val topicList = rememberLazyListState()
+    val photosGrid = rememberLazyStaggeredGridState()
+    val actions = remember(viewModel, onOpenComments, onOpenStudent) {
+        PostActions(
+            onLike = viewModel::toggleLike, onSave = viewModel::toggleSave, onComment = onOpenComments,
+            onAuthor = onOpenStudent, onMore = viewModel::openMenu, onShared = viewModel::noteShared,
+            onExplain = viewModel::explain, onVote = viewModel::vote,
+        )
+    }
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeNotice()
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        VibeTopBar("Discover")
+        CategoryChips(state.category, viewModel::select)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (state.category) {
+                DiscoverCategory.People -> PeopleDeck(onOpenStudent, peopleViewModel)
+                DiscoverCategory.ForYou -> DiscoverPostList(
+                    list = state.list(ListKey.ForYou), listState = forYouList,
+                    emptyTitle = "Nothing to show yet", emptyMessage = "Follow a few students or post something, and Discover will fill in.",
+                    showReason = true, actions = actions,
+                    onRetry = { viewModel.load(ListKey.ForYou, force = true) },
+                    onLoadMore = { viewModel.loadMore(ListKey.ForYou) }, onRetryMore = { viewModel.retryMore(ListKey.ForYou) },
+                )
+                DiscoverCategory.Trending -> {
+                    val key = ListKey.Trending(state.window)
+                    DiscoverPostList(
+                        list = state.list(key),
+                        listState = if (state.window == com.univibe.app.data.repository.TrendingWindow.Day) trendingDay else trendingWeek,
+                        emptyTitle = "Nothing is trending yet", emptyMessage = "Posts that get attention from a few different students show up here.",
+                        showReason = false, actions = actions,
+                        onRetry = { viewModel.load(key, force = true) },
+                        onLoadMore = { viewModel.loadMore(key) }, onRetryMore = { viewModel.retryMore(key) },
+                        header = { TrendingWindowChips(state.window, viewModel::setWindow) },
+                    )
+                }
+                DiscoverCategory.Photos -> DiscoverPhotoGrid(
+                    list = state.list(ListKey.Photos), gridState = photosGrid,
+                    onOpen = { onOpenComments(it.id) },
+                    onRetry = { viewModel.load(ListKey.Photos, force = true) },
+                    onLoadMore = { viewModel.loadMore(ListKey.Photos) }, onRetryMore = { viewModel.retryMore(ListKey.Photos) },
+                )
+                DiscoverCategory.Videos -> DiscoverPostList(
+                    list = state.list(ListKey.Videos), listState = videosList,
+                    emptyTitle = "No videos yet", emptyMessage = "Videos from students on your campus will show up here.",
+                    showReason = false, actions = actions,
+                    onRetry = { viewModel.load(ListKey.Videos, force = true) },
+                    onLoadMore = { viewModel.loadMore(ListKey.Videos) }, onRetryMore = { viewModel.retryMore(ListKey.Videos) },
+                )
+                DiscoverCategory.Topics -> {
+                    val open = state.openTopic
+                    if (open == null) {
+                        TopicList(state.topics, onOpen = viewModel::openTopic, onRetry = { viewModel.loadTopics(force = true) })
+                    } else {
+                        val key = ListKey.Topic(open)
+                        DiscoverPostList(
+                            list = state.list(key), listState = topicList,
+                            emptyTitle = "No posts in #$open", emptyMessage = "There's nothing here you can see right now.",
+                            showReason = false, actions = actions,
+                            onRetry = { viewModel.load(key, force = true) },
+                            onLoadMore = { viewModel.loadMore(key) }, onRetryMore = { viewModel.retryMore(key) },
+                            header = { TopicHeader(open, onBack = viewModel::closeTopic, onMute = { viewModel.muteTopic(open) }) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+    state.menuPost?.let { post -> DiscoverPostMenu(post, onDismiss = viewModel::closeMenu, vm = viewModel) }
+}
+
+/** The student deck (swipe to connect), unchanged: it is the People category. */
+@Composable
+private fun PeopleDeck(onOpenStudent: (String) -> Unit, viewModel: DiscoverViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     var request by remember { mutableStateOf<Boolean?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Discover")
         when {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             state.error != null -> ErrorState(state.error!!, onRetry = viewModel::load)
