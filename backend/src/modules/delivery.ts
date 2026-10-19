@@ -8,6 +8,8 @@ import type { Hub } from '../realtime';
 const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events' | null> = {
   follow: 'push_social', like: 'push_social', comment: 'push_social', reply: 'push_social',
   message: 'push_messages', group_invite: 'push_messages', event_update: 'push_events', verification: null,
+  community_join_request: 'push_social', community_join_approved: 'push_social', community_join_declined: 'push_social',
+  community_invitation: 'push_social', community_role_changed: null, community_member_removed: null,
 };
 
 export async function unreadCount(ctx: Ctx, userId: string): Promise<number> {

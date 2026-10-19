@@ -50,7 +50,7 @@ export function looksLike(contentType: string, b: Uint8Array): boolean {
 
 const uploadSchema = z.object({
   kind: z.enum(['image', 'video', 'audio']),
-  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group']),
+  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group', 'community']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
   // Pixel size, when the app knows it. Both or neither; used only to lay out the feed.
@@ -104,7 +104,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
       throw new HttpError(400, 'validation', 'Audio can only be a voice message, and needs its length.');
     }
     if (b.kind !== 'audio' && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages have a length.');
-    if (b.purpose === 'group' && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
+    if ((b.purpose === 'group' || b.purpose === 'community') && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
     const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
     if (Number(used.rows[0].total) + b.size > MEDIA_LIMITS.perUserBytes) {
       throw new HttpError(

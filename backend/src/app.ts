@@ -13,6 +13,7 @@ import { READ_LINK_SECONDS, registerMediaRoutes } from './media';
 import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
 import { apiV1 } from './routes';
+import { releaseOwnedCommunities } from './modules/communities';
 import { Hub } from './realtime';
 import * as sec from './security';
 import type { ImageProcessor } from './imaging';
@@ -500,7 +501,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       throw new HttpError(401, 'invalid_credentials', 'Your password is incorrect.');
     }
     const files = await pool.query<{ object_key: string; thumb_key: string | null }>('select object_key, thumb_key from media where owner_id = $1', [user.id]);
-    await pool.query('delete from users where id = $1', [user.id]); // codes, sessions, posts and media records cascade
+    await withTx(pool, async (client) => {
+      // Communities the person owns pass to a successor (or close) first, so none is left without an owner.
+      await releaseOwnedCommunities(client, user.id);
+      await client.query('delete from users where id = $1', [user.id]); // codes, sessions, posts and media records cascade
+    });
     if (storage && files.rowCount) await storage.remove(files.rows.flatMap((r) => (r.thumb_key ? [r.object_key, r.thumb_key] : [r.object_key]))).catch(() => undefined);
     return reply.status(204).send();
   });
