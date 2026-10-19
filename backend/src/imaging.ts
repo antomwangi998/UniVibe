@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 
-export type ImagePurpose = 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'group';
+export type ImagePurpose = 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'group' | 'community';
 
 export interface ImageVariant {
   bytes: Uint8Array;
@@ -32,6 +32,7 @@ export const IMAGE_PRESETS: Record<ImagePurpose, { full: number; thumb: number |
   avatar: { full: 512, thumb: null },
   group: { full: 512, thumb: null },
   cover: { full: 1600, thumb: null },
+  community: { full: 1024, thumb: null },
 };
 
 const FORMAT_OF: Record<string, string> = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' };

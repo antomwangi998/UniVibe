@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { blockedBetween, notSuspended } from './access';
+import { enqueue } from './jobs';
 import { notify, retract } from './modules/notify';
+import { assertMayPostInCommunity, joinState } from './modules/community_state';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { withTx } from './db';
@@ -24,6 +26,10 @@ const maybeText = z.string().trim().max(TEXT_MAX, `Keep it under ${TEXT_MAX} cha
 const createSchema = z.object({
   text: maybeText.default(''),
   audience: z.enum(['campus', 'followers']).default('campus'),
+  /** Publish into a community instead of the personal feed. Membership and posting rights are checked on the server. */
+  communityId: z.string().uuid().optional(),
+  /** Moderators only: an announcement notifies members (subject to their settings) and is flagged in the feed. */
+  announcement: z.boolean().optional(),
   poll: pollSchema.optional(),
   mediaIds: z.array(z.string().uuid()).max(4, 'You can add up to 4 photos.').optional(),
 });
@@ -52,19 +58,41 @@ const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() }
  * Followers-only posts need a follow. The server is the only place this is enforced.
  */
 export const visible = (p: string, author: string) =>
-  `(${p}.status = 'active' and (${p}.author_id = $1 or (` +
+  `(${p}.status = 'active' and (` +
+  // Personal-feed posts: unchanged rules.
+  `(${p}.audience <> 'community' and (${p}.author_id = $1 or (` +
   `((${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
   `(${p}.audience = 'followers' and exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = ${p}.author_id))) ` +
-  `and ${notSuspended(author)} and not ${blockedBetween('$1', `${p}.author_id`)})))`;
+  `and ${notSuspended(author)} and not ${blockedBetween('$1', `${p}.author_id`)}))) or ` +
+  // Community posts: the community must be live and readable by the viewer. Authorship alone is not enough, so a
+  // person who left a private community (or was removed) stops seeing their own posts there.
+  `(${p}.audience = 'community' and ${communityReadable(p)} and ` +
+  `(${p}.author_id = $1 or (${notSuspended(author)} and not ${blockedBetween('$1', `${p}.author_id`)})))))`;
+
+/**
+ * May the viewer read posts of the community this post belongs to? $1 = viewer, $2 = viewer's university.
+ * Same university only. Public: anyone. Private: active members only. Suspended and deleted communities are hidden.
+ */
+export const communityReadable = (p: string) =>
+  `exists (select 1 from communities rc where rc.id = ${p}.community_id and rc.status in ('active', 'archived') ` +
+  `and rc.university_id = $2 and (rc.visibility = 'public' or exists ` +
+  `(select 1 from community_members rm where rm.community_id = rc.id and rm.user_id = $1 and rm.status = 'active')))`;
 
 /** Comments the viewer may see: not removed, and not written by someone blocked in either direction. */
 export const commentShown = (c: string) =>
   `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
 
 export const POST_COLS =
-  'p.id, p.text, p.audience, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
+  'p.id, p.text, p.audience, p.community_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
+  ', pc.name as c_name, pc.slug as c_slug, pc.visibility as c_visibility, pc.membership_policy as c_policy' +
+  ', pc.member_count as c_members, pc.status as c_status' +
+  ", (select m.object_key from media m where m.id = pc.avatar_media_id and m.status = 'ready') as c_avatar_key" +
+  ", (select cm.role from community_members cm where cm.community_id = pc.id and cm.user_id = $1 and cm.status = 'active') as c_my_role" +
+  ", exists (select 1 from community_members cm where cm.community_id = pc.id and cm.user_id = $1 and cm.status = 'suspended') as c_suspended" +
+  ", exists (select 1 from community_requests cr where cr.community_id = pc.id and cr.user_id = $1 and cr.status = 'pending') as c_pending" +
+  ", exists (select 1 from community_invitations ci where ci.community_id = pc.id and ci.invitee_id = $1 and ci.status = 'pending' and ci.expires_at > now()) as c_invited" +
   ', (select count(*) from post_likes l where l.post_id = p.id)::int as like_count' +
   `, (select count(*) from comments c where c.post_id = p.id and ${commentShown('c')})::int as comment_count` +
   ', exists (select 1 from post_likes l where l.post_id = p.id and l.user_id = $1) as liked' +
@@ -73,11 +101,16 @@ export const POST_COLS =
   ", (select coalesce(json_object_agg(t.option_index, t.n), '{}'::json) from " +
   '(select option_index, count(*)::int as n from poll_votes where post_id = p.id group by option_index) t) as vote_counts';
 
-export const POST_FROM = 'from posts p join users a on a.id = p.author_id join universities uni on uni.id = a.university_id';
+export const POST_FROM =
+  'from posts p join users a on a.id = p.author_id join universities uni on uni.id = a.university_id ' +
+  'left join communities pc on pc.id = p.community_id';
 
 export type PostRow = AuthorCols & {
-  id: string; text: string; audience: string; share_count: number; poll_options: string[] | null;
+  id: string; text: string; audience: string; community_id: string | null; is_announcement: boolean; share_count: number; poll_options: string[] | null;
   created_at: Date; edited_at: Date | null; age_seconds: number;
+  c_name: string | null; c_slug: string | null; c_visibility: string | null; c_policy: string | null; c_members: number | null;
+  c_status: string | null; c_avatar_key: string | null; c_avatar_url?: string | null;
+  c_my_role: string | null; c_suspended: boolean; c_pending: boolean; c_invited: boolean;
   like_count: number; comment_count: number; liked: boolean; saved: boolean;
   my_vote: number | null; vote_counts: Record<string, number> | null;
 };
@@ -94,6 +127,18 @@ function postJson(r: PostRow, media: MediaOut[]) {
     ageSeconds: r.age_seconds,
     text: r.text,
     audience: r.audience,
+    announcement: r.is_announcement,
+    community: r.community_id
+      ? {
+          id: r.community_id, name: r.c_name, slug: r.c_slug, visibility: r.c_visibility, memberCount: r.c_members,
+          avatarUrl: r.c_avatar_url ?? null,
+          // One computed membership state, so Home, Discover and the community page never disagree.
+          membership: joinState({
+            status: r.c_status ?? 'deleted', visibility: r.c_visibility ?? 'public', policy: r.c_policy ?? 'open',
+            role: r.c_my_role, suspended: r.c_suspended, pending: r.c_pending, invited: r.c_invited,
+          }),
+        }
+      : null,
     likeCount: r.like_count,
     commentCount: r.comment_count,
     shareCount: r.share_count,
@@ -110,6 +155,9 @@ function postJson(r: PostRow, media: MediaOut[]) {
 export async function presentPosts(pool: Pool, storage: Storage | null | undefined, rows: PostRow[]) {
   if (rows.length === 0) return [];
   await signAuthors(storage ?? undefined, rows);
+  await Promise.all(rows.map(async (r) => {
+    r.c_avatar_url = r.c_avatar_key && storage ? await storage.signedUrl(r.c_avatar_key, 900) : null;
+  }));
   const byPost = new Map<string, MediaOut[]>();
   if (storage) {
     const { rows: files } = await pool.query<{ post_id: string; id: string; kind: string; object_key: string; thumb_key: string | null; width: number | null; height: number | null }>(
@@ -226,9 +274,14 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       params.push(before);
       older += `and (p.created_at, p.id) < (select c.created_at, c.id from posts c where c.id = $${params.length})`;
     }
+    // Home never fans out every community post to everyone: only communities the viewer joined and has not muted.
+    // (Public community posts reach non-members through Discover and community pages, not Home.)
+    const communityGate = author
+      ? ''
+      : "and (p.audience <> 'community' or exists (select 1 from community_members hm where hm.community_id = p.community_id and hm.user_id = $1 and hm.status = 'active' and hm.notification_level <> 'muted') and not exists (select 1 from community_mutes hmu where hmu.user_id = $1 and hmu.community_id = p.community_id) and not exists (select 1 from discover_feedback hf where hf.user_id = $1 and hf.kind = 'not_interested' and hf.post_id = p.id)) ";
     params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
-      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
+      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${communityGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
       params,
     );
     return present(rows);
@@ -271,11 +324,19 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     if (b.text === '' && mediaIds.length === 0) throw new HttpError(400, 'validation', 'Write something first.');
 
     const postId = await withTx(pool, async (client) => {
+      let role: string | null = null;
+      if (b.communityId) role = (await assertMayPostInCommunity(client, user.id, user.university_id, b.communityId)).role;
+      if (b.announcement && (!b.communityId || (role !== 'owner' && role !== 'moderator'))) {
+        throw new HttpError(403, 'forbidden', 'Only community moderators can post announcements.');
+      }
+      if (b.announcement) ctx.tooMany(`announce:${b.communityId}`, 3, 86400);
       const created = await client.query<{ id: string }>(
-        'insert into posts (author_id, text, audience, poll_options) values ($1, $2, $3, $4) returning id',
-        [user.id, b.text, b.audience, b.poll ? b.poll.options : null],
+        'insert into posts (author_id, text, audience, community_id, poll_options, is_announcement) values ($1, $2, $3, $4, $5, $6) returning id',
+        [user.id, b.text, b.communityId ? 'community' : b.audience, b.communityId ?? null, b.poll ? b.poll.options : null, b.announcement === true],
       );
       const id = created.rows[0].id;
+      // Fan-out happens in a background job (queued in this transaction), never inside the request.
+      if (b.announcement) await enqueue(client, 'community.announce', { postId: id, communityId: b.communityId as string }, { dedupeKey: id });
       if (mediaIds.length > 0) {
         // Only files this student uploaded, finished uploading, and has not used before.
         const usable = await client.query<{ id: string; kind: string }>(

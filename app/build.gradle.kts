@@ -10,6 +10,9 @@ if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google
 
 // API base URL comes from gradle.properties / -P, never from source. Blank = mock auth (debug only).
 val apiBaseUrl = (project.findProperty("univibe.apiBaseUrl") as? String).orEmpty()
+// OAuth *web application* client id used as the Google ID token audience ("server client id"). Public, not a secret.
+// Blank = the "Continue with Google" button is hidden. See docs/GOOGLE_SIGN_IN.md.
+val googleServerClientId = (project.findProperty("univibe.googleServerClientId") as? String).orEmpty()
 
 android {
     namespace = "com.univibe.app"
@@ -22,6 +25,7 @@ android {
         versionCode = 7
         versionName = "0.1.6-live"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
     }
 
     buildTypes {
@@ -59,6 +63,9 @@ dependencies {
     implementation(libs.coil.compose) // loads picked photos from app storage
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging) // push (FCM); inert until google-services.json is added
+    implementation(libs.androidx.credentials) // Credential Manager: Sign in with Google and saving passwords
+    implementation(libs.androidx.credentials.play.services.auth) // lets Credential Manager use Google Play services on Android 13 and older
+    implementation(libs.googleid) // GoogleIdTokenCredential
     implementation(libs.okhttp) // live chat connection (WebSocket) only; ordinary requests still use HttpURLConnection
     implementation(libs.osmdroid.android) // venue map preview; OpenStreetMap tiles, no API key (see docs/MAPS.md)
 

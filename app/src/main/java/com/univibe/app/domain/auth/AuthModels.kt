@@ -67,6 +67,18 @@ data class OnboardingProfile(
     val hasPhoto: Boolean,
 )
 
+/** What Google verified about a new person, shown to prefill the sign-up form. Display only: the server keeps its own copy. */
+data class GooglePrefill(val fullName: String, val email: String)
+
+/** The few things UniVibe still needs from someone who signed in with Google for the first time. */
+data class GoogleRegistrationRequest(
+    val fullName: String,
+    val universityId: String,
+    val admissionNumber: String?,
+    val acceptedTerms: Boolean,
+    val termsVersion: String = "",
+)
+
 enum class SignedOutReason { SessionExpired, PasswordChanged }
 
 /** Single source of truth for where the user is in the account lifecycle. */
@@ -75,6 +87,10 @@ sealed interface AuthState {
     data class SignedOut(val reason: SignedOutReason? = null) : AuthState
     data class EmailVerificationRequired(val email: String) : AuthState
     data class OnboardingRequired(val user: AuthUser) : AuthState
+    /** Google verified a new person; the account is created only after they pick a university and accept the Terms. */
+    data class GoogleRegistrationRequired(val prefill: GooglePrefill) : AuthState
+    /** Google verified an email that already has a UniVibe account; the password of that account must confirm the link. */
+    data class GoogleLinkRequired(val email: String) : AuthState
     data class Authenticated(val user: AuthUser) : AuthState
 }
 
@@ -87,6 +103,13 @@ sealed interface AuthError {
     data object ExpiredCode : AuthError
     data object SessionExpired : AuthError
     data object SignUpRejected : AuthError
+    /** Google could not vouch for the sign-in (bad, expired or replayed token). */
+    data object InvalidGoogleToken : AuthError
+    data object GoogleUnavailable : AuthError
+    data object AccountSuspended : AuthError
+    data object AccountExists : AuthError
+    /** The account has no password yet (it only uses Google). */
+    data object PasswordNotSet : AuthError
     data class RateLimited(val retryAfterSeconds: Int) : AuthError
     data class Validation(val message: String) : AuthError
     data object Unknown : AuthError
@@ -113,6 +136,11 @@ fun AuthError.userMessage(): String = when (this) {
         "We couldn't create an account with those details. If you may already have one, try logging in or resetting your password."
     is AuthError.RateLimited -> "Too many attempts. Try again in ${formatWait(retryAfterSeconds)}."
     is AuthError.Validation -> message
+    AuthError.InvalidGoogleToken -> "We couldn't verify your Google sign-in. Please try again."
+    AuthError.GoogleUnavailable -> "Google sign-in isn't available right now. Use your email and password instead."
+    AuthError.AccountSuspended -> "This account is suspended."
+    AuthError.AccountExists -> "An account already exists for this Google account. Tap Continue with Google to sign in."
+    AuthError.PasswordNotSet -> "This account signs in with Google and has no password yet. Use \"Forgot password\" on the log-in screen to set one."
     AuthError.Unknown -> "Something went wrong. Please try again."
 }
 
