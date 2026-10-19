@@ -43,6 +43,16 @@ android {
                 signingConfig = signingConfigs.getByName("univibeDebug")
             }
         }
+        // Same as release (not debuggable, optimised) but not minified and signed with the fixed debug key, so it installs
+        // over the debug app. Debug builds run Compose much slower; judge scrolling on this one.
+        create("fast") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            if (file("univibe-debug.keystore").exists()) signingConfig = signingConfigs.getByName("univibeDebug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

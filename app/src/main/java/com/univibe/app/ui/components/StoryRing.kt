@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -30,21 +32,20 @@ fun StoryRing(
     content: @Composable () -> Unit,
 ) {
     val reduced = rememberReducedMotion()
-    val rotation = if (reduced) 0f else {
-        val t = rememberInfiniteTransition(label = "storyRing")
-        val r by t.animateFloat(
+    // The animated value is read inside drawBehind (draw phase), so the ring redraws each frame without recomposing.
+    val rotation: State<Float> = if (reduced) remember { mutableStateOf(0f) } else {
+        rememberInfiniteTransition(label = "storyRing").animateFloat(
             initialValue = 0f, targetValue = 360f,
             animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
             label = "storyRingRotation",
         )
-        r
     }
     Box(
         modifier
             .size(ringSize)
             .drawBehind {
                 val stroke = 3.dp.toPx()
-                rotate(rotation) {
+                rotate(rotation.value) {
                     drawCircle(
                         brush = Brush.sweepGradient(listOf(BrandTeal, BrandMint, BrandTeal)),
                         radius = this.size.minDimension / 2f - stroke / 2f,
