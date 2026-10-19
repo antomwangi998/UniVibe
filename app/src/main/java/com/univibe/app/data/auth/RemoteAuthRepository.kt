@@ -13,6 +13,8 @@ import com.univibe.app.domain.auth.AuthResult
 import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.domain.auth.AuthUser
 import com.univibe.app.domain.auth.AuthValidators
+import com.univibe.app.domain.auth.GooglePrefill
+import com.univibe.app.domain.auth.GoogleRegistrationRequest
 import com.univibe.app.domain.auth.OnboardingProfile
 import com.univibe.app.domain.auth.PhotoChange
 import com.univibe.app.domain.auth.ProfileEdit
@@ -42,6 +44,8 @@ class RemoteAuthRepository(
     files: FileUploader? = null,
     /** Runs while the session is still valid, just before log-out (the app stops push for this device here). Failures are ignored. */
     private val beforeLogOut: suspend () -> Unit = {},
+    /** True when a Google server client id is configured, so the app may offer Google sign-in. */
+    private val googleEnabled: Boolean = false,
 ) : AuthRepository, AuthedApi {
 
     private val baseUrl = baseUrl.trimEnd('/')
@@ -64,6 +68,9 @@ class RemoteAuthRepository(
     /** False when the student left "remember me" off: tokens then live in memory only. */
     private var persistSession = true
     private var universityCache: List<University> = emptyList()
+    /** Signed claims from the server for a Google sign-in that still needs a step from the person. Memory only, never stored. */
+    private var pendingRegistrationToken: String? = null
+    private var pendingLinkToken: String? = null
 
     // ---------------------------------------------------------------- public data
     override suspend fun universities(): List<University> {
@@ -208,6 +215,117 @@ class RemoteAuthRepository(
         return AuthResult.Success(runCatching { JSONObject(response.body).getBoolean("emailVerified") }.getOrDefault(false))
     }
 
+    // ---------------------------------------------------------------- Sign in with Google
+    override val googleSignInAvailable: Boolean get() = googleEnabled
+
+    override suspend fun googleNonce(): AuthResult<String> {
+        if (!googleEnabled) return fail(AuthError.GoogleUnavailable)
+        val response = when (val r = publicCall("POST", "/auth/google/nonce")) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return fail(mapError(response))
+        val nonce = runCatching { JSONObject(response.body).getString("nonce") }.getOrNull() ?: return fail(AuthError.Unknown)
+        return AuthResult.Success(nonce)
+    }
+
+    override suspend fun signInWithGoogle(idToken: String, nonce: String): AuthResult<Unit> {
+        if (!googleEnabled) return fail(AuthError.GoogleUnavailable)
+        val body = JSONObject().put("idToken", idToken).put("nonce", nonce).withDevice()
+        val response = when (val r = publicCall("POST", "/auth/google", body)) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return fail(mapError(response))
+        return applyGoogleResponse(response.body)
+    }
+
+    override suspend fun completeGoogleRegistration(request: GoogleRegistrationRequest): AuthResult<Unit> {
+        val token = pendingRegistrationToken ?: return fail(AuthError.SessionExpired)
+        AuthValidators.fullName(request.fullName)?.let { return fail(AuthError.Validation(it)) }
+        AuthValidators.admissionNumber(request.admissionNumber.orEmpty())?.let { return fail(AuthError.Validation(it)) }
+        if (!request.acceptedTerms) return fail(AuthError.Validation("Accept the Terms and Privacy Policy to continue."))
+        val body = JSONObject()
+            .put("registrationToken", token)
+            .put("fullName", request.fullName.trim())
+            .put("universityId", request.universityId)
+            .put("acceptedTerms", true)
+            .apply { if (request.termsVersion.isNotBlank()) put("termsVersion", request.termsVersion) }
+            .withDevice()
+        request.admissionNumber?.trim()?.takeIf { it.isNotEmpty() }?.let { body.put("admissionNumber", it) }
+        val response = when (val r = publicCall("POST", "/auth/google/register", body)) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return failGoogleStep(response)
+        return applyGoogleResponse(response.body)
+    }
+
+    override suspend fun linkGoogleAccount(password: String): AuthResult<Unit> {
+        val token = pendingLinkToken ?: return fail(AuthError.SessionExpired)
+        if (password.isEmpty()) return fail(AuthError.Validation("Enter your password."))
+        val body = JSONObject().put("linkToken", token).put("password", password).withDevice()
+        val response = when (val r = publicCall("POST", "/auth/google/link", body)) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return failGoogleStep(response)
+        return applyGoogleResponse(response.body)
+    }
+
+    override fun cancelGoogleFlow() {
+        pendingRegistrationToken = null
+        pendingLinkToken = null
+        if (_session.value is AuthState.GoogleRegistrationRequired || _session.value is AuthState.GoogleLinkRequired) {
+            _session.value = AuthState.SignedOut()
+        }
+    }
+
+    /** Turns the server's answer to a Google request into the next [AuthState]. Nothing is shown as signed in until the server says so. */
+    private fun applyGoogleResponse(body: String): AuthResult<Unit> {
+        val o = runCatching { JSONObject(body) }.getOrNull() ?: return fail(AuthError.Unknown)
+        when (o.optString("status")) {
+            "authenticated" -> {
+                val parsed = parseSession(body) ?: return fail(AuthError.Unknown)
+                pendingRegistrationToken = null
+                pendingLinkToken = null
+                persistSession = true
+                adopt(parsed.first)
+                setUser(parsed.second)
+                _session.value = stateFor(parsed.second)
+            }
+            "registration_required" -> {
+                val token = o.optString("registrationToken").ifEmpty { null } ?: return fail(AuthError.Unknown)
+                val prefill = o.optJSONObject("prefill")
+                pendingRegistrationToken = token
+                pendingLinkToken = null
+                _session.value = AuthState.GoogleRegistrationRequired(
+                    GooglePrefill(prefill?.optString("fullName").orEmpty(), prefill?.optString("email").orEmpty()),
+                )
+            }
+            "link_required" -> {
+                val token = o.optString("linkToken").ifEmpty { null } ?: return fail(AuthError.Unknown)
+                pendingLinkToken = token
+                pendingRegistrationToken = null
+                _session.value = AuthState.GoogleLinkRequired(o.optString("email"))
+            }
+            else -> return fail(AuthError.Unknown)
+        }
+        return AuthResult.Success(Unit)
+    }
+
+    /** A failed registration or link step. When the step itself is no longer valid, go back to the start. */
+    private fun failGoogleStep(response: HttpResponse): AuthResult.Failure {
+        val error = mapError(response)
+        val stepIsOver = error == AuthError.InvalidGoogleToken || error == AuthError.AccountExists || error == AuthError.AccountSuspended
+        if (stepIsOver) {
+            pendingRegistrationToken = null
+            pendingLinkToken = null
+            _session.value = if (error == AuthError.InvalidGoogleToken) AuthState.SignedOut(SignedOutReason.SessionExpired) else AuthState.SignedOut()
+        }
+        return fail(error)
+    }
+
     // ---------------------------------------------------------------- password reset
     override suspend fun requestPasswordReset(email: String): AuthResult<Unit> {
         val key = normalize(email)
@@ -340,6 +458,8 @@ class RemoteAuthRepository(
     }
 
     private fun clearSession() {
+        pendingRegistrationToken = null
+        pendingLinkToken = null
         tokens = null
         user = null
         store.remove(REFRESH_KEY)
@@ -429,6 +549,11 @@ class RemoteAuthRepository(
         val message = json?.optString("message")?.ifEmpty { null }
         val retry = json?.optInt("retryAfter", 0)?.takeIf { it > 0 } ?: response.retryAfterSeconds ?: 60
         return when {
+            code == "invalid_google_token" -> AuthError.InvalidGoogleToken
+            code == "google_unavailable" -> AuthError.GoogleUnavailable
+            code == "account_suspended" -> AuthError.AccountSuspended
+            code == "account_exists" || code == "account_conflict" -> AuthError.AccountExists
+            code == "password_not_set" || code == "link_unavailable" -> AuthError.PasswordNotSet
             response.status == 429 || code == "rate_limited" -> AuthError.RateLimited(retry)
             code == "invalid_credentials" -> AuthError.InvalidCredentials
             code == "email_not_verified" -> AuthError.EmailNotVerified
