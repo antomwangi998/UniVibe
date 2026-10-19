@@ -11,7 +11,7 @@ import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard } from './cards';
 import { eventVisible } from './events';
 
 export const REPORT_REASONS = ['spam', 'harassment', 'hate', 'sexual', 'violence', 'self_harm', 'impersonation', 'misinformation', 'other'] as const;
-const TARGETS = ['user', 'post', 'comment', 'message', 'event'] as const;
+const TARGETS = ['user', 'post', 'comment', 'message', 'event', 'community'] as const;
 const MAX_SUSPENSION_DAYS = 30;
 
 const reportSchema = z.object({
@@ -44,6 +44,7 @@ async function ownerOf(q: Q, type: string, id: string): Promise<string | null> {
     comment: 'select author_id as owner from comments where id = $1',
     message: 'select sender_id as owner from messages where id = $1',
     event: 'select organizer_id as owner from events where id = $1',
+    community: 'select owner_id as owner from communities where id = $1',
   };
   return (await q.query<{ owner: string | null }>(sql[type], [id])).rows[0]?.owner ?? null;
 }
@@ -68,6 +69,8 @@ export function moderationRoutes(ctx: Ctx) {
         message: [`select 1 from messages m join conversation_members cm on cm.conversation_id = m.conversation_id and cm.user_id = $1
                     where m.id = $2 and m.sender_id is distinct from $1 and m.status = 'active'`, [me.id, id]],
         event: [`select 1 from events e where e.id = $3 and e.organizer_id <> $1 and ${eventVisible('$1', '$2')}`, [me.id, me.universityId, id]],
+        // Only communities whose profile the reporter could see (public, discoverable, or theirs).
+        community: [`select 1 from communities c where c.id = $3 and c.owner_id <> $1 and c.university_id = $2 and c.status <> 'deleted' and (c.visibility = 'public' or c.discoverable or exists (select 1 from community_members vm where vm.community_id = c.id and vm.user_id = $1 and vm.status = 'active'))`, [me.id, me.universityId, id]],
       };
       const [sql, params] = checks[type];
       if (!(await pool.query(sql, params)).rowCount) throw new HttpError(404, 'not_found', 'Not found.');
@@ -96,6 +99,7 @@ export function moderationRoutes(ctx: Ctx) {
         message: "select case when status = 'active' then left(content, 200) end as p from messages where id = $1",
         user: 'select handle as p from users where id = $1',
         event: 'select title as p from events where id = $1',
+        community: 'select name as p from communities where id = $1',
       };
       return (await pool.query<{ p: string | null }>(sql[r.target_type], [r.target_id])).rows[0]?.p ?? null;
     }
