@@ -3,6 +3,7 @@ package com.univibe.app.data.net
 import com.univibe.app.data.model.PostLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
