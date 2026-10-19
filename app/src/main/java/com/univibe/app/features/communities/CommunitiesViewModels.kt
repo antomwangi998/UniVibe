@@ -21,6 +21,7 @@ private fun Exception.userMessage(fallback: String) = message?.takeIf { it.lengt
 // ------------------------------------------------------------------ list
 data class CommunitiesUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val all: List<Community> = emptyList(),
     val query: String = "",
@@ -41,11 +42,14 @@ class CommunitiesViewModel(
 
     init { load() }
 
-    fun load(silent: Boolean = false) {
+    fun pullRefresh() = load(silent = true, pull = true)
+
+    fun load(silent: Boolean = false, pull: Boolean = false) {
         viewModelScope.launch {
             if (!silent) _state.update { it.copy(loading = true, error = null) }
-            try { _state.update { it.copy(loading = false, all = repository.getCommunities()) } }
-            catch (e: Exception) { if (!silent) _state.update { it.copy(loading = false, error = "We couldn't load communities.") } }
+            if (pull) _state.update { it.copy(refreshing = true) }
+            try { _state.update { it.copy(loading = false, refreshing = false, all = repository.getCommunities()) } }
+            catch (e: Exception) { _state.update { it.copy(refreshing = false) }; if (!silent) _state.update { it.copy(loading = false, error = "We couldn't load communities.") } }
         }
     }
 
@@ -90,6 +94,7 @@ sealed interface CommunityConfirm {
 
 data class CommunityDetailUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val notFound: Boolean = false,
     val community: Community? = null,
     val tab: CommunityTab = CommunityTab.Posts,
@@ -115,10 +120,13 @@ class CommunityDetailViewModel(
 
     init { load() }
 
-    fun load() {
+    fun pullRefresh() = load(pull = true)
+
+    fun load(pull: Boolean = false) {
         viewModelScope.launch {
+            if (pull) _state.update { it.copy(refreshing = true) }
             val c = runCatching { repository.getCommunity(id) }.getOrNull()
-            if (c == null) { _state.update { it.copy(loading = false, notFound = true) }; return@launch }
+            if (c == null) { _state.update { if (pull && it.community != null) it.copy(refreshing = false) else it.copy(loading = false, refreshing = false, notFound = true) }; return@launch }
             _state.update { it.copy(loading = false, community = c) }
             val posts = runCatching { repository.getPosts(id) }.getOrDefault(emptyList())
             val members = runCatching { repository.getMembers(id) }
@@ -129,7 +137,7 @@ class CommunityDetailViewModel(
                     posts = posts, postsLoading = false,
                     members = members.getOrDefault(emptyList()),
                     membersError = members.exceptionOrNull()?.let { e -> (e as? Exception)?.userMessage("Couldn't load members.") },
-                    requests = requests, reports = reports,
+                    requests = requests, reports = reports, refreshing = false,
                 )
             }
         }

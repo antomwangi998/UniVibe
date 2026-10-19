@@ -41,19 +41,28 @@ import com.univibe.app.ui.theme.Spacing
 
 /** Shared frame for every settings page: back button, title, scrolling content, system insets. */
 @Composable
-fun SettingsPage(title: String, onBack: () -> Unit, content: LazyListScope.() -> Unit) {
+fun SettingsPage(
+    title: String,
+    onBack: () -> Unit,
+    onRefresh: (() -> Unit)? = null,
+    refreshing: Boolean = false,
+    content: LazyListScope.() -> Unit,
+) {
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             title = title,
             compactTitle = true,
             navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-            contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.sm, bottom = Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.md),
-            content = content,
-        )
+        val list: @Composable () -> Unit = {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+                contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.sm, bottom = Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                content = content,
+            )
+        }
+        if (onRefresh != null) com.univibe.app.ui.components.VibePullToRefresh(refreshing = refreshing, onRefresh = onRefresh) { list() } else list()
     }
 }
 

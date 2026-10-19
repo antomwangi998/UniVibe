@@ -1,5 +1,6 @@
 package com.univibe.app.features.communities
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -125,7 +126,7 @@ fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onC
                 VibeIcons.Groups, "No communities found", "Try a different search, or start your own.",
                 actionLabel = "Create a community", onAction = onCreate,
             )
-            else -> LazyColumn(
+            else -> VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 Modifier.fillMaxSize().navigationBarsPadding(),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = Spacing.lg),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -152,7 +153,7 @@ fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onC
                         Text(c.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.sm), maxLines = 2)
                     }
                 }
-            }
+            } }
         }
     }
     s.pendingLeave?.let { c ->
@@ -200,7 +201,7 @@ fun CommunityDetailScreen(
         when {
             s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             s.notFound || c == null -> ErrorState("This community isn't available.", onBack, title = "Not found")
-            else -> LazyColumn(
+            else -> VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = Spacing.xl),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -250,7 +251,7 @@ fun CommunityDetailScreen(
                     CommunityTab.Members -> membersTab(c, s, viewModel, onOpenStudent)
                     CommunityTab.About -> aboutTab(c, s, viewModel, onEdit)
                 }
-            }
+            } }
         }
     }
 

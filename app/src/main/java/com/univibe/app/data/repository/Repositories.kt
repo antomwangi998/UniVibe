@@ -126,6 +126,8 @@ interface ChatRepository {
 }
 
 interface EventRepository {
+    /** False when the server only knows "going" (no "interested"); screens then hide the Interested option. */
+    val supportsInterested: Boolean get() = true
     suspend fun getEvents(): List<CampusEvent>
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getEvent(id: String): EventDetails?

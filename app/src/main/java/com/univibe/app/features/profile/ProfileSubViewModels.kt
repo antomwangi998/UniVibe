@@ -154,6 +154,7 @@ class PhotosViewModel(
 // ------------------------------------------------------------------ saved posts
 data class SavedUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val posts: List<Post> = emptyList(),
     val loadingMore: Boolean = false,
@@ -168,8 +169,11 @@ class SavedPostsViewModel(
 
     init { load() }
 
-    fun load(silent: Boolean = false) {
+    fun pullRefresh() = load(silent = true, pull = true)
+
+    fun load(silent: Boolean = false, pull: Boolean = false) {
         viewModelScope.launch {
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 val page = repository.getSavedPostsPage(null, SAVED_PAGE_SIZE)
                 _state.update { cur ->
@@ -177,12 +181,15 @@ class SavedPostsViewModel(
                     val posts = if (silent) mergeFirstPage(cur.posts, page, SAVED_PAGE_SIZE) else page
                     val onlyFirstPage = posts.size == page.size
                     cur.copy(
-                        loading = false, error = null, posts = posts, loadingMore = false,
+                        loading = false, refreshing = false, error = null, posts = posts, loadingMore = false,
                         endReached = if (onlyFirstPage) page.size < SAVED_PAGE_SIZE else cur.endReached,
                     )
                 }
             }
-            catch (e: Exception) { if (!silent) _state.update { it.copy(loading = false, error = "We couldn't load your saved posts.") } }
+            catch (e: Exception) {
+                _state.update { it.copy(refreshing = false) }
+                if (!silent) _state.update { it.copy(loading = false, error = "We couldn't load your saved posts.") }
+            }
         }
     }
 
@@ -226,7 +233,7 @@ class SavedPostsViewModel(
 // ------------------------------------------------------------------ followers / following
 enum class FollowKind { Followers, Following }
 
-data class FollowListUiState(val loading: Boolean = true, val error: String? = null, val entries: List<FollowEntry> = emptyList())
+data class FollowListUiState(val loading: Boolean = true, val refreshing: Boolean = false, val error: String? = null, val entries: List<FollowEntry> = emptyList())
 
 class FollowListViewModel(
     private val kind: FollowKind,
@@ -237,12 +244,18 @@ class FollowListViewModel(
 
     init { load() }
 
-    fun load() {
+    fun pullRefresh() = load(pull = true)
+
+    fun load(pull: Boolean = false) {
         viewModelScope.launch {
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 val list = if (kind == FollowKind.Followers) repository.getFollowers() else repository.getFollowing()
-                _state.update { it.copy(loading = false, error = null, entries = list) }
-            } catch (e: Exception) { _state.update { it.copy(loading = false, error = "We couldn't load this list.") } }
+                _state.update { it.copy(loading = false, refreshing = false, error = null, entries = list) }
+            } catch (e: Exception) {
+                // A failed pull keeps the list that is already on screen.
+                _state.update { it.copy(loading = false, refreshing = false, error = if (it.entries.isEmpty()) "We couldn't load this list." else null) }
+            }
         }
     }
 
@@ -257,6 +270,7 @@ class FollowListViewModel(
 // ------------------------------------------------------------------ another student's profile
 data class StudentUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val notFound: Boolean = false,
     val student: Student? = null,
     val isMe: Boolean = false,
@@ -276,15 +290,23 @@ class StudentProfileViewModel(
     private val _state = MutableStateFlow(StudentUiState())
     val state: StateFlow<StudentUiState> = _state.asStateFlow()
 
-    init {
+    init { load() }
+
+    fun pullRefresh() = load(pull = true)
+
+    private fun load(pull: Boolean = false) {
         viewModelScope.launch {
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 val student = repository.getStudent(studentId)
-                if (student == null) { _state.update { it.copy(loading = false, notFound = true) }; return@launch }
+                if (student == null) { _state.update { it.copy(loading = false, refreshing = false, notFound = true) }; return@launch }
                 val me = repository.getMyProfile().student.id == studentId
                 val following = repository.getFollowing().any { it.student.id == studentId }
-                _state.update { it.copy(loading = false, student = student, isMe = me, following = following) }
-            } catch (e: Exception) { _state.update { it.copy(loading = false, notFound = true) } }
+                _state.update { it.copy(loading = false, refreshing = false, student = student, isMe = me, following = following) }
+            } catch (e: Exception) {
+                // A failed pull keeps the profile that is already on screen.
+                _state.update { if (pull && it.student != null) it.copy(refreshing = false) else it.copy(loading = false, refreshing = false, notFound = true) }
+            }
         }
     }
 

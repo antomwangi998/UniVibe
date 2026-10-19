@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 
 data class NotificationsUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val items: List<AppNotification> = emptyList(),
     val blocked: Set<String> = emptySet(),
@@ -43,17 +44,21 @@ class NotificationsViewModel(
         }
     }
 
-    fun load(silent: Boolean = false) {
+    fun load(silent: Boolean = false, pull: Boolean = false) {
         viewModelScope.launch {
             if (!silent) _state.update { it.copy(loading = true, error = null) }
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 val items = repository.getNotifications()
-                _state.update { it.copy(loading = false, error = null, items = items) }
+                _state.update { it.copy(loading = false, refreshing = false, error = null, items = items) }
             } catch (e: Exception) {
+                _state.update { it.copy(refreshing = false) }
                 if (!silent) _state.update { it.copy(loading = false, error = "We couldn't load your notifications.") }
             }
         }
     }
+
+    fun pullRefresh() = load(silent = true, pull = true)
 
     /** Marks the item read, then lets the screen navigate to where it points. */
     fun open(n: AppNotification, navigate: (NotificationTarget) -> Unit) {
