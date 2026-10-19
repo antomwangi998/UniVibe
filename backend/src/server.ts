@@ -58,6 +58,10 @@ async function main() {
   }
   const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push), app.log);
   worker.start();
+  every('community-invitation-expiry', 3600 * 1000, async () => {
+    const r = await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
+    app.log.info({ expired: r.rowCount }, 'expired community invitations');
+  });
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {

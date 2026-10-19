@@ -28,6 +28,18 @@ export function joinState(i: JoinInput): JoinState {
   return 'unavailable'; // invite-only and no invitation
 }
 
+/**
+ * Posts that may appear in Discover (trending, photos, videos, topics, for-you): campus posts, plus posts of PUBLIC,
+ * ACTIVE communities. Private, archived and suspended community posts never qualify. Callers still apply `visible()`.
+ */
+export const discoverAudience = (p = 'p') =>
+  `(${p}.audience = 'campus' or (${p}.audience = 'community' and exists ` +
+  `(select 1 from communities dc where dc.id = ${p}.community_id and dc.visibility = 'public' and dc.status = 'active')))`;
+
+/** Hides posts from communities this viewer muted. $1 = viewer. */
+export const communityNotMuted = (p = 'p') =>
+  `not exists (select 1 from community_mutes cmu where cmu.user_id = $1 and cmu.community_id = ${p}.community_id)`;
+
 export const isStaff = (role: string | null | undefined) => role === 'owner' || role === 'moderator';
 
 /**
@@ -35,7 +47,7 @@ export const isStaff = (role: string | null | undefined) => role === 'owner' || 
  * `for share` so it cannot be archived or deleted between the check and the insert.
  * Outsiders get "not found" for private communities, so their existence is not confirmed.
  */
-export async function assertMayPostInCommunity(client: Q, userId: string, universityId: string, communityId: string): Promise<void> {
+export async function assertMayPostInCommunity(client: Q, userId: string, universityId: string, communityId: string): Promise<{ role: string | null }> {
   const { rows } = await client.query<{
     status: string; visibility: string; post_permission: string; role: string | null; member_status: string | null;
   }>(
@@ -50,4 +62,5 @@ export async function assertMayPostInCommunity(client: Q, userId: string, univer
   if (c.status !== 'active') throw new HttpError(403, 'community_unavailable', 'This community is not accepting new posts.');
   if (c.member_status !== 'active') throw new HttpError(403, 'not_a_member', 'Join this community to post in it.');
   if (c.post_permission === 'staff' && !isStaff(c.role)) throw new HttpError(403, 'staff_only', 'Only moderators can post in this community.');
+  return { role: c.role };
 }

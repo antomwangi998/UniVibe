@@ -76,7 +76,7 @@ interface CommunityRow {
   visibility: string; membership_policy: string; discoverable: boolean; post_permission: string; invite_permission: string;
   rules: string[]; owner_id: string; status: string; member_count: number; created_at: Date; updated_at: Date;
   avatar_key: string | null; cover_key: string | null;
-  my_role: string | null; my_suspended: boolean; my_level: string | null; pending: boolean; invited: boolean;
+  my_role: string | null; my_suspended: boolean; my_level: string | null; pending: boolean; invited: boolean; muted: boolean;
   owner_handle: string; university_name: string;
 }
 
@@ -88,6 +88,7 @@ const COMMUNITY_SELECT = `
          (select cm.role from community_members cm where cm.community_id = c.id and cm.user_id = $1 and cm.status = 'active') as my_role,
          exists (select 1 from community_members cm where cm.community_id = c.id and cm.user_id = $1 and cm.status = 'suspended') as my_suspended,
          (select cm.notification_level from community_members cm where cm.community_id = c.id and cm.user_id = $1) as my_level,
+         exists (select 1 from community_mutes mu where mu.community_id = c.id and mu.user_id = $1) as muted,
          exists (select 1 from community_requests cr where cr.community_id = c.id and cr.user_id = $1 and cr.status = 'pending') as pending,
          exists (select 1 from community_invitations ci where ci.community_id = c.id and ci.invitee_id = $1 and ci.status = 'pending' and ci.expires_at > now()) as invited
     from communities c join universities uni on uni.id = c.university_id join users ow on ow.id = c.owner_id`;
@@ -113,7 +114,7 @@ export function communityJson(ctx: Ctx, r: CommunityRow, withDetails: boolean) {
     visibility: r.visibility, membershipPolicy: r.membership_policy, status: r.status,
     memberCount: r.member_count, createdAt: r.created_at,
     universityName: r.university_name,
-    membership: state, myRole: r.my_role, myNotificationLevel: r.my_level,
+    membership: state, myRole: r.my_role, myNotificationLevel: r.my_level, muted: r.muted,
     // Private communities show a profile to non-members but never their posts.
     canReadPosts: canRead && r.status !== 'suspended',
     canPost: isMember && r.status === 'active' && (r.post_permission === 'members' || isStaff(r.my_role)),
@@ -683,6 +684,53 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
         await audit(client, me.id, `community.${status === 'suspended' ? 'suspend' : 'unsuspend'}`, 'community', id, { note });
       });
       return { id, status };
+    });
+
+    // ---------- mute (hides this community's posts from the viewer's Discover and Home; the server keeps everything)
+    app.put('/communities/:id/mute', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = routeId(req);
+      await loadFor(me, id);
+      await pool.query('insert into community_mutes (user_id, community_id) values ($1, $2) on conflict do nothing', [me.id, id]);
+      return reply.status(204).send();
+    });
+    app.delete('/communities/:id/mute', async (req, reply) => {
+      const me = await ctx.auth(req);
+      await pool.query('delete from community_mutes where user_id = $1 and community_id = $2', [me.id, routeId(req)]);
+      return reply.status(204).send();
+    });
+
+    // ---------- suggestions for Discover: interests and recent real activity, not raw member count; max 2 per category
+    app.get('/communities/suggested', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`community-suggest:${me.id}`, 120, 600);
+      const withSignals = COMMUNITY_SELECT.replace('select c.*,', `select c.*,
+        (select count(*) from users me, unnest(me.interests) i where me.id = $1 and length(i) >= 2
+           and (position(lower(i) in lower(c.name)) > 0 or position(lower(i) in lower(c.description)) > 0 or lower(i) = c.category))::int as interest_n,
+        (select count(*) from posts ap where ap.community_id = c.id and ap.status = 'active' and ap.created_at > now() - interval '14 days')::int as posts_n,
+        (select count(distinct ap.author_id) from posts ap where ap.community_id = c.id and ap.status = 'active' and ap.created_at > now() - interval '14 days')::int as posters_n,`);
+      const { rows } = await pool.query<CommunityRow & { interest_n: number; posts_n: number; posters_n: number }>(
+        `${withSignals}
+          where ${profileVisible()} and c.status = 'active' and c.membership_policy <> 'invite_only'
+            and not exists (select 1 from community_members sm where sm.community_id = c.id and sm.user_id = $1)
+            and not exists (select 1 from community_requests sr where sr.community_id = c.id and sr.user_id = $1 and sr.status = 'pending')
+            and not exists (select 1 from community_mutes sx where sx.community_id = c.id and sx.user_id = $1)
+          order by (2 * least((select count(*) from users me, unnest(me.interests) i where me.id = $1 and length(i) >= 2
+                      and (position(lower(i) in lower(c.name)) > 0 or position(lower(i) in lower(c.description)) > 0 or lower(i) = c.category)), 3)
+                    + ln(1 + (select count(*) from posts ap where ap.community_id = c.id and ap.status = 'active' and ap.created_at > now() - interval '14 days'))) desc,
+                   c.created_at desc, c.id desc
+          limit 60`,
+        [me.id, me.universityId]);
+      const perCategory = new Map<string, number>();
+      const picked = rows.filter((r) => {
+        const n = (perCategory.get(r.category) ?? 0) + 1;
+        perCategory.set(r.category, n);
+        return n <= 2;
+      }).slice(0, 20);
+      const reason = new Map(picked.map((r) => [r.id, r.interest_n > 0 ? 'interests' : r.posts_n >= 3 ? 'active' : null]));
+      const items = await present(ctx, picked);
+      // A reason is given only when the data supports it. Never "trending" or "popular".
+      return { items: items.map((i) => ({ ...i, reason: reason.get(i.id) ?? null })), nextCursor: null };
     });
 
     // ---------- community feed and community moderation of content

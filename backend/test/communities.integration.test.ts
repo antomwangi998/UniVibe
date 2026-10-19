@@ -236,4 +236,82 @@ describe.skipIf(!url)('communities (needs TEST_DATABASE_URL)', () => {
     const row = await pool.query('select owner_id, status from communities where id = $1', [c.id]);
     expect(row.rows[0]).toEqual({ owner_id: m.id, status: 'active' });
   });
+
+  it('Discover: public community posts qualify, private never do, muting hides them', async () => {
+    const owner = await h.student();
+    const pub = await create(owner.token);
+    const priv = await create(owner.token, { visibility: 'private' });
+    const pubPost = (await call('POST', '/posts', owner.token, { text: 'public community notes #quokka', communityId: pub.id })).body;
+    const privPost = (await call('POST', '/posts', owner.token, { text: 'private community notes #quokka', communityId: priv.id })).body;
+    const v = await h.student();
+    const topic = await call('GET', `${V1}/discover/topics/quokka`, v.token);
+    const ids = topic.body.items.map((i: { id: string }) => i.id);
+    expect(ids).toContain(pubPost.id);
+    expect(ids).not.toContain(privPost.id);
+    expect(topic.body.items.find((i: { id: string }) => i.id === pubPost.id).community.membership).toBe('join');
+    expect((await call('PUT', `${V1}/communities/${pub.id}/mute`, v.token)).status).toBe(204);
+    const after = await call('GET', `${V1}/discover/topics/quokka`, v.token);
+    expect(after.body.items.map((i: { id: string }) => i.id)).not.toContain(pubPost.id);
+    expect((await call('DELETE', `${V1}/communities/${pub.id}/mute`, v.token)).status).toBe(204);
+  });
+
+  it('announcements: staff only; fan-out skips muted members and the author', async () => {
+    const owner = await h.student();
+    const c = await create(owner.token);
+    const m1 = await h.student();
+    const m2 = await h.student();
+    for (const s of [m1, m2]) await call('PUT', `${V1}/communities/${c.id}/membership`, s.token);
+    await call('PATCH', `${V1}/communities/${c.id}/membership`, m2.token, { notificationLevel: 'muted' });
+    expect((await call('POST', '/posts', m1.token, { text: 'hi all', communityId: c.id, announcement: true })).status).toBe(403);
+    const ann = await call('POST', '/posts', owner.token, { text: 'Welcome everyone', communityId: c.id, announcement: true });
+    expect(ann.status).toBe(201);
+    expect(ann.body.announcement).toBe(true);
+    const { deliveryHandlers } = await import('../src/modules/delivery');
+    const { makeCtx } = await import('../src/context');
+    const { RateLimiter } = await import('../src/limiter');
+    const { Hub } = await import('../src/realtime');
+    const { testConfig } = await import('./helpers');
+    const handlers = deliveryHandlers(makeCtx(pool, testConfig(), new RateLimiter(), null), new Hub(), { send: async () => ({ status: 'accepted' }) } as never);
+    const job = { id: 'x', kind: 'community.announce', payload: { postId: ann.body.id, communityId: c.id }, attempts: 1, max_attempts: 6 };
+    await handlers['community.announce'](job);
+    await handlers['community.announce'](job); // a retry must not duplicate
+    const rows = await pool.query("select recipient_id from notifications where type = 'community_announcement' and entity_id = $1", [ann.body.id]);
+    expect(rows.rows.map((r) => r.recipient_id)).toEqual([m1.id]);
+  });
+
+  it('suggested communities exclude joined ones and give no unsupported reason', async () => {
+    const owner = await h.student();
+    const c = await create(owner.token);
+    const v = await h.student();
+    const first = await call('GET', `${V1}/communities/suggested`, v.token);
+    const found = first.body.items.find((i: { id: string }) => i.id === c.id);
+    expect(found).toBeTruthy();
+    expect(['interests', 'active', null]).toContain(found.reason);
+    await call('PUT', `${V1}/communities/${c.id}/membership`, v.token);
+    const second = await call('GET', `${V1}/communities/suggested`, v.token);
+    expect(second.body.items.map((i: { id: string }) => i.id)).not.toContain(c.id);
+  });
+
+  it('hiding a community post removes it from Home for that member only', async () => {
+    const owner = await h.student();
+    const c = await create(owner.token);
+    const post = (await call('POST', '/posts', owner.token, { text: 'hide me later', communityId: c.id })).body;
+    const m = await h.student();
+    await call('PUT', `${V1}/communities/${c.id}/membership`, m.token);
+    expect((await call('GET', '/posts', m.token)).body.map((p: { id: string }) => p.id)).toContain(post.id);
+    expect((await call('POST', `${V1}/discover/feedback`, m.token, { kind: 'not_interested', postId: post.id })).status).toBe(204);
+    expect((await call('GET', '/posts', m.token)).body.map((p: { id: string }) => p.id)).not.toContain(post.id);
+    expect((await call('GET', '/posts', owner.token)).body.map((p: { id: string }) => p.id)).toContain(post.id);
+  });
+
+  it('expired invitations are marked by the hourly sweep SQL and no longer listed', async () => {
+    const owner = await h.student();
+    const c = await create(owner.token, { visibility: 'private', membershipPolicy: 'invite_only' });
+    const x = await h.student();
+    const inv = await call('POST', `${V1}/communities/${c.id}/invitations`, owner.token, { userId: x.id });
+    await pool.query("update community_invitations set expires_at = now() - interval '1 hour' where id = $1", [inv.body.id]);
+    expect((await call('GET', `${V1}/community-invitations`, x.token)).body.items).toHaveLength(0);
+    await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
+    expect((await pool.query('select status from community_invitations where id = $1', [inv.body.id])).rows[0].status).toBe('expired');
+  });
 });
