@@ -4,6 +4,7 @@ import { blockedBetween, notSuspended } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { HttpError } from '../errors';
 import { decodeCursor, tsText } from '../http';
+import { communityNotMuted, discoverAudience } from './community_state';
 import { POST_COLS, POST_FROM, type PostRow, presentPosts, visible } from '../posts';
 
 /**
@@ -44,6 +45,7 @@ const writeScoredCursor = (c: ScoredCursor) => Buffer.from(JSON.stringify(c)).to
 
 /** Things this student asked not to see. $1 = viewer. Uses post alias p. */
 const NOT_HIDDEN = `
+  (p.audience <> 'community' or ${communityNotMuted('p')}) and
   not exists (select 1 from discover_feedback f where f.user_id = $1 and (
        (f.kind = 'not_interested' and f.post_id = p.id) or (f.kind = 'hide_author' and f.author_id = p.author_id)))
   and not exists (select 1 from discover_feedback f where f.user_id = $1 and f.kind = 'mute_topic'
@@ -77,7 +79,7 @@ const candidateSql = (personal: boolean, audienceOnlyCampus = true) => `
       exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = p.author_id) as followed,
       exists (select 1 from users me, unnest(me.interests) i where me.id = $1 and length(i) >= 2 and position(lower(i) in lower(p.text)) > 0) as interest_match
   ) sig
-  where ${visible('p', 'a')} ${audienceOnlyCampus ? "and p.audience = 'campus'" : ''}
+  where ${visible('p', 'a')} ${audienceOnlyCampus ? `and ${discoverAudience('p')}` : ''}
     and p.created_at <= $3 and p.created_at > $3::timestamptz - make_interval(hours => $4::int)
     and ${NOT_HIDDEN}`;
 
@@ -187,7 +189,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
                 (select count(*) from post_likes l where l.post_id = p.id and l.created_at <= $3 and l.created_at > $3::timestamptz - interval '6 hours' and l.user_id <> p.author_id) as recent_likes,
                 (select count(distinct c.author_id) from comments c where c.post_id = p.id and c.status = 'active' and c.created_at <= $3 and c.created_at > $3::timestamptz - interval '6 hours' and c.author_id <> p.author_id) as recent_commenters,
                 (select count(*) from post_reports r where r.post_id = p.id) as reports) sig
-            where $1::uuid is not null and p.status = 'active' and p.audience = 'campus' and a.university_id = $2 and ${notSuspended('a')}
+            where $1::uuid is not null and p.status = 'active' and ${discoverAudience('p')} and a.university_id = $2 and ${notSuspended('a')}
               and p.created_at <= $3 and p.created_at > $3::timestamptz - make_interval(hours => $4::int))
            select id, author_id, score::text as score from cand
             where likers + commenters >= ${TRENDING_MIN_PEOPLE}
@@ -200,7 +202,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
       // This student's own restrictions, applied fresh on every request (a block or removal is never cached).
       const { rows: ok } = await pool.query<{ id: string }>(
         `select p.id from posts p join users a on a.id = p.author_id
-          where p.id = any($3::uuid[]) and ${visible('p', 'a')} and p.audience = 'campus' and ${NOT_HIDDEN}`,
+          where p.id = any($3::uuid[]) and ${visible('p', 'a')} and ${discoverAudience('p')} and ${NOT_HIDDEN}`,
         [me.id, me.universityId, list.refs.map((r) => r.id)],
       );
       const allowed = new Set(ok.map((r) => r.id));
@@ -229,7 +231,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
         const { rows } = await pool.query<{ id: string; cursorT: string }>(
           `select p.id, ${tsText('p.created_at')} as "cursorT"
              from posts p join users a on a.id = p.author_id
-            where ${visible('p', 'a')} and p.audience = 'campus' and p.author_id <> $1 and ${NOT_HIDDEN}
+            where ${visible('p', 'a')} and ${discoverAudience('p')} and p.author_id <> $1 and ${NOT_HIDDEN}
               and exists (select 1 from media m where m.post_id = p.id and m.status = 'ready' and m.kind = $3)
               and ($4::timestamptz is null or (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
             order by p.created_at desc, p.id desc limit $6`,
@@ -257,7 +259,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
           `select m[1] as tag, count(distinct p.id) as posts, count(distinct p.author_id) as authors
              from posts p join users a on a.id = p.author_id,
                   lateral regexp_matches(lower(p.text), '(?:^|[^a-z0-9_])#([a-z0-9_]{2,30})', 'g') as m
-            where p.status = 'active' and p.audience = 'campus' and a.university_id = $1 and ${notSuspended('a')}
+            where p.status = 'active' and ${discoverAudience('p')} and a.university_id = $1 and ${notSuspended('a')}
               and p.created_at > now() - make_interval(hours => $2::int)
             group by m[1] having count(distinct p.author_id) >= ${TOPIC_MIN_AUTHORS}
             order by count(distinct p.author_id) * 2 + count(distinct p.id) desc, m[1] limit 100`,
@@ -281,7 +283,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
       const { rows } = await pool.query<{ id: string; cursorT: string }>(
         `select p.id, ${tsText('p.created_at')} as "cursorT"
            from posts p join users a on a.id = p.author_id
-          where ${visible('p', 'a')} and p.audience = 'campus'
+          where ${visible('p', 'a')} and ${discoverAudience('p')} and (p.audience <> 'community' or ${communityNotMuted('p')})
             and not exists (select 1 from discover_feedback f where f.user_id = $1 and ((f.kind = 'not_interested' and f.post_id = p.id) or (f.kind = 'hide_author' and f.author_id = p.author_id)))
             and lower(p.text) ~ ('(^|[^a-z0-9_])#' || $3::text || '($|[^a-z0-9_])')
             and ($4::timestamptz is null or (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
