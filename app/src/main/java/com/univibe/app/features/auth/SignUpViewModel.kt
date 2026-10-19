@@ -71,7 +71,8 @@ class SignUpViewModel(
     fun onConfirm(v: String) = _state.update { it.copy(confirm = v, error = null) }
     fun onTerms(v: Boolean) = _state.update { it.copy(acceptedTerms = v) }
 
-    fun submit() {
+    /** [afterCreated] runs once the account was created (the screen offers to save the login in the password manager). */
+    fun submit(afterCreated: suspend (email: String, password: String) -> Unit = { _, _ -> }) {
         val s = _state.value
         if (s.submitting) return // prevent duplicate submissions
         if (!s.isValid) { _state.update { it.copy(showErrors = true) }; return }
@@ -83,7 +84,10 @@ class SignUpViewModel(
                 termsVersion = TermsOfService.VERSION,
             )
             when (val result = repository.signUp(request)) {
-                is AuthResult.Success -> _state.update { it.copy(submitting = false, password = "", confirm = "") }
+                is AuthResult.Success -> {
+                    _state.update { it.copy(submitting = false, password = "", confirm = "") }
+                    runCatching { afterCreated(s.email.trim().lowercase(), s.password) } // optional; declining or failing changes nothing
+                }
                 is AuthResult.Failure -> _state.update { it.copy(submitting = false, error = result.error.userMessage()) }
             }
         }

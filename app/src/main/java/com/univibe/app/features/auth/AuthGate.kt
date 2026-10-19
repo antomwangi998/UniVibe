@@ -30,6 +30,8 @@ private fun keyOf(state: AuthState): Int = when (state) {
     is AuthState.EmailVerificationRequired -> 2
     is AuthState.OnboardingRequired -> 3
     is AuthState.Authenticated -> 4
+    is AuthState.GoogleRegistrationRequired -> 5
+    is AuthState.GoogleLinkRequired -> 6
 }
 
 /**
@@ -62,6 +64,8 @@ fun AuthGate(
             )
             is AuthState.EmailVerificationRequired -> VerifyEmailScreen(email = s.email)
             is AuthState.OnboardingRequired -> OnboardingScreen(user = s.user)
+            is AuthState.GoogleRegistrationRequired -> GoogleRegistrationScreen()
+            is AuthState.GoogleLinkRequired -> GoogleLinkScreen()
             is AuthState.Authenticated -> AppShell(themeMode, onThemeModeChange, onLogOut = sessionViewModel::logOut)
         }
     }

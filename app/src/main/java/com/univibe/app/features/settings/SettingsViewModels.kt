@@ -61,7 +61,8 @@ class ChangePasswordViewModel(
     fun onNew(v: String) = _state.update { it.copy(new = v, newError = null, error = null, success = false) }
     fun onConfirm(v: String) = _state.update { it.copy(confirm = v, confirmError = null, error = null, success = false) }
 
-    fun submit() {
+    /** [afterChange] runs after the new password was accepted (the screen offers to update the saved login). */
+    fun submit(afterChange: suspend (email: String, password: String) -> Unit = { _, _ -> }) {
         val s = _state.value
         if (s.submitting) return
         val currentError = if (s.current.isEmpty()) "Enter your current password." else null
@@ -74,7 +75,11 @@ class ChangePasswordViewModel(
         viewModelScope.launch {
             _state.update { it.copy(submitting = true, error = null, success = false) }
             when (val r = auth.changePassword(s.current, s.new)) {
-                is AuthResult.Success -> _state.value = ChangePasswordUiState(success = true)
+                is AuthResult.Success -> {
+                    _state.value = ChangePasswordUiState(success = true)
+                    val email = (auth.session.value as? AuthState.Authenticated)?.user?.email
+                    if (email != null) runCatching { afterChange(email, s.new) }
+                }
                 is AuthResult.Failure -> _state.update {
                     if (r.error == AuthError.InvalidCredentials) it.copy(submitting = false, currentError = "Your current password is incorrect.")
                     else it.copy(submitting = false, error = r.error.userMessage())
