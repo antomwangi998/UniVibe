@@ -18,6 +18,8 @@ import { Hub } from './realtime';
 import * as sec from './security';
 import type { ImageProcessor } from './imaging';
 import type { Storage } from './storage';
+import { registerGoogleAuthRoutes } from './google_auth';
+import type { GoogleVerifier } from './google';
 
 export interface AppDeps {
   pool: Pool;
@@ -30,15 +32,18 @@ export interface AppDeps {
   images?: ImageProcessor;
   /** Live connections. The server passes its own so the job worker can publish to the same sockets. */
   hub?: Hub;
+  /** Checks Google ID tokens. Without it the /auth/google routes answer 503. */
+  googleVerifier?: GoogleVerifier;
 }
 
-type UserRow = {
+export type UserRow = {
   id: string;
   email: string;
   full_name: string;
   handle: string;
   year_of_study: string;
-  password_hash: string;
+  /** Null for an account that only signs in with Google and has not set a password. */
+  password_hash: string | null;
   university_id: string;
   university_name: string;
   university_domains: string[];
@@ -61,7 +66,7 @@ const USER_SQL =
   'from users u join universities uni on uni.id = u.university_id ' +
   'left join media av on av.id = u.avatar_media_id left join media cv on cv.id = u.cover_media_id';
 
-type Query = (text: string, params: unknown[]) => Promise<unknown>;
+export type Query = (text: string, params: unknown[]) => Promise<unknown>;
 
 // ---- request schemas
 const email = z.string().trim().toLowerCase().email('Enter a valid email address.').max(254);
@@ -390,6 +395,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       await sec.burnPasswordCheck(b.password);
       throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect.');
     }
+    if (!user.password_hash) {
+      await sec.burnPasswordCheck(b.password); // Google-only account: same answer and timing as a wrong password
+      throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect.');
+    }
     if (!(await sec.verifyPassword(user.password_hash, b.password))) {
       throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect.');
     }
@@ -467,6 +476,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const user = await requireUser(req);
     const b = parse(changePasswordSchema, req.body);
     tooMany(`chpw:${user.id}`, 5, 900);
+    if (!user.password_hash) throw new HttpError(400, 'password_not_set', 'This account signs in with Google and has no password yet. Use "Forgot password" on the log-in screen to set one.');
     if (!(await sec.verifyPassword(user.password_hash, b.currentPassword))) {
       throw new HttpError(401, 'invalid_credentials', 'Your current password is incorrect.');
     }
@@ -497,6 +507,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const user = await requireUser(req);
     const b = parse(deleteSchema, req.body);
     tooMany(`delete:${user.id}`, 5, 900);
+    if (!user.password_hash) throw new HttpError(400, 'password_not_set', 'This account signs in with Google and has no password yet. Use "Forgot password" on the log-in screen to set one.');
     if (!(await sec.verifyPassword(user.password_hash, b.password))) {
       throw new HttpError(401, 'invalid_credentials', 'Your password is incorrect.');
     }
@@ -509,6 +520,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (storage && files.rowCount) await storage.remove(files.rows.flatMap((r) => (r.thumb_key ? [r.object_key, r.thumb_key] : [r.object_key]))).catch(() => undefined);
     return reply.status(204).send();
   });
+
+  // ---- Sign in with Google (token check, registration, account linking)
+  registerGoogleAuthRoutes(app, { pool, config, verifier: deps.googleVerifier, tooMany, createSession, toUser, findUserById, findUserByEmail, uniqueHandle });
 
   // ---- feed, comments, people
   const userView = async (id: string) => toUser((await findUserById(id)) as UserRow);
