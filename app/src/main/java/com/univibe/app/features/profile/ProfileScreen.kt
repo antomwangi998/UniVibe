@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -95,7 +96,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
         when {
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             state.error != null || profile == null -> ErrorState(state.error ?: "Something went wrong.", viewModel::load)
-            else -> LazyColumn(
+            else -> VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
@@ -172,7 +173,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                         NavLine(VibeIcons.Shield, "Privacy & safety", "Who can find and message you")
                     }
                 }
-            }
+            } }
         }
     }
 }

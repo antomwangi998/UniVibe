@@ -1,5 +1,10 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.ui.components.VibePullToRefresh
+import com.univibe.app.app.AppContainer
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.foundation.clickable
@@ -100,21 +105,29 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
                     EventsTab.Upcoming -> "No events found"
                 },
                 message = when (state.tab) {
-                    EventsTab.MyEvents -> "Events you mark as Going or Interested will show up here."
+                    EventsTab.MyEvents -> "Events you mark as Going will show up here."
                     EventsTab.Past -> "Events you attended will appear here."
                     EventsTab.Upcoming -> "Try a different search or category."
                 },
                 actionLabel = if (state.tab == EventsTab.MyEvents) "Browse upcoming" else null,
                 onAction = { viewModel.setTab(EventsTab.Upcoming) },
             )
-            else -> LazyColumn(
+            else -> VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 items(state.visible, key = { it.id }) { event ->
                     EventCard(event, onRsvpClick = { viewModel.openRsvp(event) }, onClick = { onOpenEvent(event.id) })
                 }
-            }
+            } }
+        }
+    }
+
+    val context = LocalContext.current
+    LaunchedEffect(state.notice) {
+        state.notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.consumeNotice()
         }
     }
 
@@ -123,7 +136,9 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
             Text(event.title, style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.size(Spacing.sm))
             RsvpOption(VibeIcons.Check, "Going", event.rsvp == RsvpState.Going) { viewModel.chooseRsvp(RsvpState.Going) }
-            RsvpOption(VibeIcons.Star, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
+            if (AppContainer.eventRepository.supportsInterested) {
+                RsvpOption(VibeIcons.Star, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
+            }
             RsvpOption(VibeIcons.Close, "Not going", event.rsvp == RsvpState.None) { viewModel.chooseRsvp(RsvpState.None) }
         }
     }

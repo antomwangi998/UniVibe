@@ -25,6 +25,7 @@ const val MAX_POST_LENGTH = PostLimits.MAX_TEXT
 
 data class HomeUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val filter: FeedFilter = FeedFilter.Campus,
     val me: Student? = null,
@@ -71,9 +72,10 @@ class HomeViewModel(
         }
     }
 
-    fun load(silent: Boolean = false) {
+    fun load(silent: Boolean = false, pull: Boolean = false) {
         viewModelScope.launch {
             if (!silent) _state.update { it.copy(loading = true, error = null) }
+            if (pull) _state.update { it.copy(refreshing = true) }
             try {
                 val me = repository.getCurrentUser()
                 val page = repository.getPostsPage(_state.value.filter, null, PAGE_SIZE)
@@ -83,11 +85,12 @@ class HomeViewModel(
                     val posts = if (silent) mergeFirstPage(cur.posts, page) else page
                     val onlyFirstPage = posts.size == page.size
                     cur.copy(
-                        loading = false, me = me, posts = posts, stories = stories, loadingMore = false,
+                        loading = false, refreshing = false, me = me, posts = posts, stories = stories, loadingMore = false,
                         endReached = if (onlyFirstPage) page.size < PAGE_SIZE else cur.endReached,
                     )
                 }
             } catch (e: Exception) {
+                _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your feed. Check your connection and try again.") }
             }
@@ -121,6 +124,9 @@ class HomeViewModel(
 
     /** Quietly re-reads the feed (e.g. after returning from comments) without a loading state. */
     fun refresh() = load(silent = true)
+
+    /** Pull down to refresh: the same quiet reload, with the spinner shown until it finishes. */
+    fun pullRefresh() = load(silent = true, pull = true)
 
     fun setFilter(filter: FeedFilter) {
         if (filter == _state.value.filter) return
