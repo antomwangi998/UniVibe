@@ -90,6 +90,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -113,6 +115,7 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.NotificationBell
+import com.univibe.app.ui.components.prefetchPhotos
 import com.univibe.app.ui.components.StoryRing
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.UniVibeLockup
@@ -158,6 +161,21 @@ fun HomeScreen(
             }
         }
         LaunchedEffect(nearEnd, state.posts.size) { if (nearEnd) viewModel.loadMore() }
+
+        // Start downloading the photos of the next few posts before they scroll into view.
+        val upcoming = rememberUpdatedState(state.visiblePosts)
+        val headerCount = rememberUpdatedState(headerItems)
+        LaunchedEffect(listState) {
+            snapshotFlow { listState.firstVisibleItemIndex }.collect { first ->
+                val posts = upcoming.value
+                val at = (first - headerCount.value).coerceAtLeast(0)
+                val paths = posts.drop(at + 1).take(4).flatMap { p ->
+                    val all = p.imagePaths.ifEmpty { listOfNotNull(p.imagePath) }
+                    if (p.thumbPaths.size == all.size) p.thumbPaths else all
+                }
+                if (paths.isNotEmpty()) prefetchPhotos(context, paths)
+            }
+        }
 
         VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
             state = listState,

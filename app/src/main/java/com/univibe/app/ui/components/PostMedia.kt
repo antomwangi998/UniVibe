@@ -5,7 +5,9 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +59,12 @@ private const val DEFAULT_RATIO = 4f / 3f   // reserved until the real size is k
 private const val MIN_RATIO = 0.62f         // tallest a feed photo may be (about 3:5); taller ones are cropped on purpose
 private const val MAX_RATIO = 2.0f          // widest a feed photo may be
 
+/** Tap opens the photo; with [onDoubleTap] a double tap does that instead (a single tap then waits a moment to be sure). */
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.photoClick(onClick: () -> Unit, onDoubleTap: (() -> Unit)?): Modifier =
+    if (onDoubleTap == null) clickable(role = Role.Button, onClickLabel = "View photo", onClick = onClick)
+    else combinedClickable(role = Role.Button, onClickLabel = "View photo", onClick = onClick, onDoubleClick = onDoubleTap)
+
 /** Remembers each photo's real width/height so scrolling back never re-measures it or makes the list jump. */
 internal object PhotoAspects {
     private val cache = LruCache<String, Float>(400)
@@ -78,6 +86,7 @@ fun AdaptivePhoto(
     modifier: Modifier = Modifier,
     /** Width / height from the server, when it has it: the right space is reserved before the photo loads. */
     knownRatio: Float? = null,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     var ratio by remember(path) { mutableStateOf(PhotoAspects.get(path) ?: knownRatio) }
     var failed by remember(path) { mutableStateOf(false) }
@@ -93,7 +102,7 @@ fun AdaptivePhoto(
             .clip(PostMediaShape)
             .background(colors.surfaceContainerHigh)
             .border(0.75.dp, colors.outlineVariant.copy(alpha = 0.6f), PostMediaShape)
-            .clickable(role = Role.Button, onClickLabel = "View photo", onClick = onClick),
+            .photoClick(onClick, onDoubleTap),
     ) {
         AsyncImage(
             model = rememberPhotoModel(path),
@@ -148,11 +157,12 @@ fun PostGallery(
     onOpen: (Int) -> Unit,
     modifier: Modifier = Modifier,
     ratios: List<Float?> = emptyList(),
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     if (paths.isEmpty()) return
     fun description(i: Int) = if (paths.size == 1) "Photo attached to $authorName's post" else "Photo ${i + 1} of ${paths.size} attached to $authorName's post"
     if (paths.size == 1) {
-        AdaptivePhoto(paths[0], description(0), onClick = { onOpen(0) }, modifier = modifier, knownRatio = ratios.firstOrNull())
+        AdaptivePhoto(paths[0], description(0), onClick = { onOpen(0) }, modifier = modifier, knownRatio = ratios.firstOrNull(), onDoubleTap = onDoubleTap)
         return
     }
     val shown = paths.take(4)
@@ -168,7 +178,7 @@ fun PostGallery(
         horizontalArrangement = Arrangement.spacedBy(gap),
     ) {
         @Composable
-        fun cell(i: Int, m: Modifier) = GalleryCell(shown[i], description(i), { onOpen(i) }, m, if (i == 3 && extra > 0) "+$extra" else null)
+        fun cell(i: Int, m: Modifier) = GalleryCell(shown[i], description(i), { onOpen(i) }, m, if (i == 3 && extra > 0) "+$extra" else null, onDoubleTap)
         when (shown.size) {
             2 -> { cell(0, Modifier.weight(1f).fillMaxHeight()); cell(1, Modifier.weight(1f).fillMaxHeight()) }
             3 -> {
@@ -190,8 +200,8 @@ fun PostGallery(
 }
 
 @Composable
-private fun GalleryCell(path: String, description: String, onClick: () -> Unit, modifier: Modifier, overlay: String?) {
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable(role = Role.Button, onClickLabel = "View photo", onClick = onClick)) {
+private fun GalleryCell(path: String, description: String, onClick: () -> Unit, modifier: Modifier, overlay: String?, onDoubleTap: (() -> Unit)? = null) {
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh).photoClick(onClick, onDoubleTap)) {
         PhotoImage(path, contentDescription = description, modifier = Modifier.fillMaxSize())
         if (overlay != null) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {

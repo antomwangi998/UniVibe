@@ -2,6 +2,7 @@ package com.univibe.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,6 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,22 +67,32 @@ fun CampusPostCard(
     }
     // The feed shows the small copies; the full-screen viewer below opens the full-size photos.
     val feedPhotos = remember(photos, post.thumbPaths) { if (post.thumbPaths.size == photos.size) post.thumbPaths else photos }
+    // Double-tapping the text or media likes the post (never unlikes it) and pops a heart over it.
+    val haptics = LocalHapticFeedback.current
+    var burst by remember(post.id) { mutableIntStateOf(0) }
+    val doubleTapLike = rememberUpdatedState<() -> Unit> {
+        if (!post.likedByMe) onLike()
+        burst++
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs, top = Spacing.sm + 4.dp)) {
             AuthorRow(post, onAuthorClick, onMore)
-            if (post.text.isNotBlank()) {
-                Text(
-                    post.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(top = 6.dp, end = Spacing.sm),
-                )
-            }
+        }
+        Box(Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onDoubleTap = { doubleTapLike.value() }) }) {
+        Column {
+        if (post.text.isNotBlank()) {
+            Text(
+                post.text,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs + Spacing.sm, top = 6.dp),
+            )
         }
         val mediaPadding = Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.sm + 4.dp, top = Spacing.sm + 2.dp)
         if (post.poll != null) PostPoll(post.poll, onVote, mediaPadding)
         when {
             post.videoPath != null -> PostVideo(post.videoPath, post.author.name, mediaPadding, knownRatio = post.videoRatio)
-            photos.isNotEmpty() -> PostGallery(feedPhotos, post.author.name, onOpen = { viewerIndex = it }, modifier = mediaPadding, ratios = post.mediaRatios)
+            photos.isNotEmpty() -> PostGallery(feedPhotos, post.author.name, onOpen = { viewerIndex = it }, modifier = mediaPadding, ratios = post.mediaRatios, onDoubleTap = { doubleTapLike.value() })
             post.mediaAccent != null -> Box(
                 mediaPadding
                     .fillMaxWidth()
@@ -87,6 +103,9 @@ fun CampusPostCard(
             ) {
                 Icon(VibeIcons.Photo, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(40.dp))
             }
+        }
+        }
+        DoubleTapHeart(burst, Modifier.align(Alignment.Center))
         }
         // The action bar always sits below the content, in its own row, so nothing can clip or overlap it.
         Row(
