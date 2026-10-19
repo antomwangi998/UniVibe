@@ -195,7 +195,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
                         )
                     }
-                    tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }) }
+                    tab(TopLevelDestination.Discover.route) { DiscoverScreen(onOpenStudent = { open(AppRoutes.student(it)) }, onOpenComments = { open(AppRoutes.comments(it)) }) }
                     tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }, onCreateEvent = { open(AppRoutes.EVENT_NEW) }) }
                     tab(TopLevelDestination.Profile.route) {

@@ -21,7 +21,10 @@ import com.univibe.app.data.profile.DataStoreProfileLocalStore
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.CommentRepository
 import com.univibe.app.data.repository.CommunityRepository
+import com.univibe.app.data.repository.DiscoverContentRepository
 import com.univibe.app.data.repository.DiscoverRepository
+import com.univibe.app.data.repository.FeedBackedDiscoverContent
+import com.univibe.app.data.repository.RemoteDiscoverContentRepository
 import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.repository.MockDiscoverRepository
 import com.univibe.app.data.repository.GroupRepository
@@ -147,6 +150,10 @@ object AppContainer {
     // With a backend these are the real thing (no sample people or sample notifications); the mocks are offline demo only.
     val discoverRepository: DiscoverRepository by lazy {
         api?.let { RemoteDiscoverRepository(it) { accountOf(authRepository.session.value) } } ?: MockDiscoverRepository()
+    }
+    /** Discover's posts, trending, photos, videos and topics. Offline demo builds them from the sample feed. */
+    val discoverContentRepository: DiscoverContentRepository by lazy {
+        api?.let { RemoteDiscoverContentRepository(it) } ?: FeedBackedDiscoverContent(feedRepository)
     }
     val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it, chatSocket) } ?: MockNotificationRepository() }
     val eventRepository: EventRepository by lazy { MockEventRepository(mockStore) }
