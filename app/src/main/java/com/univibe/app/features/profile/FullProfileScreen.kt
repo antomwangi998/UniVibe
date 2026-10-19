@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.FollowButton
 import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
@@ -102,8 +103,8 @@ fun FullProfileScreen(
     val student = profile.student
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.weight(1f),
+        VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh, modifier = Modifier.weight(1f)) { LazyColumn(
+            Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
@@ -231,7 +232,7 @@ fun FullProfileScreen(
                     }
                 }
             }
-        }
+        } }
         if (s.canDecide) {
             Surface(color = colors.background) {
                 Column {

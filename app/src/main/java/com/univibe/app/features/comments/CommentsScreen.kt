@@ -2,6 +2,7 @@
 
 package com.univibe.app.features.comments
 
+import com.univibe.app.ui.components.VibePullToRefresh
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -111,7 +112,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
             when {
                 s.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 2)
                 s.error != null -> ErrorState(s.error!!, viewModel::load)
-                else -> LazyColumn(
+                else -> VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
                     state = listState, modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
@@ -178,7 +179,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                             }
                         }
                     }
-                }
+                } }
             }
         }
         Surface(color = colors.surface, shadowElevation = 6.dp) {

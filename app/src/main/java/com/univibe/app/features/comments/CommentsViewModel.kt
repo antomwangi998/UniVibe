@@ -22,6 +22,7 @@ data class CommentThread(val parent: Comment, val replies: List<Comment>)
 
 data class CommentsUiState(
     val loading: Boolean = true,
+    val refreshing: Boolean = false,
     val error: String? = null,
     val comments: List<Comment> = emptyList(),
     val post: Post? = null,
@@ -63,15 +64,18 @@ class CommentsViewModel(
 
     init { load() }
 
-    fun load() {
+    fun pullRefresh() = load(pull = true)
+
+    fun load(pull: Boolean = false) {
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            _state.update { if (pull) it.copy(refreshing = true) else it.copy(loading = true, error = null) }
             try {
                 val list = repository.getComments(postId)
                 val post = runCatching { feed.getPost(postId) }.getOrNull()
-                _state.update { it.copy(loading = false, comments = list, post = post) }
+                _state.update { it.copy(loading = false, refreshing = false, comments = list, post = post ?: it.post.takeIf { pull }) }
             } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = "We couldn't load the comments. Check your connection and try again.") }
+                // A failed pull keeps the comments already on screen.
+                _state.update { if (pull && it.comments.isNotEmpty()) it.copy(refreshing = false) else it.copy(loading = false, refreshing = false, error = "We couldn't load the comments. Check your connection and try again.") }
             }
         }
     }
