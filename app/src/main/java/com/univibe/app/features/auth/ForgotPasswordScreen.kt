@@ -37,6 +37,9 @@ import com.univibe.app.ui.components.PasswordStrengthMeter
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibePasswordField
 import com.univibe.app.ui.components.VibeTextField
+import com.univibe.app.ui.components.loginEmailAutofill
+import com.univibe.app.ui.components.newPasswordAutofill
+import com.univibe.app.ui.components.rememberPasswordSaver
 import com.univibe.app.domain.auth.AuthValidators
 import com.univibe.app.ui.theme.Spacing
 
@@ -44,6 +47,7 @@ import com.univibe.app.ui.theme.Spacing
 fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: ForgotPasswordViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
+    val savePassword = rememberPasswordSaver()
 
     val title = when (state.step) {
         ResetStep.RequestCode -> "Forgot password?"
@@ -73,6 +77,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         state.error?.let { MessageBanner(it, BannerKind.Error) }
                         VibeTextField(
                             value = state.email, onValueChange = viewModel::onEmail, label = "Email",
+                            modifier = Modifier.loginEmailAutofill(),
                             leadingIcon = VibeIcons.Mail,
                             isError = state.emailError != null, supportingText = state.emailError,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
@@ -92,6 +97,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         )
                         VibePasswordField(
                             value = state.password, onValueChange = viewModel::onPassword, label = "New password",
+                            modifier = Modifier.newPasswordAutofill(),
                             isError = state.passwordError != null,
                             supportingText = state.passwordError ?: "At least ${AuthValidators.MIN_PASSWORD} characters with a letter and a number.",
                             keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
@@ -99,11 +105,12 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         PasswordStrengthMeter(AuthValidators.passwordStrength(state.password))
                         VibePasswordField(
                             value = state.confirm, onValueChange = viewModel::onConfirm, label = "Confirm new password",
+                            modifier = Modifier.newPasswordAutofill(),
                             isError = state.confirmError != null, supportingText = state.confirmError,
                             imeAction = ImeAction.Done,
-                            keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.resetPassword() }),
+                            keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.resetPassword(savePassword) }),
                         )
-                        VibeButton("Update password", viewModel::resetPassword, Modifier.fillMaxWidth(), loading = state.submitting)
+                        VibeButton("Update password", { viewModel.resetPassword(savePassword) }, Modifier.fillMaxWidth(), loading = state.submitting)
                         TextButton(onClick = viewModel::backToEmail, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Use a different email") }
                     }
                     ResetStep.Done -> {

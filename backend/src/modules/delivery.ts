@@ -3,11 +3,16 @@ import type { Ctx } from '../context';
 import { type Handler, PermanentJobError } from '../jobs';
 import type { PushSender } from '../push';
 import type { Hub } from '../realtime';
+import { withTx } from '../db';
+import { notify } from './notify';
 
 /** Which push switch controls each notification type. `null` = account-critical, always allowed. */
 const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events' | null> = {
   follow: 'push_social', like: 'push_social', comment: 'push_social', reply: 'push_social',
   message: 'push_messages', group_invite: 'push_messages', event_update: 'push_events', verification: null,
+  community_join_request: 'push_social', community_join_approved: 'push_social', community_join_declined: 'push_social',
+  community_invitation: 'push_social', community_role_changed: null, community_member_removed: null,
+  community_announcement: 'push_social',
 };
 
 export async function unreadCount(ctx: Ctx, userId: string): Promise<number> {
@@ -62,6 +67,35 @@ const loadPrefs = async (ctx: Ctx, userId: string): Promise<Prefs> => {
  */
 export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender): Record<string, Handler> {
   return {
+    // Fan-out of one announcement. Idempotent: notify() skips anyone already notified, so a retry never doubles up.
+    // Muted members, blocked pairs and people who switched community notifications off are skipped inside notify().
+    'community.announce': async (job) => {
+      const { postId, communityId } = job.payload;
+      if (typeof postId !== 'string' || typeof communityId !== 'string') throw new PermanentJobError('payload incomplete');
+      const post = (await ctx.pool.query<{ author_id: string; status: string }>(
+        "select author_id, status from posts where id = $1 and community_id = $2 and is_announcement", [postId, communityId])).rows[0];
+      if (!post || post.status !== 'active') return; // removed before delivery: nothing to announce
+      const live = (await ctx.pool.query("select 1 from communities where id = $1 and status = 'active'", [communityId])).rowCount;
+      if (!live) return;
+      let after = '00000000-0000-0000-0000-000000000000';
+      let sent = 0;
+      for (let page = 0; page < 25; page++) { // hard cap: 25 x 200 recipients per announcement
+        const { rows } = await ctx.pool.query<{ user_id: string }>(
+          `select m.user_id from community_members m
+            where m.community_id = $1 and m.status = 'active' and m.user_id <> $2 and m.user_id > $3
+              and m.notification_level <> 'muted'
+              and not exists (select 1 from community_mutes mu where mu.user_id = m.user_id and mu.community_id = m.community_id)
+            order by m.user_id limit 200`, [communityId, post.author_id, after]);
+        if (!rows.length) break;
+        for (const r of rows) {
+          // One transaction per recipient: the notification and its delivery job exist together or not at all.
+          const ok = await withTx(ctx.pool, (c) => notify(c, { recipientId: r.user_id, actorId: post.author_id, type: 'community_announcement', entityType: 'post', entityId: postId, metadata: { communityId, postId } }));
+          if (ok) sent += 1;
+        }
+        after = rows[rows.length - 1].user_id;
+      }
+      void sent;
+    },
     // A stored notification: tell the person's open apps now, then push if they allow it.
     'notification.deliver': async (job) => {
       const id = job.payload.notificationId;

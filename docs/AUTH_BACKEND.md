@@ -35,6 +35,7 @@ The steps below describe what was done, kept for reference.
 | `PUT  /me/profile` | course, interests, bio | Auth required. |
 | `POST /me/photo` | profile photo upload | Validate type/size, scan, re-encode, strip EXIF. |
 | `GET  /universities` | list | Public. |
+| `POST /auth/google/nonce`, `/auth/google`, `/auth/google/register`, `/auth/google/link` | Sign in with Google | See `docs/GOOGLE_SIGN_IN.md`. |
 
 ## Client rules already followed
 - No API URL, secret or token in source. Access/refresh tokens belong in `SecureStore`

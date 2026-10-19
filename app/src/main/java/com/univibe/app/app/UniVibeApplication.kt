@@ -2,6 +2,8 @@ package com.univibe.app.app
 
 import android.app.Application
 import com.univibe.app.BuildConfig
+import com.univibe.app.data.auth.CredentialManagerGoogleProvider
+import com.univibe.app.data.auth.GoogleCredentialProvider
 import com.univibe.app.data.auth.KeystoreSecureStore
 import com.univibe.app.data.auth.MockAuthRepository
 import com.univibe.app.data.auth.RemoteAuthRepository
@@ -196,6 +198,9 @@ object AppContainer {
     /** Login sessions and account status. Real server only: the offline preview build reports them as unavailable. */
     val accountSecurity: AccountSecurityRepository by lazy { api?.let { RemoteAccountSecurityRepository(it) } ?: UnavailableAccountSecurityRepository }
 
+    /** Credential Manager: Sign in with Google and the password manager. Google sign-in is off while no server client id is set. */
+    val credentialProvider: GoogleCredentialProvider by lazy { CredentialManagerGoogleProvider(BuildConfig.GOOGLE_SERVER_CLIENT_ID) }
+
     val authRepository: AuthRepository by lazy {
         if (BuildConfig.API_BASE_URL.isBlank()) {
             // The mock must never ship: release builds refuse to start without a real backend.
@@ -204,7 +209,12 @@ object AppContainer {
         } else {
             RemoteAuthRepository(
                 BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app), files = UrlConnectionFileUploader(),
-                beforeLogOut = { pushRegistrar.unregister() },
+                beforeLogOut = {
+                    pushRegistrar.unregister()
+                    // So Google does not silently sign this person straight back in.
+                    credentialProvider.clearSignInState(app)
+                },
+                googleEnabled = credentialProvider.isConfigured,
             )
         }
     }

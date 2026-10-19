@@ -46,6 +46,10 @@ import com.univibe.app.ui.components.PasswordStrengthMeter
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibePasswordField
 import com.univibe.app.ui.components.VibeTextField
+import com.univibe.app.ui.components.fullNameAutofill
+import com.univibe.app.ui.components.newEmailAutofill
+import com.univibe.app.ui.components.newPasswordAutofill
+import com.univibe.app.ui.components.rememberPasswordSaver
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
@@ -54,12 +58,16 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
     val focus = LocalFocusManager.current
     var legal by remember { mutableStateOf<LegalDoc?>(null) }
     val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) })
+    val savePassword = rememberPasswordSaver()
+    val submit = { viewModel.submit(savePassword) }
 
-    AuthScaffold(title = "Create your account", subtitle = "Join your campus community. It only takes a minute.", onBack = onBack) {
+    AuthScaffold(title = "Create your account", subtitle = "Join your campus community. It only takes a minute.", onBack = onBack, showLogo = true) {
+        GoogleSection()
         state.error?.let { MessageBanner(it, BannerKind.Error) }
 
         VibeTextField(
             value = state.fullName, onValueChange = viewModel::onName, label = "Full name",
+            modifier = Modifier.fullNameAutofill(),
             leadingIcon = VibeIcons.Profile,
             isError = state.nameError != null, supportingText = state.nameError,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
@@ -67,6 +75,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
         )
         VibeTextField(
             value = state.email, onValueChange = viewModel::onEmail, label = "University email",
+            modifier = Modifier.newEmailAutofill(),
             leadingIcon = VibeIcons.Mail,
             isError = state.emailError != null, supportingText = state.emailError ?: state.domainHint,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -103,6 +112,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
 
         VibePasswordField(
             value = state.password, onValueChange = viewModel::onPassword, label = "Password",
+            modifier = Modifier.newPasswordAutofill(),
             isError = state.passwordError != null,
             supportingText = state.passwordError ?: "At least 8 characters with a letter and a number.",
             keyboardActions = next,
@@ -110,33 +120,16 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
         PasswordStrengthMeter(state.strength)
         VibePasswordField(
             value = state.confirm, onValueChange = viewModel::onConfirm, label = "Confirm password",
+            modifier = Modifier.newPasswordAutofill(),
             isError = state.confirmError != null, supportingText = state.confirmError,
             imeAction = ImeAction.Done,
             keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
         )
 
-        LabeledCheckbox(state.acceptedTerms, viewModel::onTerms) {
-            val link = SpanStyle(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, textDecoration = TextDecoration.Underline)
-            val text = buildAnnotatedString {
-                append("I agree to the ")
-                pushStringAnnotation("doc", "terms"); withStyle(link) { append("Terms of Service") }; pop()
-                append(" and ")
-                pushStringAnnotation("doc", "privacy"); withStyle(link) { append("Privacy Policy") }; pop()
-            }
-            @Suppress("DEPRECATION")
-            ClickableText(
-                text = text,
-                style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                onClick = { offset ->
-                    text.getStringAnnotations("doc", offset, offset).firstOrNull()?.let {
-                        legal = if (it.item == "terms") LegalDoc.Terms else LegalDoc.Privacy
-                    }
-                },
-            )
-        }
+        TermsCheckbox(state.acceptedTerms, viewModel::onTerms) { legal = it }
         state.termsError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 
-        VibeButton("Create account", viewModel::submit, Modifier.fillMaxWidth(), loading = state.submitting)
+        VibeButton("Create account", submit, Modifier.fillMaxWidth(), loading = state.submitting)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text("Already have an account?", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = onLogIn) { Text("Log in") }

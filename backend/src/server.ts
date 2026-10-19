@@ -12,6 +12,7 @@ import { purgeExpiredEvents, sendEventReminders } from './modules/events';
 import { createSharpProcessor } from './imaging';
 import { MEDIA_LIMITS, cleanupPendingMedia } from './media';
 import { createR2Storage } from './storage';
+import { createGoogleVerifier, googleClientIds } from './google';
 
 async function main() {
   const config = loadConfig();
@@ -23,7 +24,10 @@ async function main() {
   if (!storage) console.warn(`R2 is not configured, so photo and video uploads are switched off. Missing: ${missingR2Settings(config).join(', ')}`);
   const hub = new Hub();
   const images = createSharpProcessor({ maxPixels: MEDIA_LIMITS.maxPixels });
-  const app = buildApp({ pool, mailer, config, storage, images, hub });
+  const googleIds = googleClientIds(config.GOOGLE_WEB_CLIENT_ID);
+  const googleVerifier = googleIds.length ? createGoogleVerifier(googleIds) : undefined;
+  if (!googleVerifier) console.warn('GOOGLE_WEB_CLIENT_ID is not set, so Sign in with Google is switched off.');
+  const app = buildApp({ pool, mailer, config, storage, images, hub, googleVerifier });
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
 
   if (storage) {
@@ -58,6 +62,10 @@ async function main() {
   }
   const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push), app.log);
   worker.start();
+  every('community-invitation-expiry', 3600 * 1000, async () => {
+    const r = await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
+    app.log.info({ expired: r.rowCount }, 'expired community invitations');
+  });
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {
