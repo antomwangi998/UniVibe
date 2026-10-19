@@ -82,7 +82,7 @@ fun GoogleRegistrationScreen(viewModel: GoogleRegistrationViewModel = viewModel(
 
         VibeTextField(
             value = state.fullName, onValueChange = viewModel::onName, label = "Full name",
-            modifier = Modifier.fullNameAutofill(),
+            modifier = Modifier.fullNameAutofill(viewModel::onName),
             leadingIcon = VibeIcons.Profile,
             isError = state.nameError != null, supportingText = state.nameError,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
@@ -143,7 +143,7 @@ fun GoogleLinkScreen(viewModel: GoogleLinkViewModel = viewModel()) {
         state.error?.let { MessageBanner(it, BannerKind.Error) }
         VibePasswordField(
             value = state.password, onValueChange = viewModel::onPassword, label = "UniVibe password",
-            modifier = Modifier.loginPasswordAutofill(),
+            modifier = Modifier.loginPasswordAutofill(viewModel::onPassword),
             isError = state.passwordError != null, supportingText = state.passwordError,
             imeAction = ImeAction.Done,
             keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.submit() }),

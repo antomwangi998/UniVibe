@@ -59,7 +59,7 @@ fun LoginScreen(
         VibeTextField(
             value = state.email,
             onValueChange = viewModel::onEmail,
-            modifier = Modifier.loginEmailAutofill(),
+            modifier = Modifier.loginEmailAutofill(viewModel::onEmail),
             label = "Email",
             leadingIcon = VibeIcons.Mail,
             isError = state.emailError != null,
@@ -70,7 +70,7 @@ fun LoginScreen(
         VibePasswordField(
             value = state.password,
             onValueChange = viewModel::onPassword,
-            modifier = Modifier.loginPasswordAutofill(),
+            modifier = Modifier.loginPasswordAutofill(viewModel::onPassword),
             label = "Password",
             isError = state.passwordError != null,
             supportingText = state.passwordError,

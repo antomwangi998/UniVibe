@@ -67,7 +67,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
 
         VibeTextField(
             value = state.fullName, onValueChange = viewModel::onName, label = "Full name",
-            modifier = Modifier.fullNameAutofill(),
+            modifier = Modifier.fullNameAutofill(viewModel::onName),
             leadingIcon = VibeIcons.Profile,
             isError = state.nameError != null, supportingText = state.nameError,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
@@ -75,7 +75,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
         )
         VibeTextField(
             value = state.email, onValueChange = viewModel::onEmail, label = "University email",
-            modifier = Modifier.newEmailAutofill(),
+            modifier = Modifier.newEmailAutofill(viewModel::onEmail),
             leadingIcon = VibeIcons.Mail,
             isError = state.emailError != null, supportingText = state.emailError ?: state.domainHint,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -112,7 +112,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
 
         VibePasswordField(
             value = state.password, onValueChange = viewModel::onPassword, label = "Password",
-            modifier = Modifier.newPasswordAutofill(),
+            modifier = Modifier.newPasswordAutofill(viewModel::onPassword),
             isError = state.passwordError != null,
             supportingText = state.passwordError ?: "At least 8 characters with a letter and a number.",
             keyboardActions = next,
@@ -120,7 +120,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
         PasswordStrengthMeter(state.strength)
         VibePasswordField(
             value = state.confirm, onValueChange = viewModel::onConfirm, label = "Confirm password",
-            modifier = Modifier.newPasswordAutofill(),
+            modifier = Modifier.newPasswordAutofill(viewModel::onConfirm),
             isError = state.confirmError != null, supportingText = state.confirmError,
             imeAction = ImeAction.Done,
             keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),

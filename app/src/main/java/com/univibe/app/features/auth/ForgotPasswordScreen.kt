@@ -77,7 +77,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         state.error?.let { MessageBanner(it, BannerKind.Error) }
                         VibeTextField(
                             value = state.email, onValueChange = viewModel::onEmail, label = "Email",
-                            modifier = Modifier.loginEmailAutofill(),
+                            modifier = Modifier.loginEmailAutofill(viewModel::onEmail),
                             leadingIcon = VibeIcons.Mail,
                             isError = state.emailError != null, supportingText = state.emailError,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
@@ -97,7 +97,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         )
                         VibePasswordField(
                             value = state.password, onValueChange = viewModel::onPassword, label = "New password",
-                            modifier = Modifier.newPasswordAutofill(),
+                            modifier = Modifier.newPasswordAutofill(viewModel::onPassword),
                             isError = state.passwordError != null,
                             supportingText = state.passwordError ?: "At least ${AuthValidators.MIN_PASSWORD} characters with a letter and a number.",
                             keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
@@ -105,7 +105,7 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onDone: () -> Unit, viewModel: Forg
                         PasswordStrengthMeter(AuthValidators.passwordStrength(state.password))
                         VibePasswordField(
                             value = state.confirm, onValueChange = viewModel::onConfirm, label = "Confirm new password",
-                            modifier = Modifier.newPasswordAutofill(),
+                            modifier = Modifier.newPasswordAutofill(viewModel::onConfirm),
                             isError = state.confirmError != null, supportingText = state.confirmError,
                             imeAction = ImeAction.Done,
                             keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); viewModel.resetPassword(savePassword) }),
