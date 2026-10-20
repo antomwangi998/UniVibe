@@ -28,6 +28,9 @@ val LocalCommunityMembership = compositionLocalOf<CommunityMembershipStore?> { n
 /** Opens a community page. Provided by the app shell so any post card can link to its community. */
 val LocalOpenCommunity = compositionLocalOf<(String) -> Unit> { {} }
 
+/** Opens the full community list. Provided by the app shell. */
+val LocalOpenCommunityList = compositionLocalOf<() -> Unit> { {} }
+
 /**
  * The one membership control used everywhere a community appears: Home posts, Discover posts, community cards,
  * search results and the community page. It owns no state of its own; it reads and drives [CommunityMembershipStore],
@@ -55,6 +58,8 @@ fun CommunityMembershipButton(
         val all by store.all.collectAsState()
         all[communityId] ?: MembershipSnapshot(initial, memberCount)
     }
+    // Screens may be showing saved copies; a join can't reach the server then, so say so instead of failing on tap.
+    val offline by com.univibe.app.data.net.OfflineState.servedFromCache.collectAsState()
     val latestOnChanged by rememberUpdatedState(onChanged)
     var last by remember(communityId) { mutableStateOf<MembershipState?>(null) }
     LaunchedEffect(snapshot.state, snapshot.busy) {
@@ -65,7 +70,13 @@ fun CommunityMembershipButton(
     }
 
     Column(modifier, horizontalAlignment = Alignment.End) {
-        MembershipControl(snapshot, compact, store != null, onLeaveRequested) { store?.click(communityId) }
+        val needsServer = snapshot.state == MembershipState.Join || snapshot.state == MembershipState.Request ||
+            snapshot.state == MembershipState.Invited || snapshot.state == MembershipState.Pending ||
+            (snapshot.state == MembershipState.Joined && onLeaveRequested != null)
+        MembershipControl(snapshot, compact, store != null && !offline, onLeaveRequested) { store?.click(communityId) }
+        if (offline && needsServer && snapshot.error == null) {
+            Text("You're offline", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+        }
         snapshot.error?.let {
             Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 2.dp))
         }
