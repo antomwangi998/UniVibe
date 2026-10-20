@@ -28,6 +28,8 @@ export interface MessageView {
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
   media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null }[];
   forwarded: boolean;
+  /** Set when this message answers a Story. `available` is false once the Story has expired or been deleted; its content is never copied here. */
+  story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
   myReaction?: string | null;
@@ -84,6 +86,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
       forwarded: Boolean(r.forwarded),
+      story: !deleted && r.story_kind ? { id: (r.story_id as string | null) ?? null, kind: r.story_kind as 'photo' | 'video' | 'text', available: Boolean(r.story_live) } : null,
       reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
       ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
@@ -92,8 +95,10 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
 
 const MESSAGE_SELECT = `
   select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded,
-         r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content
-    from messages m left join messages r on r.id = m.reply_to_id`;
+         r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content,
+         m.story_id, m.story_kind, (sr.id is not null) as story_live
+    from messages m left join messages r on r.id = m.reply_to_id
+    left join stories sr on sr.id = m.story_id and sr.expires_at > now()`;
 
 export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Promise<MessageView> {
   const { rows } = await ctx.pool.query(`${MESSAGE_SELECT} where m.id = $1`, [id]);
@@ -105,7 +110,7 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
  * It is stored first and announced second, so nobody is told about a message that failed to save.
  * A retry with the same clientId returns the stored message and creates nothing new.
  */
-export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean } = {}) {
+export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean; story?: { id: string; kind: 'photo' | 'video' | 'text' } } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
   if (!input.content && !input.mediaIds.length) throw new HttpError(400, 'validation', 'Write a message, attach a photo or record a voice message.');
@@ -133,9 +138,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       if (!ok.rowCount) throw new HttpError(422, 'validation', 'The message you are replying to is not in this conversation.');
     }
     const inserted = await client.query<{ id: string; seq: string }>(
-      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded) values ($1, $2, $3, $4, $5, $6)
+      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind) values ($1, $2, $3, $4, $5, $6, $7, $8)
        on conflict (conversation_id, sender_id, client_id) where client_id is not null do nothing returning id, seq`,
-      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false],
+      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null],
     );
     if (!inserted.rowCount) {
       const existing = await client.query<{ id: string }>(
