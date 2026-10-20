@@ -15,6 +15,6 @@ create table event_feedback (
 );
 
 -- Ranking looks at a person's history and at how many people engaged with an event.
-create index event_registrations_user on event_registrations (user_id) where status = 'registered';
+create index event_registrations_user_registered on event_registrations (user_id) where status = 'registered';
 create index saved_events_event on saved_events (event_id);
 create index events_discover on events (starts_at, id) where status = 'published';
