@@ -169,20 +169,6 @@ export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Re
 
 
 /**
- * Free-text match for an event (alias e), shared by Search and Discover. $1 is the viewer; `p` is the parameter holding the
- * already LIKE-escaped term. Matches title, description, venue, category, organizer, university, and the community name
- * only where the viewer is allowed to know the community, so a private community's name cannot be probed through search.
- */
-export const eventTextMatch = (p: string) =>
-  `(e.title ilike '%' || ${p} || '%' or e.description ilike '%' || ${p} || '%' or e.venue_name ilike '%' || ${p} || '%' ` +
-  `or e.venue_address ilike '%' || ${p} || '%' ` +
-  `or exists (select 1 from event_categories sc where sc.code = e.category and sc.label ilike '%' || ${p} || '%') ` +
-  `or exists (select 1 from users so where so.id = e.organizer_id and (so.full_name ilike '%' || ${p} || '%' or so.handle ilike '%' || ${p} || '%')) ` +
-  `or exists (select 1 from universities su where su.id = e.university_id and su.name ilike '%' || ${p} || '%') ` +
-  `or exists (select 1 from communities sco where sco.id = e.community_id and sco.status <> 'deleted' and sco.name ilike '%' || ${p} || '%' ` +
-  `and (sco.visibility = 'public' or exists (select 1 from community_members scm where scm.community_id = sco.id and scm.user_id = $1 and scm.status = 'active'))))`;
-
-/**
  * Creates the feed announcement for a published event, inside the caller's transaction. Safe to repeat: there is at most one
  * announcement per event, so publishing twice or editing later never adds another. Private-community events are announced
  * inside that community (audience 'community'); everything else on campus.

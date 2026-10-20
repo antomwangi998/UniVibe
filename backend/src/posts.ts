@@ -291,7 +291,6 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const eventGate = author
       ? ''
       : "and (p.event_id is null or (exists (select 1 from events fe where fe.id = p.event_id and fe.ends_at > now() and fe.status <> 'completed') " +
-        "and not exists (select 1 from event_feedback evf where evf.user_id = $1 and evf.event_id = p.event_id) " +
         "and not exists (select 1 from discover_feedback ef where ef.user_id = $1 and ((ef.kind = 'not_interested' and ef.post_id = p.id) or (ef.kind = 'hide_author' and ef.author_id = p.author_id))) " +
         "and (p.audience = 'community' or p.author_id = $1 " +
         "or exists (select 1 from follows ef2 where ef2.follower_id = $1 and ef2.followee_id = p.author_id) " +
