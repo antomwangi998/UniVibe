@@ -9,6 +9,8 @@ import { idParam, pageSchema } from '../http';
 import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
+import { firstLink } from '../linkpreview';
+import { createHash } from 'node:crypto';
 import { notify } from './notify';
 import { presenceOf } from './presence';
 
@@ -26,8 +28,10 @@ export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null }[];
   forwarded: boolean;
+  /** Title and description of the first web address in the text, read by the server. Null until it is ready, or when there is none. */
+  linkPreview: { url: string; host: string; title: string | null; description: string | null; siteName: string | null } | null;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
   myReaction?: string | null;
@@ -64,13 +68,18 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
+  const previews = ids.length
+    ? (await ctx.pool.query<{ message_id: string; url: string; host: string; title: string | null; description: string | null; site_name: string | null }>(
+        'select message_id, url, host, title, description, site_name from message_link_previews where message_id = any($1::uuid[])', [ids])).rows
+    : [];
+  const previewOf = new Map(previews.map((p) => [p.message_id, p]));
   const byMessage = new Map<string, MessageView['media']>();
   await Promise.all(media.map(async (m) => {
     const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null });
+    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null, waveform: m.waveform ?? null });
     byMessage.set(m.message_id, list);
   }));
   return rows.map((r) => {
@@ -84,6 +93,11 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
       forwarded: Boolean(r.forwarded),
+      // Shown only while the stored address is still the first one in the text (an edit can change it).
+      linkPreview: (() => {
+        const p = deleted ? undefined : previewOf.get(r.id as string);
+        return p && firstLink(r.content as string) === p.url ? { url: p.url, host: p.host, title: p.title, description: p.description, siteName: p.site_name } : null;
+      })(),
       reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
       ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
@@ -94,6 +108,9 @@ const MESSAGE_SELECT = `
   select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded,
          r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content
     from messages m left join messages r on r.id = m.reply_to_id`;
+
+/** A short stable key for an address, so the same link in the same message is only ever read once. */
+const linkKey = (url: string) => createHash('sha1').update(url).digest('hex').slice(0, 16);
 
 export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Promise<MessageView> {
   const { rows } = await ctx.pool.query(`${MESSAGE_SELECT} where m.id = $1`, [id]);
@@ -143,6 +160,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       return { id: existing.rows[0].id, created: false };
     }
     const messageId = inserted.rows[0].id;
+    // The preview is read in the background, so sending is never slowed down. The job is written with the message (outbox).
+    const link = firstLink(input.content);
+    if (link) await enqueue(client, 'link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
     if (input.mediaIds.length) {
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
@@ -432,6 +452,8 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         [id, me.id, b.content, EDIT_WINDOW_MINUTES]);
       if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
       const conversationId = res.rows[0].conversation_id;
+      const link = firstLink(b.content);
+      if (link) await enqueue(pool, 'link.preview', { messageId: id, url: link }, { dedupeKey: `${id}:${linkKey(link)}`, maxAttempts: 2 });
       const message = await loadMessage(ctx, id);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
       return message;
