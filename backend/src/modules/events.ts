@@ -7,9 +7,11 @@ import { withTx } from '../db';
 import { HttpError } from '../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
+import { isStaff } from './community_state';
 import { notify } from './notify';
 
-export const CATEGORIES = ['academic', 'workshops', 'sports', 'social', 'clubs', 'technology', 'entrepreneurship', 'arts', 'other', 'career', 'party'] as const;
+const EVENT_TYPES = ['in_person', 'online', 'hybrid'] as const;
+const VISIBILITIES = ['public', 'university', 'community'] as const;
 const MAX_DURATION_HOURS = 48;
 const MIN_LEAD_MINUTES = 5;
 const MAX_AHEAD_DAYS = 365;
@@ -18,33 +20,58 @@ export const RETENTION_DAYS = 7;
 const CHECK_IN_OPENS_MINUTES = 30;
 
 const when = z.string().datetime({ offset: true });
+const https = z.string().trim().url().max(500).refine((u) => u.startsWith('https://'), 'Links must start with https://');
 const base = {
   title: z.string().trim().min(3, 'Title needs at least 3 characters.').max(80),
   description: z.string().trim().max(1000),
-  category: z.enum(CATEGORIES),
+  category: z.string().trim().regex(/^[a-z][a-z_]{1,31}$/),
+  eventType: z.enum(EVENT_TYPES),
   venueName: z.string().trim().min(2).max(80),
+  venueAddress: z.string().trim().max(200).nullable(),
+  onlineUrl: https.nullable(),
+  externalRegistrationUrl: https.nullable(),
+  registrationDeadline: when.nullable(),
+  timezone: z.string().trim().min(1).max(64).nullable(),
   startsAt: when, endsAt: when,
   capacity: z.number().int().min(1).max(5000).nullable(),
-  visibility: z.enum(['public', 'university']),
+  visibility: z.enum(VISIBILITIES),
   attendeesVisible: z.boolean(),
   coverMediaId: z.string().uuid().nullable(),
 };
-const createSchema = z.object({ ...base, description: base.description.default(''), capacity: base.capacity.default(null),
-  visibility: base.visibility.default('university'), attendeesVisible: base.attendeesVisible.default(true), coverMediaId: base.coverMediaId.default(null) }).strict();
+const createSchema = z.object({
+  ...base,
+  description: base.description.default(''), eventType: base.eventType.default('in_person'),
+  venueName: base.venueName.optional(), venueAddress: base.venueAddress.default(null), onlineUrl: base.onlineUrl.default(null),
+  externalRegistrationUrl: base.externalRegistrationUrl.default(null), registrationDeadline: base.registrationDeadline.default(null),
+  timezone: base.timezone.default(null), capacity: base.capacity.default(null),
+  visibility: base.visibility.optional(), attendeesVisible: base.attendeesVisible.default(true), coverMediaId: base.coverMediaId.default(null),
+  communityId: z.string().uuid().nullable().default(null),
+  status: z.enum(['draft', 'published']).default('published'),
+  createKey: z.string().trim().min(8).max(64).nullable().default(null),
+}).strict();
 const patchSchema = z.object(base).partial().strict();
 const listSchema = pageSchema.extend({
   scope: z.enum(['upcoming', 'past']).default('upcoming'),
-  category: z.enum(CATEGORIES).optional(),
+  category: z.string().trim().regex(/^[a-z][a-z_]{1,31}$/).optional(),
   from: when.optional(), to: when.optional(),
   q: z.string().trim().min(1).max(80).optional(),
+  communityId: z.string().uuid().optional(),
 });
 
 type Req = FastifyRequest;
 type Q = Pick<PoolClient, 'query'>;
 
-/** Event visible to viewer ($1, university $2): own university, or public; organizer not blocked either way. Alias e. */
+/**
+ * Event visible to viewer ($1, university $2). Alias e.
+ * - The organizer always sees their own events, including drafts. Nobody else ever sees a draft.
+ * - 'community' events (required for private communities) are for active members of that active community only.
+ * - 'university' events are for the same university; 'public' events for everyone. Blocked organizers are hidden either way.
+ */
 export const eventVisible = (viewer = '$1', uni = '$2') =>
-  `(e.organizer_id = ${viewer} or ((e.university_id = ${uni} or e.visibility = 'public') and not ${blockedBetween(viewer, 'e.organizer_id')}))`;
+  `(e.organizer_id = ${viewer} or (e.status <> 'draft' and not ${blockedBetween(viewer, 'e.organizer_id')} and (` +
+  `(e.visibility = 'community' and exists (select 1 from community_members ecm join communities ec on ec.id = ecm.community_id ` +
+  `where ecm.community_id = e.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
+  `or (e.visibility <> 'community' and (e.university_id = ${uni} or e.visibility = 'public')))))`;
 
 function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; startChanged: boolean }) {
   const now = Date.now();
@@ -54,6 +81,37 @@ function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; 
   if (startsAt.getTime() > now + MAX_AHEAD_DAYS * 86400_000) throw new HttpError(422, 'validation', 'Events can be at most a year ahead.');
 }
 
+interface Shape { eventType: string; venueName?: string | null; onlineUrl?: string | null; registrationDeadline?: Date | null; endsAt: Date }
+
+/** Rules that depend on several fields together. Run on the merged result for edits. */
+function validateShape(x: Shape) {
+  if (x.eventType !== 'online' && !x.venueName) throw new HttpError(422, 'validation', 'Add a venue for this event.');
+  if (x.eventType !== 'in_person' && !x.onlineUrl) throw new HttpError(422, 'validation', 'Add the link people use to join online.');
+  if (x.registrationDeadline && x.registrationDeadline > x.endsAt) throw new HttpError(422, 'validation', 'Registration must close before the event ends.');
+}
+
+/** The server decides who may organize for a community; the client's idea of its own role is never used. */
+async function assertMayHostForCommunity(client: Q, me: AuthUser, communityId: string): Promise<{ visibility: string }> {
+  const { rows } = await client.query<{ status: string; visibility: string; role: string | null; member_status: string | null }>(
+    `select c.status, c.visibility, m.role, m.status as member_status
+       from communities c left join community_members m on m.community_id = c.id and m.user_id = $1
+      where c.id = $2 and c.university_id = $3 and c.status <> 'deleted' for share of c`, [me.id, communityId, me.universityId]);
+  const c = rows[0];
+  if (!c || (c.visibility === 'private' && !c.member_status)) throw new HttpError(404, 'not_found', 'That community is not available.');
+  if (c.status !== 'active') throw new HttpError(403, 'community_unavailable', 'This community is not accepting new events.');
+  if (c.member_status !== 'active' || !isStaff(c.role)) throw new HttpError(403, 'staff_only', 'Only the community owner or moderators can host its events.');
+  return { visibility: c.visibility };
+}
+
+async function assertCategory(client: Q, code: string) {
+  const ok = await client.query('select 1 from event_categories where code = $1 and active', [code]);
+  if (!ok.rowCount) throw new HttpError(422, 'validation', 'Pick a category from the list.');
+}
+
+async function audit(client: Q, eventId: string, actorId: string, action: 'create' | 'publish' | 'update' | 'cancel' | 'complete', detail: Record<string, unknown> = {}) {
+  await client.query('insert into event_audit (event_id, actor_id, action, detail) values ($1, $2, $3, $4::jsonb)', [eventId, actorId, action, JSON.stringify(detail)]);
+}
+
 export function eventRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
@@ -61,23 +119,48 @@ export function eventRoutes(ctx: Ctx) {
 
     const SELECT = `
       select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key,
+             case when ec.visibility = 'public' or exists (select 1 from community_members vm where vm.community_id = ec.id and vm.user_id = $1 and vm.status = 'active') then ec.name end as community_name,
              (select count(*) from event_registrations r where r.event_id = e.id and r.status = 'registered') as registered_count,
              (select r.status from event_registrations r where r.event_id = e.id and r.user_id = $1) as my_status,
              (select r.checked_in_at is not null from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_checked_in
         from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
-        left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'`;
+        left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
+        left join communities ec on ec.id = e.community_id and ec.status <> 'deleted'`;
+
+    /**
+     * Time-dependent state is derived here, from the server clock and the stored event; the app never decides it.
+     * phase: where the event is in time. registration: whether a new person could register right now.
+     */
+    function derive(r: Record<string, unknown>, registered: number) {
+      const now = Date.now();
+      const starts = new Date(r.starts_at as string).getTime(), ends = new Date(r.ends_at as string).getTime();
+      const status = r.status as string;
+      const phase = status === 'completed' || now >= ends ? 'ended' : now >= starts ? 'live' : 'upcoming';
+      const deadline = r.registration_deadline ? new Date(r.registration_deadline as string).getTime() : null;
+      const capacity = r.capacity as number | null;
+      const registration = status === 'draft' ? 'draft' : status === 'cancelled' ? 'cancelled' : phase === 'ended' ? 'ended'
+        : deadline !== null && now >= deadline ? 'closed' : capacity !== null && registered >= capacity ? 'full' : 'open';
+      return { phase, registration };
+    }
 
     async function toView(me: AuthUser, r: Record<string, unknown>) {
       const registered = Number(r.registered_count);
       const capacity = r.capacity as number | null;
+      const isOrganizer = r.organizer_id === me.id;
+      const joined = r.my_status === 'registered';
       return {
         id: r.id as string, organizer: await toCard(ctx, r as unknown as CardRow), title: r.title, description: r.description,
-        category: r.category, venueName: r.venue_name, startsAt: r.starts_at, endsAt: r.ends_at, capacity,
+        category: r.category, eventType: r.event_type, venueName: r.venue_name, venueAddress: r.venue_address,
+        // The join link is for the organizer and people who registered; everyone else who can see the event cannot.
+        onlineUrl: isOrganizer || joined ? r.online_url : null, hasOnlineLink: r.online_url !== null,
+        externalRegistrationUrl: r.external_registration_url, registrationDeadline: r.registration_deadline, timezone: r.timezone,
+        startsAt: r.starts_at, endsAt: r.ends_at, capacity,
         registeredCount: registered, spotsLeft: capacity === null ? null : Math.max(0, capacity - registered),
-        visibility: r.visibility, attendeesVisible: r.attendees_visible, status: r.status,
+        visibility: r.visibility, attendeesVisible: r.attendees_visible, status: r.status, ...derive(r, registered),
+        communityId: r.community_name ? r.community_id : null, communityName: r.community_name ?? null,
         coverUrl: await signedUrl(ctx, r.cover_key as string | null),
-        myRegistration: r.my_status === 'registered' ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
-        isOrganizer: r.organizer_id === me.id,
+        myRegistration: joined ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
+        isOrganizer,
       };
     }
 
@@ -110,24 +193,90 @@ export function eventRoutes(ctx: Ctx) {
       for (const r of rows) await notify(client as PoolClient, { recipientId: r.user_id, actorId: me.id, type: 'event_update', entityType: 'event', entityId: eventId, metadata: { kind, title } });
     }
 
+    app.get('/event-categories', async (req) => {
+      await ctx.auth(req);
+      const { rows } = await pool.query('select code, label from event_categories where active order by sort_order, label');
+      return { items: rows };
+    });
+
     app.post('/events', async (req, reply) => {
       const me = await ctx.auth(req);
       const b = createSchema.parse(req.body ?? {});
       ctx.limit(`event:${me.id}`, 10, 3600);
       const starts = new Date(b.startsAt), ends = new Date(b.endsAt);
+      const deadline = b.registrationDeadline ? new Date(b.registrationDeadline) : null;
       validateTimes(starts, ends, { creating: true, startChanged: true });
+      const venueName = b.venueName ?? (b.eventType === 'online' ? 'Online' : undefined);
+      validateShape({ eventType: b.eventType, venueName, onlineUrl: b.onlineUrl, registrationDeadline: deadline, endsAt: ends });
       await coverOk(me, b.coverMediaId);
-      const id = await withTx(pool, async (client) => {
-        await client.query('select 1 from users where id = $1 for update', [me.id]); // serialises the per-organizer limit
-        const open = Number((await client.query(
-          "select count(*) from events where organizer_id = $1 and status = 'published' and ends_at > now()", [me.id])).rows[0].count);
-        if (open >= MAX_UPCOMING_PER_ORGANIZER) throw new HttpError(409, 'too_many_events', `You can have up to ${MAX_UPCOMING_PER_ORGANIZER} upcoming events.`);
-        return (await client.query<{ id: string }>(
-          `insert into events (organizer_id, university_id, title, description, category, venue_name, cover_media_id, starts_at, ends_at, capacity, visibility, attendees_visible)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id`,
-          [me.id, me.universityId, b.title, b.description, b.category, b.venueName, b.coverMediaId, starts, ends, b.capacity, b.visibility, b.attendeesVisible])).rows[0].id;
+      const result = await withTx(pool, async (client) => {
+        await client.query('select 1 from users where id = $1 for update', [me.id]); // serialises the per-organizer limit and the retry key
+        if (b.createKey) {
+          const again = await client.query<{ id: string }>('select id from events where organizer_id = $1 and create_key = $2', [me.id, b.createKey]);
+          if (again.rows[0]) return { id: again.rows[0].id, created: false };
+        }
+        await assertCategory(client, b.category);
+        let visibility = b.visibility ?? 'university';
+        if (b.communityId) {
+          const c = await assertMayHostForCommunity(client, me, b.communityId);
+          // A private community's events never leave it. A public community's events may be wider, as the organizer chooses.
+          if (c.visibility === 'private') visibility = 'community';
+        } else if (visibility === 'community') {
+          throw new HttpError(422, 'validation', 'Community-only events need a community.');
+        }
+        if (b.status === 'published') {
+          const open = Number((await client.query(
+            "select count(*) from events where organizer_id = $1 and status = 'published' and ends_at > now()", [me.id])).rows[0].count);
+          if (open >= MAX_UPCOMING_PER_ORGANIZER) throw new HttpError(409, 'too_many_events', `You can have up to ${MAX_UPCOMING_PER_ORGANIZER} upcoming events.`);
+        }
+        const id = (await client.query<{ id: string }>(
+          `insert into events (organizer_id, university_id, community_id, title, description, category, event_type, venue_name, venue_address, online_url,
+                               external_registration_url, registration_deadline, timezone, cover_media_id, starts_at, ends_at, capacity, visibility,
+                               attendees_visible, status, create_key)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) returning id`,
+          [me.id, me.universityId, b.communityId, b.title, b.description, b.category, b.eventType, venueName, b.venueAddress, b.onlineUrl,
+            b.externalRegistrationUrl, deadline, b.timezone, b.coverMediaId, starts, ends, b.capacity, visibility, b.attendeesVisible, b.status, b.createKey])).rows[0].id;
+        await audit(client, id, me.id, 'create', { status: b.status, communityId: b.communityId });
+        if (b.status === 'published') await audit(client, id, me.id, 'publish');
+        return { id, created: true };
       });
-      return reply.status(201).send(await toView(me, await getEvent(me, id)));
+      return reply.status(result.created ? 201 : 200).send(await toView(me, await getEvent(me, result.id)));
+    });
+
+    // Publishing a draft re-checks everything that depends on "now", and is safe to repeat.
+    app.post('/events/:eventId/publish', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      await withTx(pool, async (client) => {
+        await manageable(me, id, client);
+        const row = (await client.query('select * from events where id = $1 for update', [id])).rows[0];
+        if (row.status === 'published') return;
+        if (row.status !== 'draft') throw new HttpError(409, 'event_closed', 'This event cannot be published.');
+        await client.query('select 1 from users where id = $1 for update', [row.organizer_id]);
+        validateTimes(new Date(row.starts_at), new Date(row.ends_at), { creating: true, startChanged: true });
+        validateShape({ eventType: row.event_type, venueName: row.venue_name, onlineUrl: row.online_url,
+          registrationDeadline: row.registration_deadline ? new Date(row.registration_deadline) : null, endsAt: new Date(row.ends_at) });
+        if (row.community_id) await assertMayHostForCommunity(client, { ...me, id: row.organizer_id } as AuthUser, row.community_id);
+        const open = Number((await client.query(
+          "select count(*) from events where organizer_id = $1 and status = 'published' and ends_at > now()", [row.organizer_id])).rows[0].count);
+        if (open >= MAX_UPCOMING_PER_ORGANIZER) throw new HttpError(409, 'too_many_events', `You can have up to ${MAX_UPCOMING_PER_ORGANIZER} upcoming events.`);
+        await client.query("update events set status = 'published', updated_at = now() where id = $1", [id]);
+        await audit(client, id, me.id, 'publish');
+      });
+      return toView(me, await getEvent(me, id));
+    });
+
+    // The organizer closes an event that has started. Ending is otherwise derived from the end time.
+    app.post('/events/:eventId/complete', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      await withTx(pool, async (client) => {
+        await manageable(me, id, client);
+        const res = await client.query("update events set status = 'completed', updated_at = now() where id = $1 and status = 'published' and starts_at <= now() returning id", [id]);
+        if (!res.rowCount) throw new HttpError(409, 'event_closed', 'Only an event that has started can be marked completed.');
+        await audit(client, id, me.id, 'complete');
+      });
+      return reply.status(204).send();
     });
 
     app.get('/events', async (req) => {
@@ -137,14 +286,15 @@ export function eventRoutes(ctx: Ctx) {
       const cur = decodeCursor(q.cursor);
       const upcoming = q.scope === 'upcoming';
       const { rows } = await pool.query(
-        `${SELECT} where ${visible()}
-            and (${upcoming ? 'e.ends_at > now()' : 'e.ends_at <= now()'})
+        `${SELECT} where ${visible()} and e.status <> 'draft'
+            and (${upcoming ? "e.ends_at > now() and e.status <> 'completed'" : "(e.ends_at <= now() or e.status = 'completed')"})
             and ($3::text is null or e.category = $3)
             and ($4::timestamptz is null or e.starts_at >= $4) and ($5::timestamptz is null or e.starts_at <= $5)
             and ($6::text is null or e.title ilike '%' || $6 || '%' or e.venue_name ilike '%' || $6 || '%')
             and ($7::timestamptz is null or (e.starts_at, e.id) ${upcoming ? '>' : '<'} ($7::timestamptz, $8::uuid))
-          order by e.starts_at ${upcoming ? 'asc' : 'desc'}, e.id ${upcoming ? 'asc' : 'desc'} limit $9`,
-        [me.id, me.universityId, q.category ?? null, q.from ?? null, q.to ?? null, q.q ? q.q.replace(/[%_\\]/g, '\\$&') : null, cur?.t ?? null, cur?.id ?? null, q.limit + 1],
+            and ($9::uuid is null or e.community_id = $9)
+          order by e.starts_at ${upcoming ? 'asc' : 'desc'}, e.id ${upcoming ? 'asc' : 'desc'} limit $10`,
+        [me.id, me.universityId, q.category ?? null, q.from ?? null, q.to ?? null, q.q ? q.q.replace(/[%_\\]/g, '\\$&') : null, cur?.t ?? null, cur?.id ?? null, q.communityId ?? null, q.limit + 1],
       );
       const page = toPage(rows as (Record<string, unknown> & { cursorT: string; id: string })[], q.limit);
       return { items: await Promise.all(page.items.map((r) => toView(me, r as Record<string, unknown>))), nextCursor: page.nextCursor };
@@ -156,8 +306,8 @@ export function eventRoutes(ctx: Ctx) {
       const cur = decodeCursor(q.cursor);
       const upcoming = q.scope === 'upcoming';
       const { rows } = await pool.query(
-        `${SELECT} where $2::text is not null and (e.organizer_id = $1 or exists (select 1 from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered'))
-            and (${upcoming ? 'e.ends_at > now()' : 'e.ends_at <= now()'})
+        `${SELECT} where $2::text is not null and ${visible()} and (e.organizer_id = $1 or exists (select 1 from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered'))
+            and (${upcoming ? "e.ends_at > now() and e.status <> 'completed'" : "(e.ends_at <= now() or e.status = 'completed')"})
             and ($3::timestamptz is null or (e.starts_at, e.id) ${upcoming ? '>' : '<'} ($3::timestamptz, $4::uuid))
           order by e.starts_at ${upcoming ? 'asc' : 'desc'}, e.id ${upcoming ? 'asc' : 'desc'} limit $5`,
         [me.id, me.universityId, cur?.t ?? null, cur?.id ?? null, q.limit + 1],
@@ -178,22 +328,43 @@ export function eventRoutes(ctx: Ctx) {
       await withTx(pool, async (client) => {
         await manageable(me, id, client);
         const row = (await client.query('select * from events where id = $1 for update', [id])).rows[0];
-        if (row.status === 'cancelled') throw new HttpError(409, 'event_closed', 'A cancelled event cannot be edited.');
+        if (row.status === 'cancelled' || row.status === 'completed') throw new HttpError(409, 'event_closed', 'This event can no longer be edited.');
         if (new Date(row.ends_at) <= new Date()) throw new HttpError(409, 'event_closed', 'This event has ended.');
         const starts = b.startsAt ? new Date(b.startsAt) : new Date(row.starts_at);
         const ends = b.endsAt ? new Date(b.endsAt) : new Date(row.ends_at);
         // An unchanged start may stay, even if it is now less than five minutes away.
         validateTimes(starts, ends, { creating: false, startChanged: b.startsAt !== undefined && starts.getTime() !== new Date(row.starts_at).getTime() });
+        const deadline = b.registrationDeadline === undefined ? (row.registration_deadline ? new Date(row.registration_deadline) : null) : (b.registrationDeadline ? new Date(b.registrationDeadline) : null);
+        const eventType = b.eventType ?? row.event_type;
+        const onlineUrl = b.onlineUrl === undefined ? row.online_url : b.onlineUrl;
+        const venueName = b.venueName ?? row.venue_name ?? (eventType === 'online' ? 'Online' : null);
+        validateShape({ eventType, venueName, onlineUrl, registrationDeadline: deadline, endsAt: ends });
+        if (b.category !== undefined) await assertCategory(client, b.category);
+        if (b.visibility !== undefined) {
+          // The community and the host never change. A community event may not be widened past its community when that community is private.
+          if (b.visibility === 'community' && !row.community_id) throw new HttpError(422, 'validation', 'Community-only events need a community.');
+          if (row.community_id && b.visibility !== 'community') {
+            const c = (await client.query('select visibility from communities where id = $1', [row.community_id])).rows[0];
+            if (c?.visibility === 'private') throw new HttpError(422, 'validation', 'Events of a private community stay inside it.');
+          }
+        }
         if (b.capacity !== undefined && b.capacity !== null) {
           const going = Number((await client.query("select count(*) from event_registrations where event_id = $1 and status = 'registered'", [id])).rows[0].count);
           if (b.capacity < going) throw new HttpError(422, 'validation', `${going} people are already going, so capacity cannot be lower.`);
         }
         if (b.coverMediaId) await coverOk(me, b.coverMediaId);
-        const cols: Record<string, string> = { title: 'title', description: 'description', category: 'category', venueName: 'venue_name', startsAt: 'starts_at', endsAt: 'ends_at', capacity: 'capacity', visibility: 'visibility', attendeesVisible: 'attendees_visible', coverMediaId: 'cover_media_id' };
+        const cols: Record<string, string> = { title: 'title', description: 'description', category: 'category', eventType: 'event_type', venueName: 'venue_name', venueAddress: 'venue_address',
+          onlineUrl: 'online_url', externalRegistrationUrl: 'external_registration_url', registrationDeadline: 'registration_deadline', timezone: 'timezone',
+          startsAt: 'starts_at', endsAt: 'ends_at', capacity: 'capacity', visibility: 'visibility', attendeesVisible: 'attendees_visible', coverMediaId: 'cover_media_id' };
+        const dates = new Set(['startsAt', 'endsAt', 'registrationDeadline']);
         const sets: string[] = []; const values: unknown[] = [id];
-        for (const [k, v] of Object.entries(b)) { values.push(k === 'startsAt' || k === 'endsAt' ? new Date(v as string) : v); sets.push(`${cols[k]} = $${values.length}`); }
+        for (const [k, v] of Object.entries(b)) { values.push(dates.has(k) && v !== null ? new Date(v as string) : v); sets.push(`${cols[k]} = $${values.length}`); }
+        if (b.eventType === 'online' && b.venueName === undefined && !row.venue_name) { values.push('Online'); sets.push(`venue_name = $${values.length}`); }
         if (sets.length) await client.query(`update events set ${sets.join(', ')}, updated_at = now() where id = $1`, values);
-        if (b.startsAt !== undefined || b.endsAt !== undefined || b.venueName !== undefined) await notifyRegistrants(client, me, id, 'changed');
+        // Only changes that affect whether and how someone attends notify them; wording edits never do.
+        const important = ['startsAt', 'endsAt', 'venueName', 'venueAddress', 'eventType', 'onlineUrl'].filter((k) => k in b);
+        if (important.length && row.status === 'published') await notifyRegistrants(client, me, id, 'changed');
+        if (sets.length) await audit(client, id, me.id, 'update', { fields: Object.keys(b) });
       });
       return toView(me, await getEvent(me, id));
     });
@@ -207,6 +378,7 @@ export function eventRoutes(ctx: Ctx) {
         const res = await client.query("update events set status = 'cancelled', updated_at = now() where id = $1 and status = 'published' and ends_at > now() returning id", [id]);
         if (!res.rowCount) throw new HttpError(409, 'event_closed', 'This event cannot be cancelled.');
         await notifyRegistrants(client, me, id, 'cancelled');
+        await audit(client, id, me.id, 'cancel');
       });
       return reply.status(204).send();
     });
@@ -232,8 +404,10 @@ export function eventRoutes(ctx: Ctx) {
       const result = await withTx(pool, async (client) => {
         await getEvent(me, id, client); // 404 if the viewer may not see it
         // Locking the event row makes concurrent registrations line up, so the last place can only be taken once.
-        const e = (await client.query('select capacity, status, ends_at from events where id = $1 for update', [id])).rows[0];
+        const e = (await client.query('select capacity, status, ends_at, registration_deadline from events where id = $1 for update', [id])).rows[0];
         if (e.status !== 'published' || new Date(e.ends_at) <= new Date()) throw new HttpError(409, 'event_closed', 'Registration is closed for this event.');
+        // The server clock decides the deadline, never the device's.
+        if (e.registration_deadline && new Date(e.registration_deadline) <= new Date()) throw new HttpError(409, 'registration_closed', 'The registration deadline has passed.');
         const mine = (await client.query('select status from event_registrations where event_id = $1 and user_id = $2', [id, me.id])).rows[0];
         if (mine?.status === 'registered') return { created: false };
         const going = Number((await client.query("select count(*) from event_registrations where event_id = $1 and status = 'registered'", [id])).rows[0].count);

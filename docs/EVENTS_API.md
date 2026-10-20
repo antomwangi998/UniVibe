@@ -18,4 +18,20 @@ Times are stored in UTC milliseconds with the venue's time zone; the app shows t
 - Title and description are user content: apply the same abuse checks as posts, and let people report events.
 
 ## Not built yet
-- Cover photos, recurring events, waitlists, check-in, co-hosts, ticketing.
+- Recurring events, waitlists, co-hosts, ticketing, Interested, saved events, organizer updates, configurable reminders (see Events v2 below for what is done).
+
+## Events v2, stage 1 (migration 025)
+Implemented on the server; the Android app does not use the new fields yet.
+
+- **Model:** `eventType` (in_person, online, hybrid), `venueAddress`, `onlineUrl`, `externalRegistrationUrl`, `registrationDeadline`, `timezone`, `communityId`. Times stay UTC; `timezone` is the display zone, null means the viewer's. The campus is the existing `university_id`.
+- **Categories** are rows in `event_categories` (`GET /api/v1/event-categories`). Adding one is an insert.
+- **Status:** stored `draft | published | cancelled | completed`. Derived by the server on every read: `phase` (upcoming, live, ended) and `registration` (open, closed, full, ended, cancelled, draft). Clients must not recompute them.
+- **Drafts:** `POST /events` with `"status": "draft"`; `POST /events/:id/publish` re-checks times, community rights and the upcoming-events limit, and is safe to repeat. Drafts are visible only to the organizer and never appear in `/events`.
+- **Idempotent create:** send `createKey` (8-64 chars); a retry returns the same event (200 instead of 201).
+- **Deadline:** registration after `registrationDeadline` is refused with 409 `registration_closed`, using the server clock.
+- **Join link:** `onlineUrl` is returned only to the organizer and registered people; others get `hasOnlineLink`.
+- **Complete:** `POST /events/:id/complete` (organizer, after start). Completed events count as past.
+- **Community events:** only active owners/moderators may host. A private community's events are forced to `visibility: community` and can never be widened. `community` visibility = active members of an active community, re-checked on every read, in search, and in `/me/events`. A public community's events may be public or university-wide. The community name is returned only when the community is public or the viewer is a member.
+- **Notifications:** only changes to time, venue, address, format or join link notify registrants; wording edits do not.
+- **Audit:** `event_audit` records create, publish, update, cancel and complete (no read API yet).
+- **Known limits:** a university admin cannot see or manage a community-only event unless a member.

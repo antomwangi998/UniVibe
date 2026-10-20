@@ -232,6 +232,140 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     expect((await pool.query("select 1 from notifications where entity_type = 'event' and entity_id = $1", [ev.id])).rowCount).toBe(0);
   });
 
+  // ---- Events v2, stage 1 ----
+  const makeCommunity = async (token: string, over: Record<string, unknown> = {}) => {
+    const r = await call('POST', `${V1}/communities`, token, {
+      name: `Events club ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, description: 'A community that hosts events.', category: 'clubs', ...over,
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    return r.body as { id: string };
+  };
+  const join = (communityId: string, userId: string, role = 'member') =>
+    pool.query("insert into community_members (community_id, user_id, role) values ($1, $2, $3) on conflict (community_id, user_id) do update set role = $3, status = 'active'", [communityId, userId, role]);
+
+  it('v2: online and hybrid events need a join link, only organizer and registrants see it, and the server derives registration state', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    expect((await call('POST', `${V1}/events`, org.token, body({ eventType: 'online' }))).status).toBe(422); // no link
+    expect((await call('POST', `${V1}/events`, org.token, body({ eventType: 'online', onlineUrl: 'http://insecure.example' }))).status).toBe(400);
+    expect((await call('POST', `${V1}/events`, org.token, body({ eventType: 'in_person', venueName: undefined }))).status).toBe(422); // no venue
+    const e = await create(org.token, { eventType: 'online', venueName: undefined, onlineUrl: 'https://meet.example/abc', capacity: 1 });
+    expect(e.venueName).toBe('Online');
+    expect(e.onlineUrl).toBe('https://meet.example/abc');
+    const seen = (await call('GET', `${V1}/events/${e.id}`, s1.token)).body;
+    expect(seen.onlineUrl).toBeNull();
+    expect(seen.hasOnlineLink).toBe(true);
+    expect(seen.registration).toBe('open');
+    expect((await call('POST', `${V1}/events/${e.id}/register`, s1.token)).status).toBe(201);
+    const after = (await call('GET', `${V1}/events/${e.id}`, s1.token)).body;
+    expect(after.onlineUrl).toBe('https://meet.example/abc');
+    expect(after.registration).toBe('full');
+  });
+
+  it('v2: the registration deadline is enforced by the server and must precede the end', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    expect((await call('POST', `${V1}/events`, org.token, body({ registrationDeadline: inHours(40) }))).status).toBe(422); // after the end
+    const e = await create(org.token, { registrationDeadline: inHours(26) });
+    await pool.query("update events set registration_deadline = now() - interval '1 minute' where id = $1", [e.id]);
+    const res = await call('POST', `${V1}/events/${e.id}/register`, s1.token);
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code ?? res.body.code).toBe('registration_closed');
+    expect((await call('GET', `${V1}/events/${e.id}`, s1.token)).body.registration).toBe('closed');
+  });
+
+  it('v2: drafts are private to the organizer, publish is idempotent, and a retried create returns the same event', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    const d = await create(org.token, { status: 'draft' });
+    expect(d.status).toBe('draft');
+    expect((await call('GET', `${V1}/events/${d.id}`, s1.token)).status).toBe(404);
+    expect((await call('POST', `${V1}/events/${d.id}/register`, s1.token)).status).toBe(404);
+    const list = await call('GET', `${V1}/events?limit=50`, org.token);
+    expect(list.body.items.some((i: { id: string }) => i.id === d.id)).toBe(false);
+    expect((await call('POST', `${V1}/events/${d.id}/publish`, s1.token)).status).toBe(404);
+    expect((await call('POST', `${V1}/events/${d.id}/publish`, org.token)).body.status).toBe('published');
+    expect((await call('POST', `${V1}/events/${d.id}/publish`, org.token)).status).toBe(200);
+    expect((await call('GET', `${V1}/events/${d.id}`, s1.token)).status).toBe(200);
+    const key = `key-${Date.now()}-abcdef`;
+    const a = await call('POST', `${V1}/events`, org.token, body({ createKey: key }));
+    const b = await call('POST', `${V1}/events`, org.token, body({ createKey: key }));
+    expect([a.status, b.status]).toEqual([201, 200]);
+    expect(b.body.id).toBe(a.body.id);
+    const count = await pool.query('select count(*)::int as n from events where organizer_id = $1 and create_key = $2', [org.id, key]);
+    expect(count.rows[0].n).toBe(1);
+  });
+
+  it('v2: only community owners and moderators host community events; private community events stay inside it', async () => {
+    const owner = await h.student();
+    const member = await h.student();
+    const outsider = await h.student();
+    const c = await makeCommunity(owner.token);
+    await join(c.id, member.id);
+    expect((await call('POST', `${V1}/events`, member.token, body({ communityId: c.id }))).status).toBe(403);
+    expect((await call('POST', `${V1}/events`, outsider.token, body({ communityId: c.id }))).status).toBe(403);
+    expect((await call('POST', `${V1}/events`, owner.token, body({ visibility: 'community' }))).status).toBe(422); // no community
+    const pub = await create(owner.token, { communityId: c.id, visibility: 'public' });
+    expect(pub.communityName).toBeTruthy();
+
+    const secret = await makeCommunity(owner.token, { visibility: 'private', membershipPolicy: 'invite_only' });
+    await join(secret.id, member.id);
+    const ev = await create(owner.token, { communityId: secret.id, visibility: 'public' }); // forced inside the community
+    expect(ev.visibility).toBe('community');
+    expect((await call('GET', `${V1}/events/${ev.id}`, member.token)).status).toBe(200);
+    expect((await call('GET', `${V1}/events/${ev.id}`, outsider.token)).status).toBe(404);
+    expect((await call('POST', `${V1}/events/${ev.id}/register`, outsider.token)).status).toBe(404);
+    const listed = await call('GET', `${V1}/events?limit=50`, outsider.token);
+    expect(listed.body.items.some((i: { id: string }) => i.id === ev.id)).toBe(false);
+    expect((await call('GET', `${V1}/search/events?q=Hack`, outsider.token)).body.items?.some?.((i: { id: string }) => i.id === ev.id) ?? false).toBe(false);
+    // Removing the member removes access, including for events they registered for.
+    expect((await call('POST', `${V1}/events/${ev.id}/register`, member.token)).status).toBe(201);
+    await pool.query("update community_members set status = 'suspended' where community_id = $1 and user_id = $2", [secret.id, member.id]);
+    expect((await call('GET', `${V1}/events/${ev.id}`, member.token)).status).toBe(404);
+    const mine = await call('GET', `${V1}/me/events`, member.token);
+    expect(mine.body.items.some((i: { id: string }) => i.id === ev.id)).toBe(false);
+    // The visibility of a private community's event cannot be widened later.
+    expect((await call('PATCH', `${V1}/events/${ev.id}`, owner.token, { visibility: 'public' })).status).toBe(422);
+  });
+
+  it('v2: complete needs a started event, completed events count as past, and organizer changes are audited', async () => {
+    const org = await h.student();
+    const e = await create(org.token);
+    expect((await call('POST', `${V1}/events/${e.id}/complete`, org.token)).status).toBe(409); // not started
+    await pool.query("update events set starts_at = now() - interval '10 minutes' where id = $1", [e.id]);
+    expect((await call('POST', `${V1}/events/${e.id}/complete`, org.token)).status).toBe(204);
+    const got = (await call('GET', `${V1}/events/${e.id}`, org.token)).body;
+    expect(got.status).toBe('completed');
+    expect(got.phase).toBe('ended');
+    expect(got.registration).toBe('ended');
+    expect((await call('PATCH', `${V1}/events/${e.id}`, org.token, { title: 'Renamed' }))).toMatchObject({ status: 409 });
+    const past = await call('GET', `${V1}/events?scope=past&limit=50`, org.token);
+    expect(past.body.items.some((i: { id: string }) => i.id === e.id)).toBe(true);
+    const log = await pool.query('select action from event_audit where event_id = $1 order by id', [e.id]);
+    expect(log.rows.map((r: { action: string }) => r.action)).toEqual(['create', 'publish', 'complete']);
+  });
+
+  it('v2: categories come from the table; unknown ones are refused and new ones work without a deploy', async () => {
+    const org = await h.student();
+    expect((await call('POST', `${V1}/events`, org.token, body({ category: 'not_a_category' }))).status).toBe(422);
+    const cats = await call('GET', `${V1}/event-categories`, org.token);
+    expect(cats.body.items.map((c: { code: string }) => c.code)).toEqual(expect.arrayContaining(['academic', 'career', 'study_groups', 'announcements']));
+    await pool.query("insert into event_categories (code, label, sort_order) values ('robotics', 'Robotics', 150) on conflict do nothing");
+    await create(org.token, { category: 'robotics' });
+  });
+
+  it('v2: wording edits do not notify registrants, time and venue changes do', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    const e = await create(org.token);
+    await call('POST', `${V1}/events/${e.id}/register`, s1.token);
+    await call('PATCH', `${V1}/events/${e.id}`, org.token, { description: 'A longer description.' });
+    const n = () => pool.query("select count(*)::int as n from notifications where recipient_id = $1 and type = 'event_update' and entity_id = $2", [s1.id, e.id]);
+    expect((await n()).rows[0].n).toBe(0);
+    await call('PATCH', `${V1}/events/${e.id}`, org.token, { venueName: 'Main Hall' });
+    expect((await n()).rows[0].n).toBe(1);
+  });
+
   it('requires authentication', async () => {
     for (const [m, p] of [['GET', '/events'], ['POST', '/events'], ['GET', '/me/events']] as const) expect((await call(m, `${V1}${p}`)).status).toBe(401);
   });
