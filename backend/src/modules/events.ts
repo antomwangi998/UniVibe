@@ -5,7 +5,7 @@ import { blockedBetween } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { withTx } from '../db';
 import { HttpError } from '../errors';
-import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
+import { decodeCursor, encodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { isStaff } from './community_state';
 import { notify } from './notify';
@@ -121,6 +121,9 @@ export function eventRoutes(ctx: Ctx) {
       select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key,
              case when ec.visibility = 'public' or exists (select 1 from community_members vm where vm.community_id = ec.id and vm.user_id = $1 and vm.status = 'active') then ec.name end as community_name,
              (select count(*) from event_registrations r where r.event_id = e.id and r.status = 'registered') as registered_count,
+             (select count(*) from event_interest i where i.event_id = e.id) as interested_count,
+             exists (select 1 from event_interest i where i.event_id = e.id and i.user_id = $1) as my_interested,
+             exists (select 1 from saved_events sv where sv.event_id = e.id and sv.user_id = $1) as my_saved,
              (select r.status from event_registrations r where r.event_id = e.id and r.user_id = $1) as my_status,
              (select r.checked_in_at is not null from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_checked_in
         from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
@@ -160,6 +163,10 @@ export function eventRoutes(ctx: Ctx) {
         communityId: r.community_name ? r.community_id : null, communityName: r.community_name ?? null,
         coverUrl: await signedUrl(ctx, r.cover_key as string | null),
         myRegistration: joined ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
+        interestedCount: Number(r.interested_count),
+        // Interested never holds a seat; going is the registration. The two are mutually exclusive.
+        myRsvp: joined ? 'going' : r.my_interested ? 'interested' : null,
+        saved: r.my_saved === true,
         isOrganizer,
       };
     }
@@ -397,27 +404,91 @@ export function eventRoutes(ctx: Ctx) {
       return reply.status(204).send();
     });
 
+    /** Takes a seat (or confirms the one already held). Locks the event row so the last place can only be taken once. */
+    async function registerTx(client: PoolClient, me: AuthUser, id: string): Promise<{ created: boolean }> {
+      await getEvent(me, id, client); // 404 if the viewer may not see it
+      const e = (await client.query('select capacity, status, ends_at, registration_deadline from events where id = $1 for update', [id])).rows[0];
+      if (e.status !== 'published' || new Date(e.ends_at) <= new Date()) throw new HttpError(409, 'event_closed', 'Registration is closed for this event.');
+      // The server clock decides the deadline, never the device's.
+      if (e.registration_deadline && new Date(e.registration_deadline) <= new Date()) throw new HttpError(409, 'registration_closed', 'The registration deadline has passed.');
+      const mine = (await client.query('select status from event_registrations where event_id = $1 and user_id = $2', [id, me.id])).rows[0];
+      if (mine?.status === 'registered') return { created: false };
+      const going = Number((await client.query("select count(*) from event_registrations where event_id = $1 and status = 'registered'", [id])).rows[0].count);
+      if (e.capacity !== null && going >= e.capacity) throw new HttpError(409, 'event_full', 'This event is full.');
+      await client.query(
+        `insert into event_registrations (event_id, user_id) values ($1, $2)
+         on conflict (event_id, user_id) do update set status = 'registered', registered_at = now(), cancelled_at = null`, [id, me.id]);
+      await client.query('delete from event_interest where event_id = $1 and user_id = $2', [id, me.id]); // going replaces interested
+      return { created: true };
+    }
+
     app.post('/events/:eventId/register', async (req, reply) => {
       const me = await ctx.auth(req);
       const id = param(req);
       ctx.limit(`event-reg:${me.id}`, 30, 3600);
-      const result = await withTx(pool, async (client) => {
-        await getEvent(me, id, client); // 404 if the viewer may not see it
-        // Locking the event row makes concurrent registrations line up, so the last place can only be taken once.
-        const e = (await client.query('select capacity, status, ends_at, registration_deadline from events where id = $1 for update', [id])).rows[0];
-        if (e.status !== 'published' || new Date(e.ends_at) <= new Date()) throw new HttpError(409, 'event_closed', 'Registration is closed for this event.');
-        // The server clock decides the deadline, never the device's.
-        if (e.registration_deadline && new Date(e.registration_deadline) <= new Date()) throw new HttpError(409, 'registration_closed', 'The registration deadline has passed.');
-        const mine = (await client.query('select status from event_registrations where event_id = $1 and user_id = $2', [id, me.id])).rows[0];
-        if (mine?.status === 'registered') return { created: false };
-        const going = Number((await client.query("select count(*) from event_registrations where event_id = $1 and status = 'registered'", [id])).rows[0].count);
-        if (e.capacity !== null && going >= e.capacity) throw new HttpError(409, 'event_full', 'This event is full.');
-        await client.query(
-          `insert into event_registrations (event_id, user_id) values ($1, $2)
-           on conflict (event_id, user_id) do update set status = 'registered', registered_at = now(), cancelled_at = null`, [id, me.id]);
-        return { created: true };
-      });
+      const result = await withTx(pool, (client) => registerTx(client, me, id));
       return reply.status(result.created ? 201 : 200).send({ registered: true });
+    });
+
+    // One endpoint for the whole response: interested, going or none. Changing it is a single transaction,
+    // so a person is never counted as both, and interest never takes a seat.
+    app.put('/events/:eventId/rsvp', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const { state } = z.object({ state: z.enum(['interested', 'going', 'none']) }).strict().parse(req.body ?? {});
+      ctx.limit(`event-rsvp:${me.id}`, 60, 3600);
+      await withTx(pool, async (client) => {
+        if (state === 'going') { await registerTx(client, me, id); return; }
+        await getEvent(me, id, client);
+        const e = (await client.query('select status, ends_at from events where id = $1 for update', [id])).rows[0];
+        if (state === 'interested') {
+          if (e.status !== 'published' || new Date(e.ends_at) <= new Date()) throw new HttpError(409, 'event_closed', 'This event is closed.');
+          await client.query("update event_registrations set status = 'cancelled', cancelled_at = now() where event_id = $1 and user_id = $2 and status = 'registered'", [id, me.id]);
+          await client.query('insert into event_interest (event_id, user_id) values ($1, $2) on conflict do nothing', [id, me.id]);
+        } else {
+          // Withdrawing is always allowed, even after the event, so nobody is stuck with an old response.
+          await client.query("update event_registrations set status = 'cancelled', cancelled_at = now() where event_id = $1 and user_id = $2 and status = 'registered'", [id, me.id]);
+          await client.query('delete from event_interest where event_id = $1 and user_id = $2', [id, me.id]);
+        }
+      });
+      return toView(me, await getEvent(me, id));
+    });
+
+    // Saved events: private to the person, synced through the server, one row per (person, event).
+    app.put('/events/:eventId/save', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      ctx.limit(`event-save:${me.id}`, 120, 3600);
+      await getEvent(me, id);
+      await pool.query('insert into saved_events (user_id, event_id) values ($1, $2) on conflict do nothing', [me.id, id]);
+      return reply.status(204).send();
+    });
+
+    app.delete('/events/:eventId/save', async (req, reply) => {
+      const me = await ctx.auth(req);
+      await pool.query('delete from saved_events where user_id = $1 and event_id = $2', [me.id, param(req)]);
+      return reply.status(204).send();
+    });
+
+    // Newest saved first. An event the person can no longer see (private community left, blocked organizer) is not listed.
+    app.get('/me/saved-events', async (req) => {
+      const me = await ctx.auth(req);
+      const q = pageSchema.parse(req.query);
+      const cur = decodeCursor(q.cursor);
+      // Same columns as every other event list, driven from the saved rows.
+      const savedSelect = SELECT.replace('select e.*,', `select e.*, ${tsText('sv0.created_at')} as "savedT",`)
+        .replace('from events e join users o', 'from saved_events sv0 join events e on e.id = sv0.event_id join users o');
+      const res = await pool.query(
+        `${savedSelect}
+          where sv0.user_id = $1 and ${visible()}
+            and ($3::timestamptz is null or (sv0.created_at, e.id) < ($3::timestamptz, $4::uuid))
+          order by sv0.created_at desc, e.id desc limit $5`,
+        [me.id, me.universityId, cur?.t ?? null, cur?.id ?? null, q.limit + 1]);
+      const more = res.rows.length > q.limit;
+      const page = more ? res.rows.slice(0, q.limit) : res.rows;
+      const last = page[page.length - 1] as { savedT: string; id: string } | undefined;
+      const nextCursor = more && last ? encodeCursor({ t: last.savedT, id: last.id }) : null;
+      return { items: await Promise.all(page.map((r) => toView(me, r as Record<string, unknown>))), nextCursor };
     });
 
     app.delete('/events/:eventId/register', async (req, reply) => {

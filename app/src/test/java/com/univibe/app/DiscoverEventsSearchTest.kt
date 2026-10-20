@@ -85,18 +85,22 @@ class RemoteEventRepositoryTest {
         assertNull(RemoteEventRepository(ScriptedApi { refusal(404, "not_found", "Not found.") }).getEvent("nope"))
     }
 
-    @Test fun goingRegistersAndLeavingCancelsTheRegistration() = runTest {
-        val api = ScriptedApi { c -> if (c.method == "DELETE") reply("", 204) else reply("""{"registered":true}""", 201) }
+    @Test fun theWholeResponseIsSetInOneCall_soNobodyIsBothInterestedAndGoing() = runTest {
+        val api = ScriptedApi { reply("{}") }
         val repo = RemoteEventRepository(api)
         repo.setRsvp("e1", RsvpState.Going)
+        repo.setRsvp("e1", RsvpState.Interested)
         repo.setRsvp("e1", RsvpState.None)
-        assertEquals(listOf("POST /api/v1/events/e1/register", "DELETE /api/v1/events/e1/register"), api.calls.map { "${it.method} ${it.path}" })
+        assertEquals(List(3) { "PUT /api/v1/events/e1/rsvp" }, api.calls.map { "${it.method} ${it.path}" })
+        assertEquals(listOf("going", "interested", "none"), api.calls.map { it.body!!.getString("state") })
     }
 
-    @Test fun interestedIsNotOfferedBecauseTheServerHasNoSuchThing() = runTest {
-        val repo = RemoteEventRepository(ScriptedApi { reply("{}") })
-        assertFalse(repo.supportsInterested)
-        try { repo.setRsvp("e1", RsvpState.Interested); fail() } catch (_: UnsupportedOperationException) { }
+    @Test fun interestedIsOfferedAndMapsFromTheServersResponse() = runTest {
+        val repo = RemoteEventRepository(ScriptedApi { page(eventJson(mine = "null").replace("\"isOrganizer\":false", "\"isOrganizer\":false,\"myRsvp\":\"interested\",\"interestedCount\":4")) })
+        assertTrue(repo.supportsInterested)
+        val e = repo.getEvents().single()
+        assertEquals(RsvpState.Interested, e.rsvp)
+        assertEquals(4, e.interested)
     }
 
     @Test fun aFullEventSurfacesTheServersReasonAsAStateProblem() = runTest {

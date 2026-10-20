@@ -35,3 +35,12 @@ Implemented on the server; the Android app does not use the new fields yet.
 - **Notifications:** only changes to time, venue, address, format or join link notify registrants; wording edits do not.
 - **Audit:** `event_audit` records create, publish, update, cancel and complete (no read API yet).
 - **Known limits:** a university admin cannot see or manage a community-only event unless a member.
+
+## Events v2, stage 2 (migration 026): Interested and saved events
+- `PUT /events/:id/rsvp` with `{"state": "interested" | "going" | "none"}` sets the whole response in one transaction and returns the event. `GET`/list views now carry `myRsvp` (going, interested, null), `interestedCount` and `saved`.
+- **Interested never takes a seat.** Only registrations count against capacity. Going replaces interested; choosing interested releases a held seat. A refused change (full, closed) leaves the previous response untouched.
+- Interested is refused on cancelled or ended events; withdrawing (`none`) is always allowed. There is no interested list, only the count.
+- `POST`/`DELETE /events/:id/register` still work and behave as before (going / withdraw).
+- `PUT`/`DELETE /events/:id/save` (idempotent, 204) and `GET /me/saved-events` (cursor-paged, newest saved first). The list only includes events the person may still see.
+- **Not built:** waitlist (a full event is simply full), formal registration forms or eligibility rules, Attended state beyond the existing organizer check-in.
+- The Android app now uses `PUT /rsvp` and shows Interested. It does not use saved events yet (no UI).
