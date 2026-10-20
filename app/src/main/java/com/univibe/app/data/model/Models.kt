@@ -506,3 +506,9 @@ data class ProfileUpdate(
     val avatarPath: String?,
     val coverPath: String?,
 )
+
+data class LinkPreview(
+    val url: String, val host: String, val title: String?, val description: String?, val siteName: String?,
+    /** The page's picture, kept by our server (a short-lived link), and its width / height; null when the page has none. */
+    val imageUrl: String? = null, val imageRatio: Float? = null,
+)

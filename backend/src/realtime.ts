@@ -15,6 +15,7 @@ export type ServerEvent =
   | { type: 'notification:unread'; unreadCount: number }
   /** Someone's Note changed or went away. Carries no text: the app re-reads the authoritative list. */
   | { type: 'note:changed'; userId: string; kind: 'updated' | 'deleted' }
+  | { type: 'story:changed'; userId: string; kind: 'created' | 'deleted' | 'updated' }
   | { type: 'community:membership'; communityId: string; membership: JoinState; memberCount: number };
 
 /**
