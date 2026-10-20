@@ -68,6 +68,9 @@ data class Post(
     val thumbPaths: List<String> = emptyList(),
     /** Why Discover is showing this post, from a real ranking signal (see [DiscoverReason]); null when none applies. */
     val discoverReason: String? = null,
+    /** Set when the post was published in a community; the author and the community stay distinct. */
+    val community: PostCommunity? = null,
+    val announcement: Boolean = false,
 ) {
     /** True when the post carries something besides text, so its text may be empty. */
     val hasAttachment: Boolean
@@ -353,7 +356,36 @@ enum class CommunityRole { None, Member, Moderator, Owner }
 /** Public communities can be joined at once; private ones need a moderator to approve each request. */
 enum class CommunityPrivacy { Public, Private }
 
-val CommunityCategories = listOf("Academic", "Arts", "Business", "Sports", "Social", "Culture", "Wellbeing", "Service")
+/** Labels shown to people. The server's category key is the lower-case label (see [communityCategoryKey]). */
+val CommunityCategories = listOf("Academics", "Clubs", "Sports", "Arts", "Tech", "Career", "Social", "Wellbeing", "Other")
+fun communityCategoryKey(label: String) = label.trim().lowercase()
+fun communityCategoryLabel(key: String) = key.replaceFirstChar { it.uppercase() }
+
+/** What the membership button should offer this viewer. Computed once by the server and shared by every surface. */
+enum class MembershipState {
+    Joined, Join, Request, Pending, Invited, Unavailable;
+
+    companion object {
+        fun parse(value: String?) = when (value) {
+            "joined" -> Joined
+            "join" -> Join
+            "request" -> Request
+            "pending" -> Pending
+            "invited" -> Invited
+            else -> Unavailable
+        }
+    }
+}
+
+/** The community a post was published in, as shown in the post header. */
+data class PostCommunity(
+    val id: String,
+    val name: String,
+    val isPrivate: Boolean,
+    val memberCount: Int,
+    val avatarUrl: String?,
+    val membership: MembershipState,
+)
 const val MAX_COMMUNITIES_OWNED = 5
 
 data class CommunityMember(val student: Student, val role: CommunityRole, val isMe: Boolean = false)
@@ -373,7 +405,20 @@ data class Community(
     /** You asked to join a private community and are waiting for approval. */
     val joinRequested: Boolean = false,
     val createdLabel: String = "",
+    /** The server's membership state; null in the offline demo, where it is derived from [role] and [privacy]. */
+    val membership: MembershipState? = null,
+    val avatarUrl: String? = null,
+    val coverUrl: String? = null,
+    val canPost: Boolean = false,
+    val archived: Boolean = false,
 ) {
+    val effectiveMembership: MembershipState
+        get() = membership ?: when {
+            isMember -> MembershipState.Joined
+            joinRequested -> MembershipState.Pending
+            privacy == CommunityPrivacy.Private -> MembershipState.Request
+            else -> MembershipState.Join
+        }
     val isMember: Boolean get() = role != CommunityRole.None
     /** Owners and moderators. */
     val isStaff: Boolean get() = role == CommunityRole.Owner || role == CommunityRole.Moderator

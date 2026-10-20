@@ -5,7 +5,9 @@ import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.media.VideoStore
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.NewPost
+import com.univibe.app.data.model.MembershipState
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostCommunity
 import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.net.AuthedApi
@@ -72,7 +74,20 @@ private fun buildPost(
     likedByMe = o.optBoolean("likedByMe", false),
     savedByMe = o.optBoolean("savedByMe", false),
     fromFollowing = fromFollowing,
-    audience = if (o.optString("audience") == "followers") PostAudience.Followers else PostAudience.Campus,
+    audience = when (o.optString("audience")) {
+        "followers" -> PostAudience.Followers
+        "community" -> o.optJSONObject("community")?.let { PostAudience.Community(it.getString("id"), it.optString("name")) } ?: PostAudience.Campus
+        else -> PostAudience.Campus
+    },
+    community = o.optJSONObject("community")?.let {
+        PostCommunity(
+            id = it.getString("id"), name = it.optString("name"), isPrivate = it.optString("visibility") == "private",
+            memberCount = it.optInt("memberCount", 0),
+            avatarUrl = if (it.isNull("avatarUrl")) null else it.optString("avatarUrl").ifBlank { null },
+            membership = MembershipState.parse(it.optString("membership")),
+        )
+    },
+    announcement = o.optBoolean("announcement", false),
     poll = parsePoll(o.optJSONObject("poll")),
     edited = o.optBoolean("edited", false),
     imagePath = images.firstOrNull(),
@@ -209,9 +224,11 @@ class RemoteFeedRepository(
         val audience = when (post.audience) {
             PostAudience.Campus -> "campus"
             PostAudience.Followers -> "followers"
-            is PostAudience.Community -> throw UnsupportedOperationException("Community posts aren't available yet.")
+            is PostAudience.Community -> "campus" // the server derives the audience from communityId
         }
         val body = JSONObject().put("text", post.text.trim()).put("audience", audience)
+        // The server checks membership and posting rights again; this only says where the post goes.
+        (post.audience as? PostAudience.Community)?.let { body.put("communityId", it.id) }
         if (post.imagePaths.isNotEmpty()) body.put("mediaIds", JSONArray(uploadAll(post.imagePaths.map { it to "image" })))
         // Accept 200 and 201 as valid creation responses to match test/mocked server behaviour
         val created = parsePost(JSONObject(api.send("POST", "/posts", body, setOf(200, 201))))
