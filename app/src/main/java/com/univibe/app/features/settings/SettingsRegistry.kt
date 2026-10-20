@@ -68,7 +68,7 @@ object SettingsRegistry {
         e("typing-indicators", "Typing indicators", "Show when you're typing", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, "Typing indicators", keywords = listOf("typing", "is typing")),
         e("muted-chats", "Muted conversations", "Chats whose alerts you turned off", SettingsRoutes.MUTED_CHATS, SettingsCategories.MESSAGES, "Muted conversations", keywords = listOf("mute", "unmute", "muted chats", "silence chat")),
         // Appearance
-        e("appearance", "Appearance", "Theme, font and text size", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, keywords = listOf("theme", "font", "typeface", "text size", "dark mode")),
+        e("appearance", "Appearance", "Theme, font and text size", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, keywords = listOf("theme", "font", "typeface")),
         e("theme", "Theme", "System, Light or Dark", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, "Theme", keywords = listOf("dark mode", "light mode", "night mode", "system default")),
         // Accessibility
         e("accessibility", "Accessibility", "Text size and motion", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY),
