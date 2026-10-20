@@ -41,6 +41,8 @@ class CommunityFormViewModel(
     private val editId: String?,
     private val repository: CommunityRepository = AppContainer.communityRepository,
 ) : ViewModel() {
+    /** One key per form instance: retries after a dropped connection return the same community. */
+    private val clientKey = java.util.UUID.randomUUID().toString()
     private val _state = MutableStateFlow(CommunityFormUiState(editing = editId != null, loading = editId != null))
     val state: StateFlow<CommunityFormUiState> = _state.asStateFlow()
 
@@ -75,7 +77,7 @@ class CommunityFormViewModel(
                 val id = if (editId != null) {
                     repository.updateCommunity(editId, s.description, s.category, s.accent, rules, s.privacy); editId
                 } else {
-                    repository.createCommunity(s.name, s.description, s.category, s.accent, rules, s.privacy)
+                    repository.createCommunity(s.name, s.description, s.category, s.accent, rules, s.privacy, clientKey)
                 }
                 _state.update { it.copy(submitting = false, doneId = id) }
             } catch (e: Exception) {

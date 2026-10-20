@@ -232,6 +232,8 @@ interface CommunityRepository {
      */
     suspend fun createCommunity(
         name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy,
+        /** Stable per form, so a retried submit cannot create a duplicate community. */
+        clientKey: String? = null,
     ): String
     /** Owner only. Switching a private community to public approves everyone waiting. */
     suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy)

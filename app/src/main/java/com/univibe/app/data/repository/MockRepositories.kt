@@ -569,7 +569,7 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
         return clean
     }
 
-    override suspend fun createCommunity(name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy): String {
+    override suspend fun createCommunity(name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy, clientKey: String?): String {
         delay(400)
         val n = name.trim()
         require(n.length in 3..40) { "Name must be 3 to 40 characters" }

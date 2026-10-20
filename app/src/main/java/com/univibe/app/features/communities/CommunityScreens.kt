@@ -79,6 +79,7 @@ import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
+import com.univibe.app.ui.components.CommunityMembershipButton
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeButtonStyle
 import com.univibe.app.ui.components.VibeCard
@@ -88,13 +89,6 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.theme.Spacing
 
-private fun Community.actionLabel() = when {
-    role == CommunityRole.Owner -> "Owner"
-    isMember -> "Joined"
-    joinRequested -> "Requested"
-    privacy == CommunityPrivacy.Private -> "Request"
-    else -> "Join"
-}
 
 @Composable
 fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onCreate: () -> Unit = {}, viewModel: CommunitiesViewModel = viewModel()) {
@@ -145,9 +139,11 @@ fun CommunitiesScreen(onBack: () -> Unit, onOpenCommunity: (String) -> Unit, onC
                                     Text("${c.members} members · ${c.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            VibeButton(
-                                c.actionLabel(), { viewModel.onMembershipClick(c) },
-                                style = if (c.isMember || c.joinRequested) VibeButtonStyle.Secondary else VibeButtonStyle.Primary, compact = true,
+                            // The same shared control as on Home and Discover posts.
+                            CommunityMembershipButton(
+                                c.id, c.effectiveMembership, c.members, compact = true,
+                                onLeaveRequested = { viewModel.onMembershipClick(c) },
+                                onChanged = { viewModel.refresh() },
                             )
                         }
                         Text(c.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.sm), maxLines = 2)
@@ -222,19 +218,12 @@ fun CommunityDetailScreen(
                         )
                         Text(c.description, style = MaterialTheme.typography.bodyLarge)
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                            VibeButton(
-                                text = when {
-                                    c.role == CommunityRole.Owner -> "Owner"
-                                    c.isMember -> "Joined"
-                                    c.joinRequested -> "Request sent"
-                                    c.privacy == CommunityPrivacy.Private -> "Request to join"
-                                    else -> "Join community"
-                                },
-                                onClick = viewModel::onMembershipClick, modifier = Modifier.weight(1f), loading = s.busy,
-                                style = if (c.isMember || c.joinRequested) VibeButtonStyle.Secondary else VibeButtonStyle.Primary,
-                                leadingIcon = if (c.isMember) VibeIcons.Check else null,
+                            CommunityMembershipButton(
+                                c.id, c.effectiveMembership, c.members, compact = false, modifier = Modifier.weight(1f),
+                                onLeaveRequested = viewModel::onMembershipClick,
+                                onChanged = { viewModel.load() },
                             )
-                            if (c.isMember) VibeButton("Post", onPost, Modifier.weight(1f), leadingIcon = VibeIcons.Edit)
+                            if (c.isMember && !c.archived && (c.membership == null || c.canPost)) VibeButton("Post", onPost, Modifier.weight(1f), leadingIcon = VibeIcons.Edit)
                         }
                     }
                 }
