@@ -32,10 +32,12 @@ fun PhotoViewerDialog(path: String, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         var scale by remember { mutableStateOf(1f) }
         var offset by remember { mutableStateOf(Offset.Zero) }
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        val open = rememberViewerOpen()
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = open.value }.background(Color.Black)) {
             PhotoImage(
                 path, contentDescription = "Photo, full screen",
                 modifier = Modifier.fillMaxSize()
+                    .graphicsLayer { val sc = 0.9f + 0.1f * open.value; scaleX = sc; scaleY = sc }
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
                             scale = (scale * zoom).coerceIn(1f, 5f)

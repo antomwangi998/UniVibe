@@ -73,6 +73,7 @@ import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.components.rememberBottomClearance
 import com.univibe.app.ui.theme.Spacing
+import com.univibe.app.navigation.rememberTabListState
 
 private val AvatarSize = 52.dp
 
@@ -130,6 +131,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
                 val pinned = state.pinned
                 val others = state.others
                 VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
+                    state = rememberTabListState("chats"),
                     contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.xs, bottom = rememberBottomClearance()),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {

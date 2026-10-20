@@ -13,6 +13,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import com.univibe.app.ui.components.UNDO_WINDOW_MS
+import com.univibe.app.data.prefs.DraftStore
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 
 const val MAX_COMMENT = 280
 
@@ -34,6 +44,8 @@ data class CommentsUiState(
     val replyingTo: Comment? = null,
     val menuComment: Comment? = null,
     val confirmDelete: Comment? = null,
+    /** The comment deleted a moment ago (its replies went with it); Undo brings them back. */
+    val undoComment: Comment? = null,
     val reporting: Comment? = null,
     /** Set after posting so the screen can scroll to the new comment once. */
     val scrollToId: String? = null,
@@ -62,7 +74,23 @@ class CommentsViewModel(
     private val _state = MutableStateFlow(CommentsUiState())
     val state: StateFlow<CommentsUiState> = _state.asStateFlow()
 
-    init { load() }
+    private val draftKey = "comment:$postId"
+    private val deleteScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var pendingDelete: Job? = null
+    private var removedWithComment: List<Comment> = emptyList()
+    private var orderBeforeDelete: List<String> = emptyList()
+
+    init {
+        _state.update { it.copy(input = DraftStore.get(draftKey)) }
+        load()
+        // Keep what you typed, so leaving the screen or closing the app does not lose it.
+        viewModelScope.launch {
+            _state.map { it.input to it.replyingTo }.distinctUntilChanged().collectLatest { (text, replying) ->
+                delay(400)
+                if (replying == null) DraftStore.set(draftKey, text)
+            }
+        }
+    }
 
     fun pullRefresh() = load(pull = true)
 
@@ -128,15 +156,49 @@ class CommentsViewModel(
 
     fun confirmDelete() {
         val c = _state.value.confirmDelete ?: return
+        flushPendingDelete()
         // Deleting a top-level comment removes its replies too.
+        val before = _state.value.comments
+        orderBeforeDelete = before.map { it.id }
+        removedWithComment = before.filter { it.id == c.id || it.parentId == c.id }
         _state.update { s ->
             s.copy(
                 confirmDelete = null,
                 comments = s.comments.filterNot { it.id == c.id || it.parentId == c.id },
                 replyingTo = if (s.replyingTo?.id == c.id) null else s.replyingTo,
+                undoComment = c,
             )
         }
-        viewModelScope.launch { runCatching { repository.deleteComment(c.id) } }
+        pendingDelete = deleteScope.launch { delay(UNDO_WINDOW_MS); commitDelete(c, removedWithComment) }
+    }
+
+    fun undoDelete() {
+        if (_state.value.undoComment == null) return
+        pendingDelete?.cancel(); pendingDelete = null
+        restore(removedWithComment)
+        _state.update { it.copy(undoComment = null) }
+    }
+
+    private fun restore(removed: List<Comment>) {
+        val order = orderBeforeDelete
+        _state.update { s ->
+            val merged = (s.comments + removed.filter { r -> s.comments.none { it.id == r.id } })
+                .sortedBy { c -> order.indexOf(c.id).let { if (it < 0) Int.MAX_VALUE else it } }
+            s.copy(comments = merged)
+        }
+    }
+
+    private fun flushPendingDelete() {
+        val c = _state.value.undoComment ?: return
+        val removed = removedWithComment
+        pendingDelete?.cancel(); pendingDelete = null
+        deleteScope.launch { commitDelete(c, removed) }
+    }
+
+    private suspend fun commitDelete(c: Comment, removed: List<Comment>) {
+        _state.update { if (it.undoComment?.id == c.id) it.copy(undoComment = null) else it }
+        try { repository.deleteComment(c.id) }
+        catch (e: Exception) { restore(removed); _state.update { it.copy(notice = "Couldn't delete the comment. Try again.") } }
     }
 
     fun startReport(c: Comment) = _state.update { it.copy(reporting = c, menuComment = null) }

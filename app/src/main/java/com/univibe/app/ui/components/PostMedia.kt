@@ -51,6 +51,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.State
+import androidx.compose.runtime.asState
 
 /** Corner radius shared by every piece of post media so photos, galleries and video match. */
 val PostMediaShape = RoundedCornerShape(16.dp)
@@ -212,14 +216,27 @@ private fun GalleryCell(path: String, description: String, onClick: () -> Unit, 
 }
 
 /** Full-screen viewer for all photos of a post: swipe between them, pinch or double-tap to zoom. */
+/** 0 -> 1 as a photo viewer opens: it fades in while the photo grows slightly into place. Instant with reduced motion. */
+@Composable
+internal fun rememberViewerOpen(): State<Float> {
+    val reduced = rememberReducedMotion()
+    val progress = remember { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(Unit) { if (!reduced) progress.animateTo(1f, tween(240, easing = FastOutSlowInEasing)) }
+    return progress.asState()
+}
+
 @Composable
 fun PhotoGalleryViewerDialog(paths: List<String>, startIndex: Int, onDismiss: () -> Unit) {
     if (paths.isEmpty()) return
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, paths.lastIndex)) { paths.size }
         var zoomed by remember { mutableStateOf(false) }
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = !zoomed, key = { paths[it] }) { page ->
+        val open = rememberViewerOpen()
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = open.value }.background(Color.Black)) {
+            HorizontalPager(
+                pager, Modifier.fillMaxSize().graphicsLayer { val sc = 0.9f + 0.1f * open.value; scaleX = sc; scaleY = sc },
+                userScrollEnabled = !zoomed, key = { paths[it] },
+            ) { page ->
                 ZoomablePhoto(paths[page], active = pager.currentPage == page, onZoomed = { zoomed = it })
             }
             IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp)) {

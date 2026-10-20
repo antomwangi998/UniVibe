@@ -206,7 +206,11 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     com.univibe.app.push.AskForNotificationPermissionOnce()
 
     val selectTab: (String) -> Unit = { route ->
-        if (route != currentRoute) {
+        if (route == currentRoute) {
+            // Tapping the current tab again: back to the top, with the bars showing.
+            hiddenByScroll.value = false
+            TabReselect.fire(route)
+        } else {
             navController.navigate(route) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                 launchSingleTop = true

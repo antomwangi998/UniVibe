@@ -57,6 +57,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         val digest = booleanPreferencesKey("email_digest")
         val reduceMotion = booleanPreferencesKey("reduce_motion")
         val textScale = stringPreferencesKey("text_scale")
+        val font = stringPreferencesKey("app_font")
         val feedFilter = stringPreferencesKey("feed_filter")
     }
 
@@ -84,6 +85,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
             emailDigest = this[K.digest] ?: d.emailDigest,
             reduceMotion = this[K.reduceMotion] ?: d.reduceMotion,
             textScale = this[K.textScale]?.let { runCatching { TextScale.valueOf(it) }.getOrNull() } ?: d.textScale,
+            font = this[K.font]?.let { runCatching { AppFont.valueOf(it) }.getOrNull() } ?: d.font,
             feedFilter = this[K.feedFilter]?.let { runCatching { FeedFilter.valueOf(it) }.getOrNull() } ?: d.feedFilter,
         )
     }
@@ -107,6 +109,7 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         this[K.digest] = s.emailDigest
         this[K.reduceMotion] = s.reduceMotion
         this[K.textScale] = s.textScale.name
+        this[K.font] = s.font.name
         this[K.feedFilter] = s.feedFilter.name
     }
 }

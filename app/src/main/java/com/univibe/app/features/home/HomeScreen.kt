@@ -125,6 +125,10 @@ import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
 import kotlinx.coroutines.launch
+import com.univibe.app.navigation.rememberTabListState
+import com.univibe.app.data.prefs.DraftStore
+import kotlinx.coroutines.delay
+import com.univibe.app.ui.components.UndoBar
 
 @Composable
 fun HomeScreen(
@@ -137,7 +141,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
+    val listState = rememberTabListState("home")
     val scope = rememberCoroutineScope()
     val composerFocus = remember { FocusRequester() }
     var showFilters by rememberSaveable { mutableStateOf(false) }
@@ -283,6 +287,12 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = Spacing.md, bottom = fabBottom),
         ) { Icon(VibeIcons.Edit, contentDescription = "Write a post") }
+        if (state.undoPost != null) {
+            UndoBar(
+                "Post deleted", viewModel::undoDelete,
+                Modifier.align(Alignment.BottomCenter).padding(bottom = fabBottom + 64.dp),
+            )
+        }
     }
 
     LaunchedEffect(state.notice) {
@@ -323,7 +333,7 @@ fun HomeScreen(
     state.deletingPost?.let {
         ConfirmDialog(
             title = "Delete this post?",
-            message = "It will be removed for everyone, along with its comments. This can't be undone.",
+            message = "It will be removed for everyone, along with its comments. You can undo for a few seconds.",
             confirmLabel = "Delete",
             onConfirm = viewModel::confirmDelete,
             onDismiss = viewModel::cancelDelete,
@@ -393,7 +403,9 @@ private fun Composer(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var text by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf(DraftStore.get("home_composer")) }
+    // Keep the unsent text on the device, so closing the app does not lose it.
+    LaunchedEffect(text) { delay(400); DraftStore.set("home_composer", text) }
     var attached by rememberSaveable { mutableStateOf<String?>(null) }
     var attachedPath by rememberSaveable { mutableStateOf<String?>(null) }
     // Poll options are kept as one newline-joined string so the draft survives rotation.

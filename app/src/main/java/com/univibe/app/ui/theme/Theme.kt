@@ -6,6 +6,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.univibe.app.data.settings.AppFont
+import androidx.compose.runtime.remember
 
 private val LightColors = lightColorScheme(
     primary = LightPrimary,
@@ -74,11 +76,12 @@ private val DarkColors = darkColorScheme(
 @Composable
 fun UniVibeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    appFont: AppFont = AppFont.UniVibe,
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = UniVibeTypography,
+        typography = remember(appFont) { uniVibeTypography(appFont.family()) },
         shapes = UniVibeShapes,
         content = content,
     )

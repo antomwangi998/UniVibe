@@ -81,6 +81,7 @@ import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
+import com.univibe.app.ui.components.UndoBar
 
 private val ReportReasons = listOf("Spam", "Harassment or bullying", "Hate speech", "Misinformation", "Something else")
 private val MentionRegex = Regex("@[A-Za-z0-9._]+")
@@ -192,6 +193,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                         }
                     }
                 }
+                if (s.undoComment != null) UndoBar("Comment deleted", viewModel::undoDelete)
                 Row(Modifier.fillMaxWidth().padding(Spacing.sm), verticalAlignment = Alignment.Top) {
                     VibeTextField(
                         value = s.input, onValueChange = viewModel::onInput, modifier = Modifier.weight(1f),
@@ -236,7 +238,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
         val replies = s.comments.count { it.parentId == c.id }
         ConfirmDialog(
             title = "Delete this comment?",
-            message = if (replies > 0) "Its $replies ${if (replies == 1) "reply" else "replies"} will be deleted too." else "This can't be undone.",
+            message = if (replies > 0) "Its $replies ${if (replies == 1) "reply" else "replies"} will be deleted too." else "You can undo for a few seconds.",
             confirmLabel = "Delete", dismissLabel = "Cancel", destructive = true,
             onConfirm = viewModel::confirmDelete, onDismiss = viewModel::dismissDelete,
         )

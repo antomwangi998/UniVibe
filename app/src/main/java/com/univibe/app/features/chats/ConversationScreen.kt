@@ -161,6 +161,7 @@ import com.univibe.app.ui.theme.Spacing
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.univibe.app.ui.components.UndoBar
 
 private sealed interface ChatRow {
     val key: String
@@ -462,6 +463,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             TextButton(onClick = viewModel::dismissFailedPhoto) { Text("Dismiss") }
                         }
                     }
+                    if (s.undoMessage != null) UndoBar("Message deleted", viewModel::undoDelete)
                     AnimatedVisibility(s.replyTo != null) {
                         s.replyTo?.let { ReplyBar(it, onCancel = viewModel::cancelReply) }
                     }
