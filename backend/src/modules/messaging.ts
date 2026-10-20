@@ -9,6 +9,8 @@ import { idParam, pageSchema } from '../http';
 import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
+import { firstLink } from '../linkpreview';
+import { createHash } from 'node:crypto';
 import { notify } from './notify';
 import { presenceOf } from './presence';
 
@@ -26,7 +28,7 @@ export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null }[];
   forwarded: boolean;
   /** Set when this message answers a Story. `available` is false once the Story has expired or been deleted; its content is never copied here. */
   story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
@@ -66,13 +68,20 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
+  const previews = ids.length
+    ? (await ctx.pool.query<{ message_id: string; url: string; host: string; title: string | null; description: string | null; site_name: string | null; image_key: string | null; image_width: number | null; image_height: number | null }>(
+        'select message_id, url, host, title, description, site_name, image_key, image_width, image_height from message_link_previews where message_id = any($1::uuid[])', [ids])).rows
+    : [];
+  const previewOf = new Map(previews.map((p) => [p.message_id, p] as const));
+  // The picture is private like all media: a short-lived link is made for each viewer-visible card.
+  const previewImage = new Map(await Promise.all(previews.map(async (p) => [p.message_id, await signedUrl(ctx, p.image_key)] as const)));
   const byMessage = new Map<string, MessageView['media']>();
   await Promise.all(media.map(async (m) => {
     const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null });
+    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null, waveform: m.waveform ?? null });
     byMessage.set(m.message_id, list);
   }));
   return rows.map((r) => {
@@ -99,6 +108,9 @@ const MESSAGE_SELECT = `
          m.story_id, m.story_kind, (sr.id is not null) as story_live
     from messages m left join messages r on r.id = m.reply_to_id
     left join stories sr on sr.id = m.story_id and sr.expires_at > now()`;
+
+/** A short stable key for an address, so the same link in the same message is only ever read once. */
+const linkKey = (url: string) => createHash('sha1').update(url).digest('hex').slice(0, 16);
 
 export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Promise<MessageView> {
   const { rows } = await ctx.pool.query(`${MESSAGE_SELECT} where m.id = $1`, [id]);
@@ -148,6 +160,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       return { id: existing.rows[0].id, created: false };
     }
     const messageId = inserted.rows[0].id;
+    // The preview is read in the background, so sending is never slowed down. The job is written with the message (outbox).
+    const link = firstLink(input.content);
+    if (link) await enqueue(client, 'link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
     if (input.mediaIds.length) {
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
@@ -437,6 +452,14 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         [id, me.id, b.content, EDIT_WINDOW_MINUTES]);
       if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
       const conversationId = res.rows[0].conversation_id;
+      const link = firstLink(b.content);
+      if (link) await enqueue(pool, 'link.preview', { messageId: id, url: link }, { dedupeKey: `${id}:${linkKey(link)}`, maxAttempts: 2 });
+      else {
+        // The link was edited out: its card, picture included, goes too.
+        const card = await pool.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
+        const keys = card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k));
+        if (keys.length && ctx.storage) void ctx.storage.remove(keys).catch(() => undefined);
+      }
       const message = await loadMessage(ctx, id);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
       return message;
@@ -446,13 +469,16 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     app.delete('/messages/:id', async (req, reply) => {
       const me = await ctx.auth(req);
       const id = param(req);
-      const conversationId = await withTx(pool, async (client) => {
+      const { conversationId, previewImages } = await withTx(pool, async (client) => {
         const res = await client.query<{ conversation_id: string }>(
           "update messages set status = 'deleted', content = '', deleted_at = now() where id = $1 and sender_id = $2 and status = 'active' returning conversation_id", [id, me.id]);
         if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
         await client.query('delete from media where message_id = $1', [id]);
-        return res.rows[0].conversation_id;
+        // The link card goes with the message, picture included.
+        const card = await client.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
+        return { conversationId: res.rows[0].conversation_id, previewImages: card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k)) };
       });
+      if (previewImages.length && ctx.storage) void ctx.storage.remove(previewImages).catch(() => undefined);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:deleted', conversationId, messageId: id });
       return reply.status(204).send();
     });
