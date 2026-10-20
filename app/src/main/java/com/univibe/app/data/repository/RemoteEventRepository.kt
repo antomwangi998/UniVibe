@@ -56,7 +56,6 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
         cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
         coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifBlank { null },
         saved = o.optBoolean("saved", false),
-        reason = if (o.isNull("reason")) null else o.optString("reason").ifBlank { null },
     )
 }
 
@@ -77,44 +76,6 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
     }
 
     private fun toEvent(o: JSONObject): CampusEvent = parseCampusEvent(o)
-
-    // ---- Discover: the server ranks, filters and sections events; the app only draws what it returns.
-    override val supportsDiscover: Boolean get() = true
-
-    override suspend fun eventCategories(): List<EventCategoryInfo> {
-        val items = JSONObject(api.send("GET", "/api/v1/event-categories")).getJSONArray("items")
-        return (0 until items.length()).map { items.getJSONObject(it).let { c -> EventCategoryInfo(c.getString("code"), c.getString("label")) } }
-    }
-
-    override suspend fun discoverSections(): List<EventSection> {
-        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections")).getJSONArray("sections")
-        return (0 until sections.length()).map { i ->
-            val s = sections.getJSONObject(i)
-            val items = s.getJSONArray("items")
-            EventSection(s.getString("key"), s.getString("title"), (0 until items.length()).map { toEvent(items.getJSONObject(it)) })
-        }
-    }
-
-    override suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String?): EventDiscoverPage {
-        val q = mutableListOf("limit=20")
-        if (filter.categories.isNotEmpty()) q += "category=" + filter.categories.joinToString(",")
-        if (filter.onlineOnly) q += "format=online,hybrid"
-        filter.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
-        if (filter.registrationOpen) q += "registrationOpen=true"
-        if (filter.savedOnly) q += "saved=true"
-        cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
-        val body = JSONObject(api.send("GET", "/api/v1/discover/events?" + q.joinToString("&")))
-        val items = body.getJSONArray("items")
-        return EventDiscoverPage(
-            (0 until items.length()).map { toEvent(items.getJSONObject(it)) },
-            if (body.isNull("nextCursor")) null else body.optString("nextCursor").ifBlank { null },
-        )
-    }
-
-    override suspend fun setNotInterested(eventId: String, hidden: Boolean) = explained {
-        api.send(if (hidden) "PUT" else "DELETE", "/api/v1/discover/events/$eventId/not-interested")
-        Unit
-    }
 
     /** Upcoming events first, then the recently ended ones (the server keeps those for a week, for the Past tab). */
     override suspend fun getEvents(): List<CampusEvent> {
