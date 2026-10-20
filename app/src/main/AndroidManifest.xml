@@ -3,6 +3,7 @@
 
     <!-- Needed for map tiles. The app never asks for the device location. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Asked for only when someone taps the microphone in a chat, never when a chat opens. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Android 13+: asked once, after sign-in. If it is declined the in-app notification list keeps working. -->

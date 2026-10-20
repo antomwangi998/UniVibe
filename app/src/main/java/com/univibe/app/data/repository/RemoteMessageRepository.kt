@@ -27,6 +27,11 @@ import java.io.File
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import com.univibe.app.data.net.ApiException
+import com.univibe.app.data.net.Outbox
+import com.univibe.app.data.net.OutboxResult
+import com.univibe.app.data.prefs.DraftStore
+import java.io.IOException
 
 /**
  * Chat messages from the server (`/api/v1/conversations/{id}/messages`).
@@ -65,7 +70,45 @@ class RemoteMessageRepository(
     }
 
     private val states = ConcurrentHashMap<String, ChatState>()
-    private fun state(chatId: String) = states.getOrPut(chatId) { ChatState() }
+    private fun state(chatId: String) = states.getOrPut(chatId) { ChatState().also { restoreQueued(chatId, it) } }
+
+    /** Where messages wait when there is no connection (set by the app; unset in tests). */
+    var outbox: Outbox? = null
+
+    /** After a restart, messages still waiting to be sent show at the bottom of their chat again. */
+    private fun restoreQueued(chatId: String, s: ChatState) {
+        val box = outbox ?: return
+        val me = myId() ?: return
+        val waiting = box.pending("message").filter { it.data.optString("chatId") == chatId }.map { e ->
+            val reply = e.data.optJSONObject("reply")?.let { ReplyRef(it.optString("messageId"), it.optString("senderName"), it.optString("preview")) }
+            Message("$LOCAL${e.data.optString("clientId")}", chatId, me, "You", e.data.optString("content"), e.createdAt, true, MessageStatus.Sending, replyTo = reply)
+        }
+        if (waiting.isNotEmpty()) s.messages.value = waiting
+    }
+
+    /** Sends one queued message. The same client id as the first attempt, so a message that did get through is never doubled. */
+    suspend fun deliverQueued(entry: Outbox.Entry): OutboxResult {
+        val d = entry.data
+        val chatId = d.optString("chatId")
+        val clientId = d.optString("clientId")
+        if (chatId.isEmpty() || clientId.isEmpty()) return OutboxResult.Drop
+        val body = JSONObject().put("content", d.optString("content")).put("clientId", clientId)
+        d.optJSONObject("reply")?.optString("messageId")?.takeIf { it.isNotEmpty() }?.let { body.put("replyToId", it) }
+        return try {
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            state(chatId).messages.update { list -> list.filterNot { it.id == "$LOCAL$clientId" } }
+            merge(chatId, listOf(sent))
+            OutboxResult.Done
+        } catch (e: IOException) {
+            OutboxResult.Retry
+        } catch (e: ApiException) {
+            if (e.status >= 500 || e.status == 429 || e.status == 408 || e.status == 401) return OutboxResult.Retry
+            // Refused for good (left the chat, blocked, ...): take it off the screen and give the words back as a draft.
+            state(chatId).messages.update { list -> list.filterNot { it.id == "$LOCAL$clientId" } }
+            if (DraftStore.get("chat:$chatId").isBlank()) DraftStore.set("chat:$chatId", d.optString("content"))
+            OutboxResult.Drop
+        }
+    }
 
     override fun messages(chatId: String): Flow<List<Message>> = channelFlow {
         val s = state(chatId)
@@ -234,9 +277,17 @@ class RemoteMessageRepository(
             s.messages.update { list -> list.filterNot { it.id == local.id } }
             merge(chatId, listOf(sent))
         } catch (e: Exception) {
+            // No connection: a plain text message waits in the outbox and goes out by itself when the connection is back.
+            if (e is IOException && imagePath == null && queueText(chatId, clientId, clean, replyTo)) return
             s.messages.update { list -> list.filterNot { it.id == local.id } }
             throw e
         }
+    }
+
+    private fun queueText(chatId: String, clientId: String, content: String, replyTo: ReplyRef?): Boolean {
+        val data = JSONObject().put("chatId", chatId).put("clientId", clientId).put("content", content)
+        replyTo?.let { data.put("reply", JSONObject().put("messageId", it.messageId).put("senderName", it.senderName).put("preview", it.preview)) }
+        return outbox?.add("message", data) == true
     }
 
     override suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef?) {

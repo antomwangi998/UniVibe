@@ -115,12 +115,26 @@ object AppContainer {
             authRepository.session.collect { state ->
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
                     when {
-                        state is AuthState.Authenticated -> offlineCache.useAccount(state.user.id)
-                        state is AuthState.SignedOut && state.reason == null -> offlineCache.clear()
+                        state is AuthState.Authenticated -> { offlineCache.useAccount(state.user.id); outbox.useAccount(state.user.id) }
+                        state is AuthState.SignedOut && state.reason == null -> { offlineCache.clear(); outbox.clear() }
                     }
                 }
+                if (state is AuthState.Authenticated) appScope.launch { outboxRunner.flush() }
             }
         }
+        // Send what was queued offline: when a network appears, and every half minute while anything is waiting.
+        (feedRepository as? RemoteFeedRepository)?.let { r ->
+            outboxRunner.register("like") { r.deliverQueued(it) }
+            outboxRunner.register("save") { r.deliverQueued(it) }
+        }
+        (messageRepository as? RemoteMessageRepository)?.let { r -> outboxRunner.register("message") { r.deliverQueued(it) } }
+        runCatching {
+            val connectivity = application.getSystemService(android.net.ConnectivityManager::class.java)
+            connectivity.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { appScope.launch { kotlinx.coroutines.delay(1_500); outboxRunner.flush() } }
+            })
+        }
+        appScope.launch { while (true) { kotlinx.coroutines.delay(30_000); if (outbox.count.value > 0) outboxRunner.flush() } }
         // Once signed in, make sure this device's push address is registered with the server (cheap no-op when unchanged).
         appScope.launch {
             authRepository.session.collect { state ->
@@ -162,7 +176,7 @@ object AppContainer {
     }
 
     val feedRepository: FeedRepository by lazy {
-        api?.let { RemoteFeedRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value) } }
+        api?.let { RemoteFeedRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value) }.also { r -> r.outbox = outbox } }
             ?: MockFeedRepository(mockStore)
     }
     val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
@@ -175,7 +189,7 @@ object AppContainer {
         api?.let { RemoteChatRepository(it, chatSocket) { accountOf(authRepository.session.value)?.id } } ?: UnavailableChatRepository
     }
     val messageRepository: MessageRepository by lazy {
-        api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id } }
+        api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id }.also { r -> r.outbox = outbox } }
             ?: UnavailableMessageRepository
     }
     val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
@@ -229,6 +243,10 @@ object AppContainer {
 
     /** Saved copies of the last-seen screens' data, so the app opens with something to show offline. See [com.univibe.app.data.net.OfflineCache]. */
     val offlineCache: com.univibe.app.data.net.OfflineCache by lazy { com.univibe.app.data.net.OfflineCache(java.io.File(app.cacheDir, "offline")) }
+
+    /** Likes, saves and chat messages made offline, sent when the connection is back. See [com.univibe.app.data.net.Outbox]. */
+    val outbox: com.univibe.app.data.net.Outbox by lazy { com.univibe.app.data.net.Outbox(java.io.File(app.filesDir, "outbox.json")) }
+    val outboxRunner: com.univibe.app.data.net.OutboxRunner by lazy { com.univibe.app.data.net.OutboxRunner(outbox) }
 
     val authRepository: AuthRepository by lazy {
         if (BuildConfig.API_BASE_URL.isBlank()) {
