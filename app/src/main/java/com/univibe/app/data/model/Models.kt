@@ -130,6 +130,8 @@ data class Chat(
     val avatarUrl: String? = null,
     /** For groups: the uploaded group photo (a signed link), when there is one. */
     val groupPhotoUrl: String? = null,
+    /** When the other person was last active (epoch ms). Null when they keep it private or have not been seen yet. */
+    val lastActiveMs: Long? = null,
 ) {
     val hasUnread: Boolean get() = unread > 0
 }
