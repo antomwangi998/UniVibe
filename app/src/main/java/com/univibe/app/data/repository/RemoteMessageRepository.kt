@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
+import com.univibe.app.data.model.LinkPreview
 import com.univibe.app.data.model.VoiceNote
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.model.ReplyRef
@@ -290,14 +291,14 @@ class RemoteMessageRepository(
         return outbox?.add("message", data) == true
     }
 
-    override suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef?) {
+    override suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef?, waveform: List<Int>) {
         val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
         val s = state(chatId)
         val clientId = UUID.randomUUID().toString()
-        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, voice = VoiceNote(audioPath, durationMs), replyTo = replyTo)
+        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, voice = VoiceNote(audioPath, durationMs, waveform), replyTo = replyTo)
         s.messages.update { it + local }
         try {
-            val mediaId = (uploader ?: throw IllegalStateException("Voice messages aren't available right now.")).upload(audioPath, "audio", "message", durationMs, tag = local.id)
+            val mediaId = (uploader ?: throw IllegalStateException("Voice messages aren't available right now.")).upload(audioPath, "audio", "message", durationMs, tag = local.id, waveform = waveform)
             val body = JSONObject().put("content", "").put("clientId", clientId).put("mediaIds", JSONArray().put(mediaId))
             replyTo?.let { body.put("replyToId", it.messageId) }
             val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
@@ -409,7 +410,7 @@ class RemoteMessageRepository(
             }
         }
         val firstMedia = firstOfKind(media, "image")
-        val voice = firstOfKind(media, "audio")?.let { a -> a.strOrNull("url")?.let { VoiceNote(it, a.optInt("durationMs", 0)) } }
+        val voice = firstOfKind(media, "audio")?.let { a -> a.strOrNull("url")?.let { VoiceNote(it, a.optInt("durationMs", 0), a.optJSONArray("waveform")?.let { w -> List(w.length()) { i -> w.optInt(i) } } ?: emptyList()) } }
         val ratio = firstMedia?.let { m -> val w = m.optInt("width", 0); val h = m.optInt("height", 0); if (w > 0 && h > 0) w.toFloat() / h else null }
         val reply = o.optJSONObject("replyTo")?.let { r ->
             val author = r.strOrNull("senderId")
@@ -438,6 +439,17 @@ class RemoteMessageRepository(
             myReaction = o.strOrNull("myReaction")?.let(::reactionOf),
             forwarded = o.optBoolean("forwarded", false),
             edited = !o.isNull("editedAt"),
+            linkPreview = o.optJSONObject("linkPreview")?.let { l ->
+                l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
+                    ?.let { u ->
+                        val w = l.optInt("imageWidth", 0); val h = l.optInt("imageHeight", 0)
+                        LinkPreview(
+                            u, l.optString("host", ""), l.strOrNull("title"), l.strOrNull("description"), l.strOrNull("siteName"),
+                            imageUrl = l.strOrNull("imageUrl")?.takeIf { it.startsWith("https://", true) || it.startsWith("http://", true) },
+                            imageRatio = if (w > 0 && h > 0) w.toFloat() / h else null,
+                        )
+                    }
+            },
         )
     }
 

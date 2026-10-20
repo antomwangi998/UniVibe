@@ -58,6 +58,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.univibe.app.app.AppContainer
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.Delivery
 import com.univibe.app.data.model.activeLabel
@@ -85,8 +88,20 @@ private val AvatarSize = 52.dp
 fun ChatsScreen(
     onOpenChat: (String) -> Unit = {},
     onNewGroup: () -> Unit = {},
+    /** Opens the Story viewer for a person. While this is null Stories are not shown at all (no rings, no Story-only people). */
+    onOpenStory: ((authorId: String) -> Unit)? = null,
     viewModel: ChatsViewModel = viewModel(),
-    notesViewModel: NotesViewModel = viewModel(),
+    notesViewModel: NotesViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                NotesViewModel(
+                    repository = AppContainer.noteRepository,
+                    session = AppContainer.authRepository.session,
+                    storyRepository = AppContainer.storyRepository,
+                )
+            }
+        },
+    ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes by notesViewModel.state.collectAsStateWithLifecycle()
@@ -119,6 +134,8 @@ fun ChatsScreen(
             onAddNote = notesViewModel::onAddNoteClick,
             onOpenMyNote = notesViewModel::onMyNoteClick,
             onOpenAvatar = notesViewModel::onAvatarClick,
+            showStories = onOpenStory != null,
+            onOpenStories = { id -> onOpenStory?.invoke(id) },
             onOpenNote = notesViewModel::onNoteClick,
         )
         AnimatedVisibility(visible = state.showFilters) {

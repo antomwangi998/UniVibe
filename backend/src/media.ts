@@ -60,6 +60,8 @@ const uploadSchema = z.object({
   height: z.number().int().positive().max(20000).optional(),
   /** Length of a voice message, in milliseconds. Required for audio, not allowed for anything else. */
   durationMs: z.number().int().positive().max(5 * 60 * 1000).optional(),
+  /** Voice messages only: up to 64 bar heights from 0 to 100, drawn as the message's waveform. */
+  waveform: z.array(z.number().int().min(0).max(100)).min(1).max(64).optional(),
 }).refine((v) => (v.width === undefined) === (v.height === undefined), { message: 'Send both width and height, or neither.' });
 const photosSchema = z.object({
   avatarMediaId: z.string().uuid().nullable().optional(),
@@ -111,6 +113,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (b.kind === 'audio' && (b.purpose !== 'message' || !b.durationMs)) {
       throw new HttpError(400, 'validation', 'Audio can only be a voice message, and needs its length.');
     }
+    if (b.waveform && b.kind !== 'audio') throw new HttpError(400, 'validation', 'Only voice messages have a waveform.');
     if (b.kind !== 'audio' && !(b.kind === 'video' && b.purpose === 'story') && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages and video Stories have a length.');
     if ((b.purpose === 'group' || b.purpose === 'community') && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
     const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
@@ -122,8 +125,8 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     }
     const key = `${user.id}/${randomUUID()}.${EXTENSIONS[b.contentType]}`;
     const created = await pool.query<{ id: string }>(
-      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id',
-      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null],
+      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms, waveform) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id',
+      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null, b.waveform ?? null],
     );
     const uploadUrl = await storage.presignUpload(key, b.contentType, UPLOAD_LINK_SECONDS);
     return reply.status(201).send({
