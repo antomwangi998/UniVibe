@@ -4,6 +4,7 @@ import com.univibe.app.data.model.Note
 import com.univibe.app.data.model.NoteAudience
 import com.univibe.app.data.model.NoteDraftCheck
 import com.univibe.app.data.model.NotesSnapshot
+import com.univibe.app.data.model.activeLabel
 import com.univibe.app.data.model.checkNoteDraft
 import com.univibe.app.data.model.noteLength
 import com.univibe.app.data.net.ChatEvent
@@ -215,5 +216,41 @@ class NotesViewModelTest {
         dispatcher.scheduler.runCurrent()
         assertTrue(repo.loads > before)
         assertEquals(listOf("b"), vm.state.value.visibleOthers.map { it.authorId })
+    }
+}
+
+class ActiveLabelTest {
+    private val min = 60_000L
+    @Test fun onlineIsActiveNowWhateverTheTime() = assertEquals("Active now", activeLabel(true, null, T0))
+    @Test fun recentAndOlderTimesReadNaturally() {
+        assertEquals("Active now", activeLabel(false, T0 - 20_000, T0))
+        assertEquals("Active 5m ago", activeLabel(false, T0 - 5 * min, T0))
+        assertEquals("Active 3h ago", activeLabel(false, T0 - 180 * min, T0))
+        assertEquals("Active yesterday", activeLabel(false, T0 - 30 * 60 * min, T0))
+        assertEquals("Active 4d ago", activeLabel(false, T0 - 4 * 24 * 60 * min, T0))
+    }
+    @Test fun privateUnknownOrVeryOldShowsNothingNeverOffline() {
+        assertNull(activeLabel(false, null, T0))
+        assertNull(activeLabel(false, T0 - 40L * 24 * 60 * min, T0))
+    }
+}
+
+class NotePresenceParsingTest {
+    private fun body(presence: Any?) = JSONObject()
+        .put("serverTime", iso(T0)).put("limits", JSONObject().put("maxChars", 60).put("ttlHours", 24)).put("mine", JSONObject.NULL)
+        .put("items", org.json.JSONArray().put(noteJson("1", "a", "hi", T0, T0 + 3_600_000).put("presence", presence)))
+        .toString()
+
+    @Test fun readsOnlineAndLastActive() {
+        val p = JSONObject().put("online", true).put("lastActiveAt", iso(T0 - 1000))
+        val n = parseNotesSnapshot(body(p), T0, true).items.single()
+        assertTrue(n.online)
+        assertEquals(T0 - 1000, n.lastActiveMs)
+    }
+
+    @Test fun aPrivatePersonHasNoDotAndNoTime() {
+        val n = parseNotesSnapshot(body(JSONObject.NULL), T0, true).items.single()
+        assertFalse(n.online)
+        assertNull(n.lastActiveMs)
     }
 }
