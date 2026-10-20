@@ -2,6 +2,10 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.core.eventDateParts
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventCategoryInfo
+import com.univibe.app.data.model.EventDiscoverFilter
+import com.univibe.app.data.model.EventDiscoverPage
+import com.univibe.app.data.model.EventSection
 import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.RsvpState
@@ -11,6 +15,7 @@ import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.accentFor
 import com.univibe.app.data.net.send
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.time.Instant
 
 /** The app's category names and the server's. Both sides know the same six, plus the server's extras. */

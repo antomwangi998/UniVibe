@@ -3,6 +3,7 @@ import type { Ctx } from './context';
 import { communityRoutes } from './modules/communities';
 import { discoverRoutes } from './modules/discover';
 import { discoverFeedRoutes } from './modules/discover_feed';
+import { discoverEventRoutes } from './modules/discover_events';
 import { eventRoutes } from './modules/events';
 import { chatExtraRoutes } from './modules/chat_extras';
 import { messagingRoutes } from './modules/messaging';
@@ -26,6 +27,7 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(privacyRoutes(ctx));
     await app.register(discoverRoutes(ctx));
     await app.register(discoverFeedRoutes(ctx));
+    await app.register(discoverEventRoutes(ctx));
     await app.register(messagingRoutes(ctx, hub));
     await app.register(groupRoutes(ctx, hub));
     await app.register(chatExtraRoutes(ctx, hub));
