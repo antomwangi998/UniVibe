@@ -71,6 +71,11 @@ data class Post(
     /** Set when the post was published in a community; the author and the community stay distinct. */
     val community: PostCommunity? = null,
     val announcement: Boolean = false,
+    /**
+     * Set when the post announces an event. It is the event's CURRENT state, from the same server data as the Events tab and
+     * the details screen, so a cancellation or RSVP shows up here too. The text of such a post is empty.
+     */
+    val event: CampusEvent? = null,
 ) {
     /** True when the post carries something besides text, so its text may be empty. */
     val hasAttachment: Boolean
@@ -125,8 +130,6 @@ data class Chat(
     val avatarUrl: String? = null,
     /** For groups: the uploaded group photo (a signed link), when there is one. */
     val groupPhotoUrl: String? = null,
-    /** When the other person was last active (epoch ms). Null when they keep it private or have not been seen yet. */
-    val lastActiveMs: Long? = null,
 ) {
     val hasUnread: Boolean get() = unread > 0
 }
@@ -164,6 +167,12 @@ data class CampusEvent(
     val cancelled: Boolean = false,
     /** You created it, so you can edit, cancel or delete it. */
     val mine: Boolean = false,
+    /** Signed link to the cover photo, when the organizer added one. Expires, so it is never stored. */
+    val coverUrl: String? = null,
+    /** You bookmarked it (saved on the server, so it follows you across devices). */
+    val saved: Boolean = false,
+    /** Why Discover recommends it ("From a community you joined"), from a real ranking signal; null elsewhere. */
+    val reason: String? = null,
 ) {
     /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
     val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
@@ -180,6 +189,26 @@ enum class EventStatus { Upcoming, Live, Ended, Cancelled }
 
 /** Ended events stay visible under Past for a week (photos, memories, deep links), then are deleted with their RSVPs. */
 const val EVENT_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+/** One category the server offers. The list is data on the server, so new categories appear without an app update. */
+data class EventCategoryInfo(val code: String, val label: String)
+
+/** A named group of events on the Discover page. An event is in at most one section. */
+data class EventSection(val key: String, val title: String, val events: List<CampusEvent>)
+
+/** Filters the server applies when browsing events. Empty means no filter. */
+data class EventDiscoverFilter(
+    /** Server category codes. */
+    val categories: Set<String> = emptySet(),
+    val toMillis: Long? = null,
+    val onlineOnly: Boolean = false,
+    val registrationOpen: Boolean = false,
+    val savedOnly: Boolean = false,
+) {
+    val isActive: Boolean get() = categories.isNotEmpty() || toMillis != null || onlineOnly || registrationOpen || savedOnly
+}
+
+data class EventDiscoverPage(val events: List<CampusEvent>, val nextCursor: String?)
 
 val EventCategoryOptions = listOf("Workshop", "Party", "Sports", "Academic", "Social", "Career")
 

@@ -67,11 +67,11 @@ type Q = Pick<PoolClient, 'query'>;
  * - 'community' events (required for private communities) are for active members of that active community only.
  * - 'university' events are for the same university; 'public' events for everyone. Blocked organizers are hidden either way.
  */
-export const eventVisible = (viewer = '$1', uni = '$2') =>
-  `(e.organizer_id = ${viewer} or (e.status <> 'draft' and not ${blockedBetween(viewer, 'e.organizer_id')} and (` +
-  `(e.visibility = 'community' and exists (select 1 from community_members ecm join communities ec on ec.id = ecm.community_id ` +
-  `where ecm.community_id = e.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
-  `or (e.visibility <> 'community' and (e.university_id = ${uni} or e.visibility = 'public')))))`;
+export const eventVisible = (viewer = '$1', uni = '$2', e = 'e') =>
+  `(${e}.organizer_id = ${viewer} or (${e}.status <> 'draft' and not ${blockedBetween(viewer, `${e}.organizer_id`)} and (` +
+  `(${e}.visibility = 'community' and exists (select 1 from community_members ecm join communities ec on ec.id = ecm.community_id ` +
+  `where ecm.community_id = ${e}.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
+  `or (${e}.visibility <> 'community' and (${e}.university_id = ${uni} or ${e}.visibility = 'public')))))`;
 
 function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; startChanged: boolean }) {
   const now = Date.now();
@@ -112,64 +112,105 @@ async function audit(client: Q, eventId: string, actorId: string, action: 'creat
   await client.query('insert into event_audit (event_id, actor_id, action, detail) values ($1, $2, $3, $4::jsonb)', [eventId, actorId, action, JSON.stringify(detail)]);
 }
 
+export const EVENT_SELECT = `
+  select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key,
+         case when ec.visibility = 'public' or exists (select 1 from community_members vm where vm.community_id = ec.id and vm.user_id = $1 and vm.status = 'active') then ec.name end as community_name,
+         (select count(*) from event_registrations r where r.event_id = e.id and r.status = 'registered') as registered_count,
+         (select count(*) from event_interest i where i.event_id = e.id) as interested_count,
+         exists (select 1 from event_interest i where i.event_id = e.id and i.user_id = $1) as my_interested,
+         exists (select 1 from saved_events sv where sv.event_id = e.id and sv.user_id = $1) as my_saved,
+         (select r.status from event_registrations r where r.event_id = e.id and r.user_id = $1) as my_status,
+         (select r.checked_in_at is not null from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_checked_in
+    from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
+    left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
+    left join communities ec on ec.id = e.community_id and ec.status <> 'deleted'`;
+
+
+/**
+ * Time-dependent state is derived here, from the server clock and the stored event; the app never decides it.
+ * phase: where the event is in time. registration: whether a new person could register right now.
+ */
+function deriveEventState(r: Record<string, unknown>, registered: number) {
+  const now = Date.now();
+  const starts = new Date(r.starts_at as string).getTime(), ends = new Date(r.ends_at as string).getTime();
+  const status = r.status as string;
+  const phase = status === 'completed' || now >= ends ? 'ended' : now >= starts ? 'live' : 'upcoming';
+  const deadline = r.registration_deadline ? new Date(r.registration_deadline as string).getTime() : null;
+  const capacity = r.capacity as number | null;
+  const registration = status === 'draft' ? 'draft' : status === 'cancelled' ? 'cancelled' : phase === 'ended' ? 'ended'
+    : deadline !== null && now >= deadline ? 'closed' : capacity !== null && registered >= capacity ? 'full' : 'open';
+  return { phase, registration };
+}
+
+export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Record<string, unknown>) {
+  const registered = Number(r.registered_count);
+  const capacity = r.capacity as number | null;
+  const isOrganizer = r.organizer_id === meId;
+  const joined = r.my_status === 'registered';
+  return {
+    id: r.id as string, organizer: await toCard(ctx, r as unknown as CardRow), title: r.title, description: r.description,
+    category: r.category, eventType: r.event_type, venueName: r.venue_name, venueAddress: r.venue_address,
+    // The join link is for the organizer and people who registered; everyone else who can see the event cannot.
+    onlineUrl: isOrganizer || joined ? r.online_url : null, hasOnlineLink: r.online_url !== null,
+    externalRegistrationUrl: r.external_registration_url, registrationDeadline: r.registration_deadline, timezone: r.timezone,
+    startsAt: r.starts_at, endsAt: r.ends_at, capacity,
+    registeredCount: registered, spotsLeft: capacity === null ? null : Math.max(0, capacity - registered),
+    visibility: r.visibility, attendeesVisible: r.attendees_visible, status: r.status, ...deriveEventState(r, registered),
+    communityId: r.community_name ? r.community_id : null, communityName: r.community_name ?? null,
+    coverUrl: await signedUrl(ctx, r.cover_key as string | null),
+    myRegistration: joined ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
+    interestedCount: Number(r.interested_count),
+    // Interested never holds a seat; going is the registration. The two are mutually exclusive.
+    myRsvp: joined ? 'going' : r.my_interested ? 'interested' : null,
+    saved: r.my_saved === true,
+    isOrganizer,
+  };
+}
+
+
+/**
+ * Free-text match for an event (alias e), shared by Search and Discover. $1 is the viewer; `p` is the parameter holding the
+ * already LIKE-escaped term. Matches title, description, venue, category, organizer, university, and the community name
+ * only where the viewer is allowed to know the community, so a private community's name cannot be probed through search.
+ */
+export const eventTextMatch = (p: string) =>
+  `(e.title ilike '%' || ${p} || '%' or e.description ilike '%' || ${p} || '%' or e.venue_name ilike '%' || ${p} || '%' ` +
+  `or e.venue_address ilike '%' || ${p} || '%' ` +
+  `or exists (select 1 from event_categories sc where sc.code = e.category and sc.label ilike '%' || ${p} || '%') ` +
+  `or exists (select 1 from users so where so.id = e.organizer_id and (so.full_name ilike '%' || ${p} || '%' or so.handle ilike '%' || ${p} || '%')) ` +
+  `or exists (select 1 from universities su where su.id = e.university_id and su.name ilike '%' || ${p} || '%') ` +
+  `or exists (select 1 from communities sco where sco.id = e.community_id and sco.status <> 'deleted' and sco.name ilike '%' || ${p} || '%' ` +
+  `and (sco.visibility = 'public' or exists (select 1 from community_members scm where scm.community_id = sco.id and scm.user_id = $1 and scm.status = 'active'))))`;
+
+/**
+ * Creates the feed announcement for a published event, inside the caller's transaction. Safe to repeat: there is at most one
+ * announcement per event, so publishing twice or editing later never adds another. Private-community events are announced
+ * inside that community (audience 'community'); everything else on campus.
+ */
+export async function announceEvent(client: Q, e: { id: string; organizer_id: string; community_id: string | null }) {
+  await client.query(
+    `insert into posts (author_id, text, audience, community_id, event_id) values ($1, '', $2, $3, $4)
+     on conflict (event_id) where event_id is not null do nothing`,
+    [e.organizer_id, e.community_id ? 'community' : 'campus', e.community_id, e.id]);
+}
+
+/** The canonical event views for these ids, as this viewer may see them. An id the viewer cannot see is simply missing. */
+export async function loadEventViews(ctx: Pick<Ctx, 'pool' | 'storage'>, viewer: { id: string; universityId: string }, ids: string[]) {
+  const out = new Map<string, Awaited<ReturnType<typeof toEventView>>>();
+  if (ids.length === 0) return out;
+  const { rows } = await ctx.pool.query(`${EVENT_SELECT} where e.id = any($3::uuid[]) and ${eventVisible('$1', '$2')}`, [viewer.id, viewer.universityId, ids]);
+  for (const r of rows) out.set(r.id as string, await toEventView(ctx, viewer.id, r as Record<string, unknown>));
+  return out;
+}
+
 export function eventRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
     const param = (req: Req, name = 'eventId') => idParam((req.params as Record<string, string>)[name]);
 
-    const SELECT = `
-      select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key,
-             case when ec.visibility = 'public' or exists (select 1 from community_members vm where vm.community_id = ec.id and vm.user_id = $1 and vm.status = 'active') then ec.name end as community_name,
-             (select count(*) from event_registrations r where r.event_id = e.id and r.status = 'registered') as registered_count,
-             (select count(*) from event_interest i where i.event_id = e.id) as interested_count,
-             exists (select 1 from event_interest i where i.event_id = e.id and i.user_id = $1) as my_interested,
-             exists (select 1 from saved_events sv where sv.event_id = e.id and sv.user_id = $1) as my_saved,
-             (select r.status from event_registrations r where r.event_id = e.id and r.user_id = $1) as my_status,
-             (select r.checked_in_at is not null from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_checked_in
-        from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
-        left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
-        left join communities ec on ec.id = e.community_id and ec.status <> 'deleted'`;
+    const SELECT = EVENT_SELECT;
 
-    /**
-     * Time-dependent state is derived here, from the server clock and the stored event; the app never decides it.
-     * phase: where the event is in time. registration: whether a new person could register right now.
-     */
-    function derive(r: Record<string, unknown>, registered: number) {
-      const now = Date.now();
-      const starts = new Date(r.starts_at as string).getTime(), ends = new Date(r.ends_at as string).getTime();
-      const status = r.status as string;
-      const phase = status === 'completed' || now >= ends ? 'ended' : now >= starts ? 'live' : 'upcoming';
-      const deadline = r.registration_deadline ? new Date(r.registration_deadline as string).getTime() : null;
-      const capacity = r.capacity as number | null;
-      const registration = status === 'draft' ? 'draft' : status === 'cancelled' ? 'cancelled' : phase === 'ended' ? 'ended'
-        : deadline !== null && now >= deadline ? 'closed' : capacity !== null && registered >= capacity ? 'full' : 'open';
-      return { phase, registration };
-    }
-
-    async function toView(me: AuthUser, r: Record<string, unknown>) {
-      const registered = Number(r.registered_count);
-      const capacity = r.capacity as number | null;
-      const isOrganizer = r.organizer_id === me.id;
-      const joined = r.my_status === 'registered';
-      return {
-        id: r.id as string, organizer: await toCard(ctx, r as unknown as CardRow), title: r.title, description: r.description,
-        category: r.category, eventType: r.event_type, venueName: r.venue_name, venueAddress: r.venue_address,
-        // The join link is for the organizer and people who registered; everyone else who can see the event cannot.
-        onlineUrl: isOrganizer || joined ? r.online_url : null, hasOnlineLink: r.online_url !== null,
-        externalRegistrationUrl: r.external_registration_url, registrationDeadline: r.registration_deadline, timezone: r.timezone,
-        startsAt: r.starts_at, endsAt: r.ends_at, capacity,
-        registeredCount: registered, spotsLeft: capacity === null ? null : Math.max(0, capacity - registered),
-        visibility: r.visibility, attendeesVisible: r.attendees_visible, status: r.status, ...derive(r, registered),
-        communityId: r.community_name ? r.community_id : null, communityName: r.community_name ?? null,
-        coverUrl: await signedUrl(ctx, r.cover_key as string | null),
-        myRegistration: joined ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
-        interestedCount: Number(r.interested_count),
-        // Interested never holds a seat; going is the registration. The two are mutually exclusive.
-        myRsvp: joined ? 'going' : r.my_interested ? 'interested' : null,
-        saved: r.my_saved === true,
-        isOrganizer,
-      };
-    }
+    const toView = (me: AuthUser, r: Record<string, unknown>) => toEventView(ctx, me.id, r);
 
     // Parameters: $1 viewer id, $2 viewer university id, then the caller's own.
     const visible = () => eventVisible('$1', '$2');
@@ -244,7 +285,10 @@ export function eventRoutes(ctx: Ctx) {
           [me.id, me.universityId, b.communityId, b.title, b.description, b.category, b.eventType, venueName, b.venueAddress, b.onlineUrl,
             b.externalRegistrationUrl, deadline, b.timezone, b.coverMediaId, starts, ends, b.capacity, visibility, b.attendeesVisible, b.status, b.createKey])).rows[0].id;
         await audit(client, id, me.id, 'create', { status: b.status, communityId: b.communityId });
-        if (b.status === 'published') await audit(client, id, me.id, 'publish');
+        if (b.status === 'published') {
+          await audit(client, id, me.id, 'publish');
+          await announceEvent(client, { id, organizer_id: me.id, community_id: b.communityId });
+        }
         return { id, created: true };
       });
       return reply.status(result.created ? 201 : 200).send(await toView(me, await getEvent(me, result.id)));
@@ -269,6 +313,7 @@ export function eventRoutes(ctx: Ctx) {
         if (open >= MAX_UPCOMING_PER_ORGANIZER) throw new HttpError(409, 'too_many_events', `You can have up to ${MAX_UPCOMING_PER_ORGANIZER} upcoming events.`);
         await client.query("update events set status = 'published', updated_at = now() where id = $1", [id]);
         await audit(client, id, me.id, 'publish');
+        await announceEvent(client, { id, organizer_id: row.organizer_id, community_id: row.community_id });
       });
       return toView(me, await getEvent(me, id));
     });

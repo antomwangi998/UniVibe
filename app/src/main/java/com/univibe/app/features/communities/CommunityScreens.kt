@@ -308,7 +308,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.postsTab(
                 actionLabel = if (c.isMember) "Write a post" else null, onAction = if (c.isMember) onPost else null,
             )
         }
-        else -> items(s.posts, key = { it.id }) { p -> CommunityPostRow(p, onOpenComments, onOpenStudent) }
+        else -> items(s.posts.filter { it.event == null }, key = { it.id }) { p -> CommunityPostRow(p, onOpenComments, onOpenStudent) }
     }
 }
 

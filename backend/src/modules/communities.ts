@@ -764,7 +764,7 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
           order by p.created_at desc, p.id desc limit $6`,
         [me.id, me.universityId, id, cur?.t ?? null, cur?.id ?? null, q.limit + 1]);
       const page = toPage(rows as unknown as (PostRow & { cursorT: string; id: string })[], q.limit);
-      return { items: await presentPosts(pool, ctx.storage, page.items as unknown as PostRow[]), nextCursor: page.nextCursor };
+      return { items: await presentPosts(pool, ctx.storage, page.items as unknown as PostRow[], { id: me.id, universityId: me.universityId }), nextCursor: page.nextCursor };
     });
 
     app.delete('/communities/:id/posts/:postId', async (req, reply) => {

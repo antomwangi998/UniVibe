@@ -133,7 +133,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
       );
       const byId = new Map(rows.map((r) => [r.id, r]));
       const ordered = ids.map((i) => byId.get(i)).filter((r): r is PostRow => !!r);
-      const out = await presentPosts(pool, ctx.storage, ordered);
+      const out = await presentPosts(pool, ctx.storage, ordered, { id: me.id, universityId: me.universityId });
       return out.map((p) => ({ ...p, reason: extra.get(p.id) ?? null }));
     }
 
