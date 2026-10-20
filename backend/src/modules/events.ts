@@ -73,6 +73,13 @@ export const eventVisible = (viewer = '$1', uni = '$2', e = 'e') =>
   `where ecm.community_id = ${e}.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
   `or (${e}.visibility <> 'community' and (${e}.university_id = ${uni} or ${e}.visibility = 'public')))))`;
 
+/**
+ * Free-text match on an event's title or venue. [param] is a SQL placeholder (for example '$3') whose value the caller
+ * has already LIKE-escaped (see escapeLike); [e] is the events table alias.
+ */
+export const eventTextMatch = (param: string, e = 'e') =>
+  `(${e}.title ilike '%' || ${param} || '%' or ${e}.venue_name ilike '%' || ${param} || '%')`;
+
 function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; startChanged: boolean }) {
   const now = Date.now();
   if (endsAt <= startsAt) throw new HttpError(422, 'validation', 'The event must end after it starts.');

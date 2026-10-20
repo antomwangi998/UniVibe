@@ -56,6 +56,7 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
         cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
         coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifBlank { null },
         saved = o.optBoolean("saved", false),
+        reason = if (o.isNull("reason")) null else o.optString("reason").ifBlank { null },
     )
 }
 
@@ -155,4 +156,47 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
 
     /** There is no venue directory on the server; the form takes a typed venue. */
     override suspend fun getVenues(): List<Venue> = emptyList()
+
+    override val supportsDiscover: Boolean get() = true
+
+    override suspend fun eventCategories(): List<EventCategoryInfo> {
+        val items = JSONObject(api.send("GET", "/api/v1/event-categories")).getJSONArray("items")
+        return (0 until items.length()).map { items.getJSONObject(it).let { c -> EventCategoryInfo(c.getString("code"), c.getString("label")) } }
+    }
+
+    /** Only filters that are on are sent, so an unfiltered query is just the page size. */
+    private fun discoverPath(f: EventDiscoverFilter, cursor: String?): String {
+        val q = mutableListOf("limit=20")
+        if (f.categories.isNotEmpty()) q += "category=" + f.categories.joinToString(",")
+        if (f.onlineOnly) q += "format=online,hybrid"
+        f.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
+        if (f.registrationOpen) q += "registrationOpen=true"
+        if (f.savedOnly) q += "saved=true"
+        cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
+        return "/api/v1/discover/events?" + q.joinToString("&")
+    }
+
+    private fun parseEvents(items: org.json.JSONArray): List<CampusEvent> =
+        (0 until items.length()).map { toEvent(items.getJSONObject(it)) }
+
+    override suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String?): EventDiscoverPage {
+        val body = JSONObject(api.send("GET", discoverPath(filter, cursor)))
+        return EventDiscoverPage(
+            events = parseEvents(body.getJSONArray("items")),
+            nextCursor = if (body.isNull("nextCursor")) null else body.optString("nextCursor").ifBlank { null },
+        )
+    }
+
+    override suspend fun discoverSections(): List<EventSection> {
+        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections")).getJSONArray("sections")
+        return (0 until sections.length()).map {
+            val s = sections.getJSONObject(it)
+            EventSection(s.getString("key"), s.getString("title"), parseEvents(s.getJSONArray("items")))
+        }
+    }
+
+    override suspend fun setNotInterested(eventId: String, notInterested: Boolean) = explained {
+        api.send(if (notInterested) "PUT" else "DELETE", "/api/v1/discover/events/$eventId/not-interested", ok = setOf(204))
+        Unit
+    }
 }
