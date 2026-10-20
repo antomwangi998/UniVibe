@@ -441,7 +441,14 @@ class RemoteMessageRepository(
             edited = !o.isNull("editedAt"),
             linkPreview = o.optJSONObject("linkPreview")?.let { l ->
                 l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
-                    ?.let { u -> LinkPreview(u, l.optString("host", ""), l.strOrNull("title"), l.strOrNull("description"), l.strOrNull("siteName")) }
+                    ?.let { u ->
+                        val w = l.optInt("imageWidth", 0); val h = l.optInt("imageHeight", 0)
+                        LinkPreview(
+                            u, l.optString("host", ""), l.strOrNull("title"), l.strOrNull("description"), l.strOrNull("siteName"),
+                            imageUrl = l.strOrNull("imageUrl")?.takeIf { it.startsWith("https://", true) || it.startsWith("http://", true) },
+                            imageRatio = if (w > 0 && h > 0) w.toFloat() / h else null,
+                        )
+                    }
             },
         )
     }

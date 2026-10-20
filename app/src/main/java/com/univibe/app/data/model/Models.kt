@@ -139,7 +139,11 @@ data class Chat(
 data class ChatMember(val id: String, val name: String)
 
 /** A link card: what the page at [url] is called and says. Only http(s) addresses are ever kept. */
-data class LinkPreview(val url: String, val host: String, val title: String?, val description: String?, val siteName: String?)
+data class LinkPreview(
+    val url: String, val host: String, val title: String?, val description: String?, val siteName: String?,
+    /** The page's picture, kept by our server (a short-lived link), and its width / height; null when the page has none. */
+    val imageUrl: String? = null, val imageRatio: Float? = null,
+)
 
 /** A recorded voice message: where to play it from and how long it is. */
 /** [waveform] is 0..100 bar heights from the sender's phone; empty for older messages, which then show even bars. */
