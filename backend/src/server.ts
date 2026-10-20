@@ -5,6 +5,7 @@ import { makeCtx } from './context';
 import { createConsoleMailer, createResendMailer } from './email';
 import { JobWorker, purgeOldRecords } from './jobs';
 import { RateLimiter } from './limiter';
+import { purgeExpiredNotes } from './modules/notes';
 import { deliveryHandlers } from './modules/delivery';
 import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
@@ -66,6 +67,7 @@ async function main() {
     const r = await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
     app.log.info({ expired: r.rowCount }, 'expired community invitations');
   });
+  every('purge-expired-notes', 3600 * 1000, async () => app.log.info(await purgeExpiredNotes(pool), 'purged expired notes'));
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {

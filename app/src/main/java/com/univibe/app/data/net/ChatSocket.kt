@@ -63,6 +63,8 @@ sealed interface ChatEvent {
     data class NotificationsChanged(val unreadCount: Int) : ChatEvent
     /** Your membership in a community changed (approved, removed, or joined on another device). The server's state is the truth. */
     data class CommunityMembership(val communityId: String, val membership: String, val memberCount: Int) : ChatEvent
+    /** Someone's Note changed or was removed. The event carries no text: the app re-reads the Notes list from the server. */
+    data class NoteChanged(val userId: String, val deleted: Boolean) : ChatEvent
 
     companion object {
         fun parse(o: JSONObject): ChatEvent? = when (o.optString("type")) {
@@ -74,6 +76,7 @@ sealed interface ChatEvent {
             "presence:update" -> Presence(o.getString("userId"), o.getBoolean("online"))
             "notification:created", "notification:unread" -> NotificationsChanged(o.optInt("unreadCount", 0))
             "community:membership" -> CommunityMembership(o.getString("communityId"), o.getString("membership"), o.optInt("memberCount", 0))
+            "note:changed" -> NoteChanged(o.getString("userId"), o.optString("kind") == "deleted")
             else -> null
         }
     }

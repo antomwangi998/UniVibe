@@ -74,15 +74,25 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.components.rememberBottomClearance
 import com.univibe.app.ui.theme.Spacing
 import com.univibe.app.navigation.rememberTabListState
+import com.univibe.app.features.chats.notes.NotesRow
+import com.univibe.app.features.chats.notes.NotesSheets
+import com.univibe.app.features.chats.notes.NotesViewModel
 
 private val AvatarSize = 52.dp
 
 @Composable
-fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, viewModel: ChatsViewModel = viewModel()) {
+fun ChatsScreen(
+    onOpenChat: (String) -> Unit = {},
+    onNewGroup: () -> Unit = {},
+    viewModel: ChatsViewModel = viewModel(),
+    notesViewModel: NotesViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val notes by notesViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh(); notesViewModel.refresh() }
     LaunchedEffect(state.notice) { state.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
+    LaunchedEffect(notes.notice) { notes.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); notesViewModel.consumeNotice() } }
 
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Chats", actions = { VibeIconButton(VibeIcons.PersonAdd, "New group", onNewGroup) })
@@ -102,6 +112,8 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
             },
             modifier = Modifier.padding(horizontal = Spacing.md),
         )
+        // Notes sit between the search field and the filters. The row is compact and never replaces the conversation list.
+        NotesRow(state = notes, onAddNote = notesViewModel::onAddNoteClick, onOpenNote = notesViewModel::onNoteClick)
         AnimatedVisibility(visible = state.showFilters) {
             Row(
                 Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
@@ -151,6 +163,8 @@ fun ChatsScreen(onOpenChat: (String) -> Unit = {}, onNewGroup: () -> Unit = {}, 
             }
         }
     }
+
+    NotesSheets(state = notes, vm = notesViewModel)
 
     state.menuChat?.let { chat ->
         ChatActionsSheet(
