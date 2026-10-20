@@ -146,7 +146,6 @@ class RemoteSocialRepositoriesTest {
             { repo.createPost("x", false, imagePath = "/a.jpg") },
             { repo.createPost("x", false, videoPath = "/a.mp4") },
             { repo.publishPost(NewPost("x", listOf("/a.jpg"), PostAudience.Campus)) },
-            { repo.publishPost(NewPost("x", emptyList(), PostAudience.Community("tech", "Tech Club"))) },
         )) {
             try { attempt(); fail("expected a refusal") } catch (e: UnsupportedOperationException) { /* expected */ }
         }

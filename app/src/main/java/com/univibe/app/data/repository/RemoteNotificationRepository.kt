@@ -84,6 +84,13 @@ class RemoteNotificationRepository(
                 }
                 Shape(NotificationType.Event, what, NotificationTarget.Event(entityId))
             }
+            "community_join_request" -> Shape(NotificationType.Community, "asked to join your community", NotificationTarget.Community(entityId))
+            "community_join_approved" -> { title = "Community"; Shape(NotificationType.Community, "Your request to join was approved.", NotificationTarget.Community(entityId)) }
+            "community_join_declined" -> { title = "Community"; Shape(NotificationType.Community, "Your request to join was not approved.") }
+            "community_invitation" -> Shape(NotificationType.Community, "invited you to join a community", NotificationTarget.Community(entityId))
+            "community_role_changed" -> { title = "Community"; Shape(NotificationType.Community, "Your role in a community changed.", NotificationTarget.Community(entityId)) }
+            "community_member_removed" -> { title = "Community"; Shape(NotificationType.Community, "Your membership in a community changed.", NotificationTarget.Community(entityId)) }
+            "community_announcement" -> Shape(NotificationType.Community, "posted a community announcement", NotificationTarget.Post(postId))
             "verification" -> {
                 title = "Student verification"
                 Shape(NotificationType.System, "Your verification status changed.")

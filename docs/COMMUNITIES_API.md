@@ -21,6 +21,7 @@ Migration `022_communities.sql`. Code: `backend/src/modules/communities.ts`, `co
 | `GET /communities/:id/members` (members only if private) | |
 | `PATCH /members/:uid/role` (owner), `PATCH /members/:uid/status`, `DELETE /members/:uid` | owner / moderator (members only) |
 | `POST /communities/:id/transfer-ownership` (`userId`, `confirmName`) | owner |
+| `POST /communities/:id/delete` (same as DELETE; for clients that cannot send a DELETE body) | owner |
 | `GET /communities/:id/posts` (cursor) , `DELETE /communities/:id/posts/:postId` | members / staff |
 | `POST /posts` with `communityId` | active member, honoring `postPermission` |
 | `POST /moderation/communities/:id/status`, `/reassign-owner` | platform moderator / admin (recovery path) |
@@ -43,5 +44,14 @@ Types: `community_join_request`, `community_join_approved`, `community_join_decl
 - **Announcements:** `POST /posts {communityId, announcement:true}` (staff only, 3 per day per community). A background job `community.announce` notifies members in pages of 200 (cap 5000), skipping muted members and the author, honoring the `communities` switch, idempotent on retry. Type `community_announcement`.
 - **Invitation expiry:** hourly sweep in `server.ts`; reads also ignore expired invitations.
 
+## Android (wired to the routes above)
+- `RemoteCommunityRepository` implements the existing `CommunityRepository` against these routes; `AppContainer` uses it whenever a server is configured (the mock stays for the offline demo only).
+- `CommunityMembershipStore` is the single source of truth for membership. `CommunityMembershipButton` reads and drives it, and is used on the community list, the community page, and every community post in Home, Discover, profiles and search. Join shows a spinner and changes only when the server confirms; failure restores the previous state with a Retry; repeated taps send one request. Server answers and the `community:membership` socket event update all screens at once; the store is cleared on sign-out.
+- Post cards show a compact `PostCommunityHeader` (community, public/private, member count, membership control) above the unchanged author row.
+- The composer's community picker now publishes with `communityId`. Notification types map to titles and open the community or post.
+
 ## Not built yet
-Mention, reaction and repost notifications specific to community posts (ordinary comment and like notifications already reach the post author), digests, a separate administrator tier, post-approval queue, Redis/response caching, Prometheus metrics, and all Android wiring.
+- Android: Discover "Communities" section and community results in search (posts from communities already appear with their header and button), avatar and cover upload in the create form, invitation inbox and invite UI, per-community notification-level picker, announcement composer toggle, moderator tools for removing posts, instrumented and Compose UI tests.
+- Backend: mention, reaction and repost notifications specific to community posts (ordinary comment and like notifications reach the post author), digests, a separate administrator tier, post-approval queue, Redis caching, Prometheus metrics.
+- Offline cache: the app's offline copy of community screens is per account and wiped on sign-out, but it can show a member their last-seen community state until they reconnect.
+- Migration numbering: `022_communities.sql` and `022_google_identity.sql` share a prefix. The migrator tracks full file names, so both apply; do not rename either once deployed.

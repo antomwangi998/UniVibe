@@ -11,6 +11,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import com.univibe.app.ui.components.LocalCommunityMembership
 import com.univibe.app.ui.components.LocalReduceMotion
 import com.univibe.app.ui.components.systemAnimationsOff
 import androidx.compose.runtime.getValue
@@ -49,6 +50,7 @@ fun UniVibeApp(appViewModel: AppViewModel = viewModel()) {
     CompositionLocalProvider(
         LocalDensity provides Density(density.density, (density.fontScale * settings.textScale.factor).coerceAtMost(2f)),
         LocalReduceMotion provides reduceMotion,
+        LocalCommunityMembership provides AppContainer.communityMembership,
     ) {
         UniVibeTheme(darkTheme = darkTheme, appFont = settings.font) {
             AuthGate(themeMode = themeMode, onThemeModeChange = appViewModel::setThemeMode)
