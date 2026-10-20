@@ -231,21 +231,21 @@ class ConversationViewModel(
         }
     }
 
-    fun sendVoice(path: String, durationMs: Int) {
+    fun sendVoice(path: String, durationMs: Int, waveform: List<Int> = emptyList()) {
         if (!_state.value.canPost) { java.io.File(path).delete(); return }
         val s = _state.value
         val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
         _state.update { it.copy(replyTo = null) }
         viewModelScope.launch {
-            try { messages.sendVoice(chatId, path, durationMs, reply) }
-            catch (e: Exception) { _state.update { it.copy(failedVoice = Recording(path, durationMs)) }; fail(e, "Couldn't send the voice message.") }
+            try { messages.sendVoice(chatId, path, durationMs, reply, waveform) }
+            catch (e: Exception) { _state.update { it.copy(failedVoice = Recording(path, durationMs, waveform)) }; fail(e, "Couldn't send the voice message.") }
         }
     }
 
     fun retryFailedVoice() {
         val r = _state.value.failedVoice ?: return
         _state.update { it.copy(failedVoice = null) }
-        sendVoice(r.path, r.durationMs)
+        sendVoice(r.path, r.durationMs, r.waveform)
     }
 
     fun dismissFailedVoice() {

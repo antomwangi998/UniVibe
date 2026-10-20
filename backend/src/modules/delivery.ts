@@ -5,6 +5,8 @@ import type { PushSender } from '../push';
 import type { Hub } from '../realtime';
 import { withTx } from '../db';
 import { notify } from './notify';
+import { fetchLinkPreview, firstLink } from '../linkpreview';
+import { audience, loadMessage } from './messaging';
 
 /** Which push switch controls each notification type. `null` = account-critical, always allowed. */
 const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events' | null> = {
@@ -67,6 +69,25 @@ const loadPrefs = async (ctx: Ctx, userId: string): Promise<Prefs> => {
  */
 export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender): Record<string, Handler> {
   return {
+    // Reads the title and description of the first link in a message and tells the conversation. Never retried hard:
+    // a page that cannot be read (or must not be, see linkpreview.ts) simply gets no card.
+    'link.preview': async (job) => {
+      const { messageId, url } = job.payload;
+      if (typeof messageId !== 'string' || typeof url !== 'string') throw new PermanentJobError('payload incomplete');
+      const msg = (await ctx.pool.query<{ conversation_id: string; sender_id: string | null; content: string | null; status: string }>(
+        'select conversation_id, sender_id, content, status from messages where id = $1', [messageId])).rows[0];
+      // Unsent, sender gone, or edited to a different link since: nothing to do.
+      if (!msg || msg.status !== 'active' || !msg.sender_id || firstLink(msg.content) !== url) return;
+      const preview = await fetchLinkPreview(url);
+      if (!preview) return;
+      await ctx.pool.query(
+        `insert into message_link_previews (message_id, url, host, title, description, site_name) values ($1, $2, $3, $4, $5, $6)
+         on conflict (message_id) do update set url = excluded.url, host = excluded.host, title = excluded.title,
+           description = excluded.description, site_name = excluded.site_name, created_at = now()`,
+        [messageId, url, preview.host, preview.title, preview.description, preview.siteName]);
+      const message = await loadMessage(ctx, messageId);
+      hub.sendMany(await audience(ctx.pool, msg.conversation_id, msg.sender_id), { type: 'message:updated', conversationId: msg.conversation_id, message });
+    },
     // Fan-out of one announcement. Idempotent: notify() skips anyone already notified, so a retry never doubles up.
     // Muted members, blocked pairs and people who switched community notifications off are skipped inside notify().
     'community.announce': async (job) => {

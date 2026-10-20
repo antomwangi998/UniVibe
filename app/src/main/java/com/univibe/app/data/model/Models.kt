@@ -138,8 +138,12 @@ data class Chat(
 
 data class ChatMember(val id: String, val name: String)
 
+/** A link card: what the page at [url] is called and says. Only http(s) addresses are ever kept. */
+data class LinkPreview(val url: String, val host: String, val title: String?, val description: String?, val siteName: String?)
+
 /** A recorded voice message: where to play it from and how long it is. */
-data class VoiceNote(val source: String, val durationMs: Int)
+/** [waveform] is 0..100 bar heights from the sender's phone; empty for older messages, which then show even bars. */
+data class VoiceNote(val source: String, val durationMs: Int, val waveform: List<Int> = emptyList())
 
 enum class LastKind { None, Text, Photo, Voice, Deleted }
 
@@ -347,6 +351,8 @@ data class Message(
     val myReaction: Reaction? = null,
     val forwarded: Boolean = false,
     val edited: Boolean = false,
+    /** Title and description of the first web address in the text, read by the server; null until ready. */
+    val linkPreview: LinkPreview? = null,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }
