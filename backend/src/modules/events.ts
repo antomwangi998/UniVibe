@@ -74,11 +74,14 @@ export const eventVisible = (viewer = '$1', uni = '$2', e = 'e') =>
   `or (${e}.visibility <> 'community' and (${e}.university_id = ${uni} or ${e}.visibility = 'public')))))`;
 
 /**
- * Free-text match on an event's title or venue. [param] is a SQL placeholder (for example '$3') whose value the caller
+ * Free-text match on an event's title, venue, description, category, organizer or community. Visibility is enforced separately by eventVisible, so a private community's name only finds events the viewer may already see. [param] is a SQL placeholder (for example '$3') whose value the caller
  * has already LIKE-escaped (see escapeLike); [e] is the events table alias.
  */
 export const eventTextMatch = (param: string, e = 'e') =>
-  `(${e}.title ilike '%' || ${param} || '%' or ${e}.venue_name ilike '%' || ${param} || '%')`;
+  `(${e}.title ilike '%' || ${param} || '%' or ${e}.venue_name ilike '%' || ${param} || '%' or ${e}.description ilike '%' || ${param} || '%'` +
+  ` or exists (select 1 from event_categories tc where tc.code = ${e}.category and (tc.label ilike '%' || ${param} || '%' or tc.code ilike '%' || ${param} || '%'))` +
+  ` or exists (select 1 from users tu where tu.id = ${e}.organizer_id and (tu.full_name ilike '%' || ${param} || '%' or tu.handle ilike '%' || ${param} || '%'))` +
+  ` or exists (select 1 from communities tm where tm.id = ${e}.community_id and tm.name ilike '%' || ${param} || '%'))`;
 
 function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; startChanged: boolean }) {
   const now = Date.now();

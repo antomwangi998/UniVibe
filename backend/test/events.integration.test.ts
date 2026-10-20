@@ -92,7 +92,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await bad({ startsAt: new Date(Date.now() + 60_000).toISOString(), endsAt: inHours(2) }); // starts in 1 minute
     await bad({ startsAt: inHours(24 * 400), endsAt: inHours(24 * 400 + 2) }); // more than a year away
     await bad({ title: 'ab' }, 400);
-    await bad({ category: 'parties' }, 400);
+    await bad({ category: 'parties' });
     await bad({ capacity: 0 }, 400);
     await bad({ capacity: 5001 }, 400);
     await bad({ startsAt: 'tomorrow' }, 400);
@@ -270,7 +270,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await pool.query("update events set registration_deadline = now() - interval '1 minute' where id = $1", [e.id]);
     const res = await call('POST', `${V1}/events/${e.id}/register`, s1.token);
     expect(res.status).toBe(409);
-    expect(res.body.error?.code ?? res.body.code).toBe('registration_closed');
+    expect(res.body.error).toBe('registration_closed');
     expect((await call('GET', `${V1}/events/${e.id}`, s1.token)).body.registration).toBe('closed');
   });
 
