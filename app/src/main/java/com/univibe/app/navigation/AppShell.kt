@@ -235,7 +235,11 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
             // Percentage for any media upload in progress; drawn above the screens.
             com.univibe.app.ui.components.UploadBanner(Modifier.align(androidx.compose.ui.Alignment.TopCenter).zIndex(1f))
             com.univibe.app.ui.components.OfflineBanner(Modifier.align(androidx.compose.ui.Alignment.TopCenter).zIndex(1f))
-            CompositionLocalProvider(LocalFloatingBarVisible provides barVisible, LocalChromeHidden provides hiddenByScroll.value) {
+            CompositionLocalProvider(
+                LocalFloatingBarVisible provides barVisible, LocalChromeHidden provides hiddenByScroll.value,
+                // Any post card can open its community without every screen threading a callback through.
+                com.univibe.app.ui.components.LocalOpenCommunity provides { id: String -> open(AppRoutes.community(id)) },
+            ) {
                 NavHost(
                     navController = navController,
                     startDestination = TopLevelDestination.Home.route,

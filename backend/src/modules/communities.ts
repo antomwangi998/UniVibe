@@ -303,7 +303,7 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
     });
 
     // ---------- delete (soft; posts disappear because a deleted community is unreadable)
-    app.delete('/communities/:id', async (req, reply) => {
+    const deleteCommunity = async (req: FastifyRequest, reply: { status: (n: number) => { send: () => unknown } }) => {
       const me = await ctx.auth(req);
       const id = routeId(req);
       const { confirmName } = z.object({ confirmName: z.string() }).strict().parse(req.body ?? {});
@@ -316,7 +316,10 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
         await audit(client, me.id, 'community.delete', 'community', id, { memberCount: c.member_count });
       });
       return reply.status(204).send();
-    });
+    };
+    app.delete('/communities/:id', deleteCommunity);
+    // Some HTTP clients (Android's HttpURLConnection) cannot send a body with DELETE, so the app uses this form.
+    app.post('/communities/:id/delete', deleteCommunity);
 
     app.post('/communities/:id/archive', async (req) => {
       const me = await ctx.auth(req);

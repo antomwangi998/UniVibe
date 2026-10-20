@@ -24,7 +24,11 @@ import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.profile.DataStoreProfileLocalStore
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.CommentRepository
+import com.univibe.app.data.repository.CommunityMembershipStore
 import com.univibe.app.data.repository.CommunityRepository
+import com.univibe.app.data.repository.MembershipActions
+import com.univibe.app.data.repository.RemoteCommunityRepository
+import com.univibe.app.data.repository.RepositoryMembershipActions
 import com.univibe.app.data.repository.DiscoverContentRepository
 import com.univibe.app.data.repository.DiscoverRepository
 import com.univibe.app.data.repository.FeedBackedDiscoverContent
@@ -143,6 +147,15 @@ object AppContainer {
                     appScope.launch { pushRegistrar.registerIfNeeded() }
                 } else {
                     chatSocket?.stop()
+                    communityMembership.clear()
+                }
+            }
+        }
+        // Membership changes made elsewhere (approved by a moderator, removed, joined on another device) update every screen.
+        appScope.launch {
+            chatSocket?.events?.collect { e ->
+                if (e is com.univibe.app.data.net.ChatEvent.CommunityMembership) {
+                    communityMembership.apply(e.communityId, com.univibe.app.data.model.MembershipState.parse(e.membership), e.memberCount)
                 }
             }
         }
@@ -192,7 +205,19 @@ object AppContainer {
         api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id }.also { r -> r.outbox = outbox } }
             ?: UnavailableMessageRepository
     }
-    val communityRepository: CommunityRepository by lazy { MockCommunityRepository(mockStore) }
+    val communityRepository: CommunityRepository by lazy {
+        api?.let {
+            RemoteCommunityRepository(it, myId = { accountOf(authRepository.session.value)?.id }) { id, state, count ->
+                // Every membership answer from the server lands in the shared store, so all screens agree.
+                communityMembership.apply(id, state, count)
+            }
+        } ?: MockCommunityRepository(mockStore)
+    }
+    /** The one source of truth for "am I in this community?" on Home, Discover, search and community pages. */
+    val communityMembership: CommunityMembershipStore by lazy {
+        val actions = (communityRepository as? MembershipActions) ?: RepositoryMembershipActions(communityRepository)
+        CommunityMembershipStore(actions, appScope)
+    }
     /** One shared instance so RSVPs made on the details screen show up in the list. */
     /** One shared instance so a decision made on a full profile also updates the Discover deck. */
     // With a backend these are the real thing (no sample people or sample notifications); the mocks are offline demo only.

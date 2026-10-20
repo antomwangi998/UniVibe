@@ -77,6 +77,7 @@ fun CampusPostCard(
     }
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs, top = Spacing.sm + 4.dp)) {
+            post.community?.let { PostCommunityHeader(it, post.announcement) }
             AuthorRow(post, onAuthorClick, onMore)
         }
         Box(Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onDoubleTap = { doubleTapLike.value() }) }) {
@@ -154,7 +155,7 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit)
                 val audience = when (val a = post.audience) {
                     PostAudience.Campus -> ""
                     PostAudience.Followers -> " · Followers"
-                    is PostAudience.Community -> " · ${a.name}"
+                    is PostAudience.Community -> if (post.community != null) "" else " · ${a.name}"
                 }
                 Text(
                     "${post.author.handle} · ${post.timeAgo}${if (post.edited) " · edited" else ""}$audience",
