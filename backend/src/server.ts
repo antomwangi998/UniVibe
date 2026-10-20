@@ -6,7 +6,6 @@ import { createConsoleMailer, createResendMailer } from './email';
 import { JobWorker, purgeOldRecords } from './jobs';
 import { RateLimiter } from './limiter';
 import { purgeExpiredNotes } from './modules/notes';
-import { purgeExpiredStories } from './modules/stories';
 import { deliveryHandlers } from './modules/delivery';
 import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
@@ -62,14 +61,13 @@ async function main() {
   } else {
     console.warn('FCM_SERVICE_ACCOUNT_JSON is not set, so push notifications are skipped (in-app notifications still work).');
   }
-  const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push, images), app.log);
+  const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push), app.log);
   worker.start();
   every('community-invitation-expiry', 3600 * 1000, async () => {
     const r = await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
     app.log.info({ expired: r.rowCount }, 'expired community invitations');
   });
   every('purge-expired-notes', 3600 * 1000, async () => app.log.info(await purgeExpiredNotes(pool), 'purged expired notes'));
-  every('purge-expired-stories', 15 * 60 * 1000, async () => app.log.info(await purgeExpiredStories(pool, storage ?? null), 'purged expired stories'));
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {

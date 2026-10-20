@@ -2,6 +2,8 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventCategoryInfo
+import com.univibe.app.data.model.EventNotificationPrefs
+import com.univibe.app.data.model.EventNotificationPrefsChange
 import com.univibe.app.data.model.EventDiscoverFilter
 import com.univibe.app.data.model.EventDiscoverPage
 import com.univibe.app.data.model.EventSection
@@ -107,9 +109,6 @@ interface DiscoverRepository {
     suspend fun recordDecision(studentId: String, liked: Boolean)
 }
 
-/** A person the app may see went online or offline. */
-data class PresenceChange(val userId: String, val online: Boolean)
-
 interface ChatRepository {
     suspend fun getChats(): List<Chat>
     suspend fun getChat(chatId: String): Chat?
@@ -128,8 +127,6 @@ interface ChatRepository {
     fun typingByChat(): Flow<Map<String, Set<String>>> = kotlinx.coroutines.flow.emptyFlow()
     /** Whether the live connection is up. Implementations without one report true (nothing to be offline from). */
     fun connected(): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true)
-    /** Someone went online or offline, only for people who share their activity with this student. */
-    fun presence(): Flow<PresenceChange> = kotlinx.coroutines.flow.emptyFlow()
     /** Fires when the server says something changed in the chat list (new message, read elsewhere, reconnect). */
     fun changes(): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
 }
@@ -140,6 +137,16 @@ interface EventRepository {
     /** False until the server stores bookmarks; screens then hide the save action instead of faking it. */
     val supportsSaved: Boolean get() = false
     suspend fun setSaved(eventId: String, saved: Boolean) { throw UnsupportedOperationException("Saving events isn't available yet.") }
+    val supportsEventNotificationPrefs: Boolean get() = false
+    suspend fun eventNotificationPrefs(): EventNotificationPrefs = EventNotificationPrefs()
+    suspend fun saveEventNotificationPrefs(change: EventNotificationPrefsChange): EventNotificationPrefs { throw UnsupportedOperationException("Not available yet.") }
+    /** True when the server ranks, filters and sections events. Otherwise Discover filters the plain list on the device. */
+    val supportsDiscover: Boolean get() = false
+    suspend fun eventCategories(): List<EventCategoryInfo> = emptyList()
+    suspend fun discoverSections(): List<EventSection> = emptyList()
+    suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String? = null): EventDiscoverPage = EventDiscoverPage(emptyList(), null)
+    /** Hides an event from the person's recommendations only. It stays reachable everywhere else. */
+    suspend fun setNotInterested(eventId: String, hidden: Boolean) { throw UnsupportedOperationException("Not available yet.") }
     suspend fun getEvents(): List<CampusEvent>
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getEvent(id: String): EventDetails?
@@ -153,20 +160,6 @@ interface EventRepository {
     /** Host only, and only while nobody else has RSVPed (otherwise cancel it so attendees are told). */
     suspend fun deleteEvent(id: String)
     suspend fun getVenues(): List<Venue>
-
-    /** False when the server has no event discovery; Discover then falls back to the plain [getEvents] list. */
-    val supportsDiscover: Boolean get() = false
-    /** The categories the server offers, as data, so new ones appear without an app update. */
-    suspend fun eventCategories(): List<EventCategoryInfo> = emptyList()
-    /** Filtered, ranked events, one page at a time. Pass the previous page's cursor for the next one. */
-    suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String? = null): EventDiscoverPage =
-        throw UnsupportedOperationException("Discovering events isn't available yet.")
-    /** The named sections of the Discover page, in the server's order. An event is in at most one section. */
-    suspend fun discoverSections(): List<EventSection> = emptyList()
-    /** Private feedback that hides an event from recommendations. false undoes it. */
-    suspend fun setNotInterested(eventId: String, notInterested: Boolean) {
-        throw UnsupportedOperationException("Hiding events isn't available yet.")
-    }
 }
 
 interface ProfileRepository {
@@ -199,7 +192,7 @@ interface MessageRepository {
     /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
     suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
-    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
+    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")
     suspend fun deleteMessage(chatId: String, messageId: String)
     /** One reaction per person per message; null removes yours. */

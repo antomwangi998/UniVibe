@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.univibe.app.data.model.EventNotificationPrefsChange
 import com.univibe.app.data.settings.NotificationPrefsChange
 import com.univibe.app.data.settings.TextScale
 import com.univibe.app.push.rememberNotificationsAllowed
@@ -105,6 +106,8 @@ fun NotificationsScreen(
                         SettingsSwitchRow("Group invitations", p.groups, { v -> viewModel.change(NotificationPrefsChange(groups = v)) }, enabled = !busy, icon = VibeIcons.Groups)
                     }
                 }
+                // Finer event choices, only shown once the server has loaded them and the general switch is on.
+                if (p.events) item { EventNoticeSettings() }
                 item {
                     SettingsNote(
                         (if (st.synced) "Saved to your account. Turning something off in the notification list stops it being created at all; "
@@ -130,6 +133,35 @@ fun NotificationsScreen(
         }
         item { SettingsNote("Sound, vibration and the look of each kind of alert are set per channel in Android's notification settings.") }
     }
+}
+
+@Composable
+private fun EventNoticeSettings(viewModel: EventNotificationPrefsViewModel = viewModel()) {
+    val st by viewModel.state.collectAsStateWithLifecycle()
+    val p = st.prefs ?: return
+    val busy = st.saving
+    SettingsGroup {
+        SettingsSectionTitle("Event notices")
+        SettingsSwitchRow("Registration confirmations", p.confirmations, { v -> viewModel.change(EventNotificationPrefsChange(confirmations = v)) }, enabled = !busy, icon = VibeIcons.Events)
+        RowDivider()
+        SettingsSwitchRow("Reminders", p.reminders, { v -> viewModel.change(EventNotificationPrefsChange(reminders = v)) },
+            subtitle = "For events you are going to. You can also silence one event on its page.", enabled = !busy, icon = VibeIcons.Events)
+        RowDivider()
+        SettingsSwitchRow("24 hours before", 1440 in p.reminderOffsets, { viewModel.toggleOffset(1440) }, enabled = p.reminders && !busy)
+        RowDivider()
+        SettingsSwitchRow("1 hour before", 60 in p.reminderOffsets, { viewModel.toggleOffset(60) }, enabled = p.reminders && !busy)
+        RowDivider()
+        SettingsSwitchRow("Time and place changes", p.changes, { v -> viewModel.change(EventNotificationPrefsChange(changes = v)) }, enabled = !busy, icon = VibeIcons.Events)
+        RowDivider()
+        SettingsSwitchRow("Cancellations", p.cancellations, { v -> viewModel.change(EventNotificationPrefsChange(cancellations = v)) }, enabled = !busy, icon = VibeIcons.Events)
+        RowDivider()
+        SettingsSwitchRow("New events in my communities", p.community, { v -> viewModel.change(EventNotificationPrefsChange(community = v)) },
+            subtitle = "In the app only, and only for communities where you chose more than mentions.", enabled = !busy, icon = VibeIcons.Groups)
+        RowDivider()
+        SettingsSwitchRow("Registrations for my events", p.organizerUpdates, { v -> viewModel.change(EventNotificationPrefsChange(organizerUpdates = v)) },
+            subtitle = "When you get your first, at a few milestones, and when an event fills.", enabled = !busy, icon = VibeIcons.Events)
+    }
+    st.error?.let { SettingsNote(it) }
 }
 
 @Composable

@@ -8,7 +8,8 @@ import { HttpError } from '../errors';
 import { decodeCursor, encodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { isStaff } from './community_state';
-import { notify } from './notify';
+import { enqueue } from '../jobs';
+import { type EventPreference, type NewNotification, notify } from './notify';
 
 const EVENT_TYPES = ['in_person', 'online', 'hybrid'] as const;
 const VISIBILITIES = ['public', 'university', 'community'] as const;
@@ -73,16 +74,6 @@ export const eventVisible = (viewer = '$1', uni = '$2', e = 'e') =>
   `where ecm.community_id = ${e}.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
   `or (${e}.visibility <> 'community' and (${e}.university_id = ${uni} or ${e}.visibility = 'public')))))`;
 
-/**
- * Free-text match on an event's title, venue, description, category, organizer or community. Visibility is enforced separately by eventVisible, so a private community's name only finds events the viewer may already see. [param] is a SQL placeholder (for example '$3') whose value the caller
- * has already LIKE-escaped (see escapeLike); [e] is the events table alias.
- */
-export const eventTextMatch = (param: string, e = 'e') =>
-  `(${e}.title ilike '%' || ${param} || '%' or ${e}.venue_name ilike '%' || ${param} || '%' or ${e}.description ilike '%' || ${param} || '%'` +
-  ` or exists (select 1 from event_categories tc where tc.code = ${e}.category and (tc.label ilike '%' || ${param} || '%' or tc.code ilike '%' || ${param} || '%'))` +
-  ` or exists (select 1 from users tu where tu.id = ${e}.organizer_id and (tu.full_name ilike '%' || ${param} || '%' or tu.handle ilike '%' || ${param} || '%'))` +
-  ` or exists (select 1 from communities tm where tm.id = ${e}.community_id and tm.name ilike '%' || ${param} || '%'))`;
-
 function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; startChanged: boolean }) {
   const now = Date.now();
   if (endsAt <= startsAt) throw new HttpError(422, 'validation', 'The event must end after it starts.');
@@ -130,6 +121,7 @@ export const EVENT_SELECT = `
          exists (select 1 from event_interest i where i.event_id = e.id and i.user_id = $1) as my_interested,
          exists (select 1 from saved_events sv where sv.event_id = e.id and sv.user_id = $1) as my_saved,
          (select r.status from event_registrations r where r.event_id = e.id and r.user_id = $1) as my_status,
+         (select r.reminders from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_reminders,
          (select r.checked_in_at is not null from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_checked_in
     from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
     left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
@@ -173,10 +165,26 @@ export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Re
     // Interested never holds a seat; going is the registration. The two are mutually exclusive.
     myRsvp: joined ? 'going' : r.my_interested ? 'interested' : null,
     saved: r.my_saved === true,
+    // Reminders for this event, for people who registered. They can silence one event without changing their settings.
+    remindersOn: joined ? r.my_reminders !== false : null,
     isOrganizer,
   };
 }
 
+
+/**
+ * Free-text match for an event (alias e), shared by Search and Discover. $1 is the viewer; `p` is the parameter holding the
+ * already LIKE-escaped term. Matches title, description, venue, category, organizer, university, and the community name
+ * only where the viewer is allowed to know the community, so a private community's name cannot be probed through search.
+ */
+export const eventTextMatch = (p: string) =>
+  `(e.title ilike '%' || ${p} || '%' or e.description ilike '%' || ${p} || '%' or e.venue_name ilike '%' || ${p} || '%' ` +
+  `or e.venue_address ilike '%' || ${p} || '%' ` +
+  `or exists (select 1 from event_categories sc where sc.code = e.category and sc.label ilike '%' || ${p} || '%') ` +
+  `or exists (select 1 from users so where so.id = e.organizer_id and (so.full_name ilike '%' || ${p} || '%' or so.handle ilike '%' || ${p} || '%')) ` +
+  `or exists (select 1 from universities su where su.id = e.university_id and su.name ilike '%' || ${p} || '%') ` +
+  `or exists (select 1 from communities sco where sco.id = e.community_id and sco.status <> 'deleted' and sco.name ilike '%' || ${p} || '%' ` +
+  `and (sco.visibility = 'public' or exists (select 1 from community_members scm where scm.community_id = sco.id and scm.user_id = $1 and scm.status = 'active'))))`;
 
 /**
  * Creates the feed announcement for a published event, inside the caller's transaction. Safe to repeat: there is at most one
@@ -198,6 +206,43 @@ export async function loadEventViews(ctx: Pick<Ctx, 'pool' | 'storage'>, viewer:
   for (const r of rows) out.set(r.id as string, await toEventView(ctx, viewer.id, r as Record<string, unknown>));
   return out;
 }
+
+/**
+ * Stores an event notice unless the same one was already sent: for the same person and event, ever (no window) or
+ * within a window. This is what stops repeated edits, register/withdraw cycles and job retries from becoming a storm.
+ * Notices carry no actor on purpose: the per-actor dedupe index would otherwise drop a cancellation that follows a change.
+ */
+async function notifyOnce(client: Q, n: NewNotification & { kind: string }, opts: { withinMinutes?: number; count?: number } = {}): Promise<boolean> {
+  const dupe = await client.query(
+    `select 1 from notifications where recipient_id = $1 and type = 'event_update' and entity_id = $2 and metadata->>'kind' = $3
+        and ($4::int is null or created_at > now() - make_interval(mins => $4::int))
+        and ($5::text is null or metadata->>'count' = $5) limit 1`,
+    [n.recipientId, n.entityId, n.kind, opts.withinMinutes ?? null, opts.count === undefined ? null : String(opts.count)]);
+  if (dupe.rowCount) return false;
+  const { kind, ...rest } = n;
+  return notify(client as PoolClient, { ...rest, actorId: null, type: 'event_update', entityType: 'event', metadata: { ...(n.metadata ?? {}), kind } });
+}
+
+/**
+ * Tells the people an event affects (registered or interested) about an important change or a cancellation.
+ * The organizer and the editor are never notified about their own action, blocked pairs are skipped, and
+ * repeated changes within 15 minutes become one notice.
+ */
+async function notifyParticipants(client: Q, eventId: string, kind: 'changed' | 'cancelled', preference: EventPreference, editorId: string) {
+  const ev = (await client.query<{ title: string; organizer_id: string }>('select title, organizer_id from events where id = $1', [eventId])).rows[0];
+  if (!ev) return;
+  const { rows } = await client.query<{ user_id: string }>(
+    `select p.user_id from (
+        select user_id from event_registrations where event_id = $1 and status = 'registered'
+        union select user_id from event_interest where event_id = $1) p
+      where p.user_id <> $2 and p.user_id <> $3 and not ${blockedBetween('p.user_id', '$3::uuid')}`, [eventId, editorId, ev.organizer_id]);
+  for (const r of rows) {
+    await notifyOnce(client, { recipientId: r.user_id, actorId: null, type: 'event_update', entityId: eventId, kind, metadata: { title: ev.title }, preference }, { withinMinutes: kind === 'changed' ? 15 : undefined });
+  }
+}
+
+/** The organizer hears about registrations at milestones and when the event fills up, never once per person. */
+const MILESTONES = new Set([1, 10, 25, 50, 100, 250, 500]);
 
 export function eventRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
@@ -228,13 +273,6 @@ export function eventRoutes(ctx: Ctx) {
       if (!id) return;
       const ok = await pool.query("select 1 from media where id = $1 and owner_id = $2 and purpose = 'event' and status = 'ready' and kind = 'image'", [id, me.id]);
       if (!ok.rowCount) throw new HttpError(422, 'invalid_media', 'That cover image is not available.');
-    }
-
-    async function notifyRegistrants(client: Q, me: AuthUser, eventId: string, kind: string) {
-      const title = (await client.query<{ title: string }>('select title from events where id = $1', [eventId])).rows[0]?.title ?? '';
-      const { rows } = await client.query<{ user_id: string }>(
-        "select user_id from event_registrations where event_id = $1 and status = 'registered' and user_id <> $2", [eventId, me.id]);
-      for (const r of rows) await notify(client as PoolClient, { recipientId: r.user_id, actorId: me.id, type: 'event_update', entityType: 'event', entityId: eventId, metadata: { kind, title } });
     }
 
     app.get('/event-categories', async (req) => {
@@ -284,6 +322,7 @@ export function eventRoutes(ctx: Ctx) {
         if (b.status === 'published') {
           await audit(client, id, me.id, 'publish');
           await announceEvent(client, { id, organizer_id: me.id, community_id: b.communityId });
+          if (b.communityId) await enqueue(client, 'event.announce', { eventId: id }, { dedupeKey: `event.announce:${id}` });
         }
         return { id, created: true };
       });
@@ -310,6 +349,7 @@ export function eventRoutes(ctx: Ctx) {
         await client.query("update events set status = 'published', updated_at = now() where id = $1", [id]);
         await audit(client, id, me.id, 'publish');
         await announceEvent(client, { id, organizer_id: row.organizer_id, community_id: row.community_id });
+        if (row.community_id) await enqueue(client, 'event.announce', { eventId: id }, { dedupeKey: `event.announce:${id}` });
       });
       return toView(me, await getEvent(me, id));
     });
@@ -410,8 +450,15 @@ export function eventRoutes(ctx: Ctx) {
         if (b.eventType === 'online' && b.venueName === undefined && !row.venue_name) { values.push('Online'); sets.push(`venue_name = $${values.length}`); }
         if (sets.length) await client.query(`update events set ${sets.join(', ')}, updated_at = now() where id = $1`, values);
         // Only changes that affect whether and how someone attends notify them; wording edits never do.
-        const important = ['startsAt', 'endsAt', 'venueName', 'venueAddress', 'eventType', 'onlineUrl'].filter((k) => k in b);
-        if (important.length && row.status === 'published') await notifyRegistrants(client, me, id, 'changed');
+        const startMoved = b.startsAt !== undefined && starts.getTime() !== new Date(row.starts_at).getTime();
+        const endMoved = b.endsAt !== undefined && ends.getTime() !== new Date(row.ends_at).getTime();
+        const same = (a: unknown, b2: unknown) => (a ?? null) === (b2 ?? null);
+        const important = startMoved || endMoved
+          || (b.venueName !== undefined && !same(b.venueName, row.venue_name)) || (b.venueAddress !== undefined && !same(b.venueAddress, row.venue_address))
+          || (b.eventType !== undefined && b.eventType !== row.event_type) || (b.onlineUrl !== undefined && !same(b.onlineUrl, row.online_url));
+        // Reminders are relative to the start, so a new start clears the sent ones and they are worked out again.
+        if (startMoved) await client.query('delete from event_reminders where event_id = $1', [id]);
+        if (important && row.status === 'published') await notifyParticipants(client, id, 'changed', 'event_changes', me.id);
         if (sets.length) await audit(client, id, me.id, 'update', { fields: Object.keys(b) });
       });
       return toView(me, await getEvent(me, id));
@@ -425,7 +472,7 @@ export function eventRoutes(ctx: Ctx) {
         await manageable(me, id, client);
         const res = await client.query("update events set status = 'cancelled', updated_at = now() where id = $1 and status = 'published' and ends_at > now() returning id", [id]);
         if (!res.rowCount) throw new HttpError(409, 'event_closed', 'This event cannot be cancelled.');
-        await notifyRegistrants(client, me, id, 'cancelled');
+        await notifyParticipants(client, id, 'cancelled', 'event_cancellations', me.id);
         await audit(client, id, me.id, 'cancel');
       });
       return reply.status(204).send();
@@ -460,6 +507,15 @@ export function eventRoutes(ctx: Ctx) {
         `insert into event_registrations (event_id, user_id) values ($1, $2)
          on conflict (event_id, user_id) do update set status = 'registered', registered_at = now(), cancelled_at = null`, [id, me.id]);
       await client.query('delete from event_interest where event_id = $1 and user_id = $2', [id, me.id]); // going replaces interested
+      const ev = (await client.query<{ title: string; organizer_id: string; capacity: number | null }>('select title, organizer_id, capacity from events where id = $1', [id])).rows[0];
+      // Confirmation to the person, at most once per ten minutes however often they toggle.
+      await notifyOnce(client, { recipientId: me.id, actorId: null, type: 'event_update', entityId: id, kind: 'confirmed', metadata: { title: ev.title }, preference: 'event_confirmations' }, { withinMinutes: 10 });
+      // The organizer is told at milestones and when the event fills, not for every person.
+      const count = going + 1;
+      const filled = ev.capacity !== null && count >= ev.capacity;
+      if (ev.organizer_id !== me.id && (MILESTONES.has(count) || filled)) {
+        await notifyOnce(client, { recipientId: ev.organizer_id, actorId: null, type: 'event_update', entityId: id, kind: 'registrations', metadata: { title: ev.title, count, full: filled }, preference: 'event_organizer_updates' }, { count });
+      }
       return { created: true };
     }
 
@@ -493,6 +549,49 @@ export function eventRoutes(ctx: Ctx) {
         }
       });
       return toView(me, await getEvent(me, id));
+    });
+
+    // Silence (or restore) reminders for one event the person registered for.
+    app.put('/events/:eventId/reminders', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(req.body ?? {});
+      const res = await pool.query("update event_registrations set reminders = $3 where event_id = $1 and user_id = $2 and status = 'registered'", [id, me.id, enabled]);
+      if (!res.rowCount) throw new HttpError(409, 'not_registered', 'Reminders are for events you are going to.');
+      return reply.status(204).send();
+    });
+
+    // Finer event notification settings. The general `events` and `push_events` switches still apply on top of these.
+    const eventPrefs = z.object({
+      confirmations: z.boolean(), reminders: z.boolean(), changes: z.boolean(), cancellations: z.boolean(), community: z.boolean(),
+      organizerUpdates: z.boolean(), reminderOffsets: z.array(z.union([z.literal(1440), z.literal(60)])).max(2),
+    }).partial().strict();
+    const EVENT_PREF_SQL = `select event_confirmations, event_reminders, event_changes, event_cancellations, event_community, event_organizer_updates, event_reminder_offsets
+                              from notification_preferences where user_id = $1`;
+    const eventPrefsOf = (r?: Record<string, unknown>) => ({
+      confirmations: r?.event_confirmations ?? true, reminders: r?.event_reminders ?? true, changes: r?.event_changes ?? true,
+      cancellations: r?.event_cancellations ?? true, community: r?.event_community ?? true, organizerUpdates: r?.event_organizer_updates ?? true,
+      reminderOffsets: ((r?.event_reminder_offsets as number[] | undefined) ?? [1440, 60]).slice().sort((a, b) => b - a),
+    });
+    app.get('/me/event-notification-preferences', async (req) => {
+      const me = await ctx.auth(req);
+      return eventPrefsOf((await pool.query(EVENT_PREF_SQL, [me.id])).rows[0]);
+    });
+    app.put('/me/event-notification-preferences', async (req) => {
+      const me = await ctx.auth(req);
+      const b = eventPrefs.parse(req.body ?? {});
+      ctx.limit(`event-prefs:${me.id}`, 60, 3600);
+      await pool.query('insert into notification_preferences (user_id) values ($1) on conflict (user_id) do nothing', [me.id]);
+      await pool.query(
+        `update notification_preferences set
+           event_confirmations = coalesce($2, event_confirmations), event_reminders = coalesce($3, event_reminders),
+           event_changes = coalesce($4, event_changes), event_cancellations = coalesce($5, event_cancellations),
+           event_community = coalesce($6, event_community), event_organizer_updates = coalesce($7, event_organizer_updates),
+           event_reminder_offsets = coalesce($8::int[], event_reminder_offsets)
+         where user_id = $1`,
+        [me.id, b.confirmations ?? null, b.reminders ?? null, b.changes ?? null, b.cancellations ?? null, b.community ?? null, b.organizerUpdates ?? null,
+          b.reminderOffsets ? [...new Set(b.reminderOffsets)] : null]);
+      return eventPrefsOf((await pool.query(EVENT_PREF_SQL, [me.id])).rows[0]);
     });
 
     // Saved events: private to the person, synced through the server, one row per (person, event).
@@ -597,16 +696,37 @@ export async function purgeExpiredEvents(ctx: Ctx): Promise<number> {
 }
 
 /** Background job: one reminder per registered person, for events starting within the next hour. Idempotent. */
+/**
+ * Sends the reminders that are due. Safe to run as often as you like: a reminder is recorded when sent and never repeats.
+ * - Only people who are registered (going) get reminders, and only for events that are still published and have not started.
+ *   Interested people are told about changes and cancellations instead.
+ * - Each person's own offsets are used (default 24 hours and 1 hour; they may keep one or none), and they can silence one event.
+ * - A reminder is only sent in the half hour after its moment, so someone who registers late is not sent a 24-hour reminder
+ *   for an event that starts in five hours, and a missed run recovers on the next one.
+ * - A cancelled, completed or ended event, or a person who withdrew, is never reminded. Moving the start clears the record.
+ * Times are absolute instants, so time zones and daylight saving do not shift them.
+ */
 export async function sendEventReminders(ctx: Ctx): Promise<number> {
   return withTx(ctx.pool, async (client) => {
-    const due = await client.query<{ event_id: string; user_id: string; title: string }>(
-      `insert into event_reminders (event_id, user_id)
-       select r.event_id, r.user_id from event_registrations r join events e on e.id = r.event_id
-        where r.status = 'registered' and e.status = 'published' and e.starts_at > now() and e.starts_at <= now() + interval '1 hour'
-       on conflict do nothing returning event_id, user_id,
-         (select title from events where id = event_reminders.event_id) as title`);
+    const due = await client.query<{ event_id: string; user_id: string; offset_minutes: number; title: string }>(
+      `with picks as (
+         select r.event_id, r.user_id, o.offset_minutes
+           from event_registrations r
+           join events e on e.id = r.event_id
+           left join notification_preferences np on np.user_id = r.user_id
+           cross join lateral unnest(coalesce(np.event_reminder_offsets, array[1440, 60])) as o(offset_minutes)
+          where r.status = 'registered' and r.reminders and e.status = 'published' and e.starts_at > now()
+            and e.starts_at - make_interval(mins => o.offset_minutes) <= now()
+            and e.starts_at - make_interval(mins => o.offset_minutes) > now() - interval '30 minutes')
+       insert into event_reminders (event_id, user_id, offset_minutes)
+       select event_id, user_id, offset_minutes from picks
+       on conflict do nothing
+       returning event_id, user_id, offset_minutes, (select title from events where id = event_reminders.event_id) as title`);
     for (const r of due.rows) {
-      await notify(client, { recipientId: r.user_id, actorId: null, type: 'event_update', entityType: 'event', entityId: r.event_id, metadata: { kind: 'reminder', title: r.title } });
+      await notify(client, {
+        recipientId: r.user_id, actorId: null, type: 'event_update', entityType: 'event', entityId: r.event_id,
+        metadata: { kind: 'reminder', title: r.title, offsetMinutes: r.offset_minutes }, preference: 'event_reminders',
+      });
     }
     return due.rowCount ?? 0;
   });
