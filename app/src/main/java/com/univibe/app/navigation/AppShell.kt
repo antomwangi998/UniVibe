@@ -234,6 +234,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
             // Content runs edge to edge; the bar hovers above it.
             // Percentage for any media upload in progress; drawn above the screens.
             com.univibe.app.ui.components.UploadBanner(Modifier.align(androidx.compose.ui.Alignment.TopCenter).zIndex(1f))
+            com.univibe.app.ui.components.OfflineBanner(Modifier.align(androidx.compose.ui.Alignment.TopCenter).zIndex(1f))
             CompositionLocalProvider(LocalFloatingBarVisible provides barVisible, LocalChromeHidden provides hiddenByScroll.value) {
                 NavHost(
                     navController = navController,

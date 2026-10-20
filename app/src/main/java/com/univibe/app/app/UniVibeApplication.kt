@@ -110,6 +110,17 @@ object AppContainer {
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
         // Unsent drafts belong to the account that wrote them: a deliberate sign-out clears them.
         appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) com.univibe.app.data.prefs.DraftStore.clearAll() } }
+        // Saved screens belong to the signed-in account: switching accounts or signing out on purpose wipes them.
+        appScope.launch {
+            authRepository.session.collect { state ->
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    when {
+                        state is AuthState.Authenticated -> offlineCache.useAccount(state.user.id)
+                        state is AuthState.SignedOut && state.reason == null -> offlineCache.clear()
+                    }
+                }
+            }
+        }
         // Once signed in, make sure this device's push address is registered with the server (cheap no-op when unchanged).
         appScope.launch {
             authRepository.session.collect { state ->
@@ -216,6 +227,9 @@ object AppContainer {
     /** Credential Manager: Sign in with Google and the password manager. Google sign-in is off while no server client id is set. */
     val credentialProvider: GoogleCredentialProvider by lazy { CredentialManagerGoogleProvider(BuildConfig.GOOGLE_SERVER_CLIENT_ID) }
 
+    /** Saved copies of the last-seen screens' data, so the app opens with something to show offline. See [com.univibe.app.data.net.OfflineCache]. */
+    val offlineCache: com.univibe.app.data.net.OfflineCache by lazy { com.univibe.app.data.net.OfflineCache(java.io.File(app.cacheDir, "offline")) }
+
     val authRepository: AuthRepository by lazy {
         if (BuildConfig.API_BASE_URL.isBlank()) {
             // The mock must never ship: release builds refuse to start without a real backend.
@@ -223,7 +237,7 @@ object AppContainer {
             MockAuthRepository(KeystoreSecureStore(app))
         } else {
             RemoteAuthRepository(
-                BuildConfig.API_BASE_URL, UrlConnectionTransport(), KeystoreSecureStore(app), files = UrlConnectionFileUploader(),
+                BuildConfig.API_BASE_URL, com.univibe.app.data.net.CachingTransport(UrlConnectionTransport(), offlineCache), KeystoreSecureStore(app), files = UrlConnectionFileUploader(),
                 beforeLogOut = {
                     pushRegistrar.unregister()
                     // So Google does not silently sign this person straight back in.
