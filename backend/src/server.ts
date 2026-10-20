@@ -6,6 +6,7 @@ import { createConsoleMailer, createResendMailer } from './email';
 import { JobWorker, purgeOldRecords } from './jobs';
 import { RateLimiter } from './limiter';
 import { purgeExpiredNotes } from './modules/notes';
+import { purgeExpiredStories } from './modules/stories';
 import { deliveryHandlers } from './modules/delivery';
 import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
@@ -68,6 +69,7 @@ async function main() {
     app.log.info({ expired: r.rowCount }, 'expired community invitations');
   });
   every('purge-expired-notes', 3600 * 1000, async () => app.log.info(await purgeExpiredNotes(pool), 'purged expired notes'));
+  every('purge-expired-stories', 15 * 60 * 1000, async () => app.log.info(await purgeExpiredStories(pool, storage ?? null), 'purged expired stories'));
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {
