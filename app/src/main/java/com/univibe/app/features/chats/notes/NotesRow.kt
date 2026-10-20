@@ -26,8 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -40,10 +38,8 @@ import androidx.compose.ui.unit.sp
 import com.univibe.app.data.model.Note
 import com.univibe.app.data.model.NoteAudience
 import com.univibe.app.data.model.NoteDraftCheck
-import com.univibe.app.data.model.activeLabel
 import com.univibe.app.data.model.noteLength
 import com.univibe.app.ui.components.InterestChip
-import com.univibe.app.ui.components.StoryStatusRing
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeButton
@@ -54,33 +50,24 @@ import com.univibe.app.ui.theme.Spacing
 
 private val ItemWidth = 76.dp
 private val AvatarSize = 56.dp
-private val AvatarBox = 64.dp
+private val AvatarBox = 60.dp
 
-/** Space kept above every avatar for a thought bubble and its tail, so avatars line up. Zero when nobody has a Note. */
-private val BubbleSlot = 56.dp
+/** Space kept above every avatar for a Note bubble, so avatars line up. Zero when nobody has a Note (the row stays compact). */
+private val BubbleSlot = 40.dp
 
 /**
  * The compact, horizontally scrolling row between the search field and the conversation list.
- *
- * Every item has two separate tap targets: the avatar (which will open a Story when its teal ring is showing) and the
- * Note bubble above it (always opens the Note). The first item is the signed-in student's own real avatar with a small
- * plain "+" at its bottom-right corner.
+ * The first item is always the signed-in student's own real avatar with a small plain "+" at its bottom-right corner.
  */
 @Composable
 fun NotesRow(
     state: NotesUiState,
     onAddNote: () -> Unit,
-    onOpenMyNote: () -> Unit,
-    onOpenAvatar: (authorId: String) -> Unit,
     onOpenNote: (authorId: String) -> Unit,
     modifier: Modifier = Modifier,
-    /** False until the Story viewer exists: then no ring is drawn and only people with a Note are listed. */
-    showStories: Boolean = false,
-    onOpenStories: (authorId: String) -> Unit = {},
 ) {
     val me = state.me ?: return
-    val people = state.people(showStories)
-    val slot = if (people.any { it.note != null } || state.myActive != null) BubbleSlot else 0.dp
+    val slot = if (state.hasAnyNote) BubbleSlot else 0.dp
     LazyRow(
         state = rememberLazyListState(),
         modifier = modifier.fillMaxWidth(),
@@ -89,40 +76,26 @@ fun NotesRow(
         verticalAlignment = Alignment.Bottom,
     ) {
         item(key = "me", contentType = "me") {
-            YourNoteItem(
-                me = me, note = state.myActive, slot = slot, hasStory = showStories && state.myStory != null,
-                onAvatar = onAddNote, onNote = onOpenMyNote,
-            )
+            YourNoteItem(me = me, note = state.myActive, slot = slot, onClick = onAddNote)
         }
-        items(people, key = { it.authorId }, contentType = { "person" }) { person ->
-            PersonItem(
-                person = person, slot = slot,
-                // A teal (or muted) ring means a Story is waiting: the avatar opens it. Otherwise the avatar opens the Note.
-                onAvatar = { if (person.story != null) onOpenStories(person.authorId) else onOpenAvatar(person.authorId) },
-                onNote = { onOpenNote(person.authorId) },
-            )
+        items(state.visibleOthers, key = { it.authorId }, contentType = { "note" }) { note ->
+            PersonNoteItem(note = note, slot = slot, onClick = { onOpenNote(note.authorId) })
         }
     }
 }
 
 @Composable
-private fun YourNoteItem(me: NotesMe, note: Note?, slot: Dp, hasStory: Boolean, onAvatar: () -> Unit, onNote: () -> Unit) {
-    Column(Modifier.width(ItemWidth), horizontalAlignment = Alignment.CenterHorizontally) {
-        BubbleArea(
-            text = note?.text, slot = slot, onClick = onNote,
-            description = note?.let { "Your note: ${it.text}. Opens your note." },
-        )
-        Box(
-            Modifier
-                .size(AvatarBox)
-                .clickable(role = Role.Button, onClickLabel = if (note == null) "Add a note" else "Your note options", onClick = onAvatar)
-                .semantics {
-                    contentDescription = (if (note == null) "Add a note" else "Your profile photo. Edit or delete your note") +
-                        if (hasStory) ". You have an active story" else ""
-                },
-        ) {
-            // My own ring is always the teal "active" one: I do not have to watch my own Story to keep it lit.
-            if (hasStory) StoryStatusRing(unviewed = true, modifier = Modifier.matchParentSize())
+private fun YourNoteItem(me: NotesMe, note: Note?, slot: Dp, onClick: () -> Unit) {
+    val description = if (note == null) "Add a note" else "Your note: ${note.text}. Opens your note."
+    Column(
+        Modifier
+            .width(ItemWidth)
+            .clickable(role = Role.Button, onClickLabel = if (note == null) "Add a note" else "View your note", onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        BubbleSlot(note?.text, slot)
+        Box(Modifier.size(AvatarBox)) {
             // The person's real profile photo (initials only if they have not set one) is the item. The plus is a badge on it.
             StudentAvatar(me.name, size = AvatarSize, accent = me.id.hashCode(), imagePath = me.avatarUrl, modifier = Modifier.align(Alignment.Center))
             PlusBadge(Modifier.align(Alignment.BottomEnd))
@@ -143,70 +116,41 @@ private fun PlusBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PersonItem(person: RowPerson, slot: Dp, onAvatar: () -> Unit, onNote: () -> Unit) {
-    val note = person.note
-    val active = if (person.online) ", active now" else ""
-    val storyText = when {
-        person.story == null -> ""
-        person.hasUnviewedStory -> ". New story. Opens the story"
-        else -> ". Story seen. Opens the story"
-    }
-    Column(Modifier.width(ItemWidth), horizontalAlignment = Alignment.CenterHorizontally) {
-        BubbleArea(
-            text = note?.text, slot = slot, onClick = onNote,
-            description = note?.let { "${person.name}'s note: ${it.text}. Opens the note." },
-        )
-        Box(
-            Modifier
-                .size(AvatarBox)
-                .clip(CircleShape)
-                .clickable(role = Role.Button, onClickLabel = if (person.story != null) "Open ${person.name}'s story" else "Open ${person.name}", onClick = onAvatar)
-                .semantics { contentDescription = "${person.name}$active$storyText" },
-            contentAlignment = Alignment.Center,
-        ) {
-            // Ring = a Story. The teal dot on the avatar = activity (only when the person shares it). Two different things.
-            if (person.story != null) StoryStatusRing(unviewed = person.hasUnviewedStory, modifier = Modifier.matchParentSize())
-            StudentAvatar(person.name, size = AvatarSize, accent = person.authorId.hashCode(), online = person.online, imagePath = person.avatarUrl)
+private fun PersonNoteItem(note: Note, slot: Dp, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .width(ItemWidth)
+            .clickable(role = Role.Button, onClickLabel = "View note", onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = "${note.authorName}'s note: ${note.text}" },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        BubbleSlot(note.text, slot)
+        Box(Modifier.size(AvatarBox), contentAlignment = Alignment.Center) {
+            StudentAvatar(note.authorName, size = AvatarSize, accent = note.authorId.hashCode(), imagePath = note.avatarUrl)
         }
-        ItemLabel(person.name.trim().substringBefore(' '))
+        ItemLabel(note.authorName.trim().substringBefore(' '))
     }
 }
 
 @Composable
-private fun BubbleArea(text: String?, slot: Dp, onClick: () -> Unit, description: String?) {
+private fun BubbleSlot(text: String?, slot: Dp) {
     // heightIn, not height: with a large font the bubble grows instead of being clipped.
-    Box(Modifier.fillMaxWidth().heightIn(min = slot).padding(bottom = 2.dp), contentAlignment = Alignment.BottomCenter) {
-        if (text != null && description != null) ThoughtBubble(text, description, onClick)
+    Box(Modifier.fillMaxWidth().heightIn(min = slot).padding(bottom = 4.dp), contentAlignment = Alignment.BottomCenter) {
+        if (text != null) NoteBubble(text)
     }
 }
 
-/**
- * A "thought" bubble: a rounded cloud of text with two small circles trailing down toward the avatar. The whole bubble
- * is its own button, separate from the avatar below it.
- */
 @Composable
-private fun ThoughtBubble(text: String, description: String, onClick: () -> Unit) {
-    val fill = MaterialTheme.colorScheme.surfaceContainerHigh
-    val shape = RoundedCornerShape(16.dp)
-    Column(Modifier.widthIn(max = ItemWidth + 6.dp), horizontalAlignment = Alignment.Start) {
+private fun NoteBubble(text: String) {
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.widthIn(max = ItemWidth)) {
         Text(
             text,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 13.sp),
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .clip(shape)
-                .background(fill)
-                .clickable(role = Role.Button, onClickLabel = "View note", onClick = onClick)
-                .semantics { contentDescription = description }
-                .padding(horizontal = 8.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
         )
-        // The thought trail: a bigger circle, then a smaller one, stepping toward the avatar.
-        Column(Modifier.padding(start = 20.dp).clearAndSetSemantics { }) {
-            Box(Modifier.padding(top = 1.dp).size(7.dp).background(fill, CircleShape))
-            Box(Modifier.padding(start = 3.dp, top = 1.dp).size(4.dp).background(fill, CircleShape))
-        }
     }
 }
 
@@ -318,9 +262,6 @@ private fun TheirNoteSheet(note: Note, state: NotesUiState, vm: NotesViewModel) 
                 Column(Modifier.padding(start = Spacing.md)) {
                     Text(note.authorName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (note.authorHandle.isNotBlank()) Text("@${note.authorHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    activeLabel(note.online, note.lastActiveMs, state.nowMs)?.let {
-                        Text(it, style = MaterialTheme.typography.labelMedium, color = if (note.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                 }
             }
             NoteBody(note, state.nowMs)

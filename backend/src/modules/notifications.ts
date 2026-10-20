@@ -10,16 +10,16 @@ import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard } from './cards';
 
 const prefsSchema = z.object({
   follows: z.boolean().optional(), likes: z.boolean().optional(), comments: z.boolean().optional(),
-  messages: z.boolean().optional(), events: z.boolean().optional(), groups: z.boolean().optional(), communities: z.boolean().optional(), storyReactions: z.boolean().optional(),
+  messages: z.boolean().optional(), events: z.boolean().optional(), groups: z.boolean().optional(), communities: z.boolean().optional(),
   pushEnabled: z.boolean().optional(),
   pushMessages: z.boolean().optional(), pushSocial: z.boolean().optional(), pushEvents: z.boolean().optional(),
 }).strict();
 
 const PREF_SQL =
-  'select follows, likes, comments, messages, events, groups, communities, story_reactions, push_enabled, push_messages, push_social, push_events from notification_preferences where user_id = $1';
+  'select follows, likes, comments, messages, events, groups, communities, push_enabled, push_messages, push_social, push_events from notification_preferences where user_id = $1';
 const toPrefs = (r?: Record<string, boolean>) => ({
   follows: r?.follows ?? true, likes: r?.likes ?? true, comments: r?.comments ?? true, messages: r?.messages ?? true,
-  events: r?.events ?? true, groups: r?.groups ?? true, communities: r?.communities ?? true, storyReactions: r?.story_reactions ?? true, pushEnabled: r?.push_enabled ?? true,
+  events: r?.events ?? true, groups: r?.groups ?? true, communities: r?.communities ?? true, pushEnabled: r?.push_enabled ?? true,
   pushMessages: r?.push_messages ?? true, pushSocial: r?.push_social ?? true, pushEvents: r?.push_events ?? true,
 });
 
@@ -107,8 +107,8 @@ export function notificationRoutes(ctx: Ctx, hub: Hub) {
       const me = await ctx.auth(req);
       const b = prefsSchema.parse(req.body ?? {});
       await pool.query(
-        `insert into notification_preferences (user_id, follows, likes, comments, messages, events, groups, push_enabled, push_messages, push_social, push_events, communities, story_reactions)
-         values ($1, coalesce($2, true), coalesce($3, true), coalesce($4, true), coalesce($5, true), coalesce($6, true), coalesce($7, true), coalesce($8, true), coalesce($9, true), coalesce($10, true), coalesce($11, true), coalesce($12, true), coalesce($13, true))
+        `insert into notification_preferences (user_id, follows, likes, comments, messages, events, groups, push_enabled, push_messages, push_social, push_events, communities)
+         values ($1, coalesce($2, true), coalesce($3, true), coalesce($4, true), coalesce($5, true), coalesce($6, true), coalesce($7, true), coalesce($8, true), coalesce($9, true), coalesce($10, true), coalesce($11, true), coalesce($12, true))
          on conflict (user_id) do update set
            follows = coalesce($2, notification_preferences.follows), likes = coalesce($3, notification_preferences.likes),
            comments = coalesce($4, notification_preferences.comments), messages = coalesce($5, notification_preferences.messages),
@@ -116,9 +116,8 @@ export function notificationRoutes(ctx: Ctx, hub: Hub) {
            push_enabled = coalesce($8, notification_preferences.push_enabled),
            push_messages = coalesce($9, notification_preferences.push_messages), push_social = coalesce($10, notification_preferences.push_social),
            push_events = coalesce($11, notification_preferences.push_events),
-           communities = coalesce($12, notification_preferences.communities),
-           story_reactions = coalesce($13, notification_preferences.story_reactions)`,
-        [me.id, b.follows ?? null, b.likes ?? null, b.comments ?? null, b.messages ?? null, b.events ?? null, b.groups ?? null, b.pushEnabled ?? null, b.pushMessages ?? null, b.pushSocial ?? null, b.pushEvents ?? null, b.communities ?? null, b.storyReactions ?? null],
+           communities = coalesce($12, notification_preferences.communities)`,
+        [me.id, b.follows ?? null, b.likes ?? null, b.comments ?? null, b.messages ?? null, b.events ?? null, b.groups ?? null, b.pushEnabled ?? null, b.pushMessages ?? null, b.pushSocial ?? null, b.pushEvents ?? null, b.communities ?? null],
       );
       return toPrefs((await pool.query(PREF_SQL, [me.id])).rows[0]);
     });

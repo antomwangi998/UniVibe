@@ -3,6 +3,7 @@ package com.univibe.app.features.events
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
+import com.univibe.app.data.model.EventCategoryInfo
 import com.univibe.app.data.model.EventCategoryOptions
 import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.Venue
@@ -28,6 +29,14 @@ data class EventFormUiState(
     val title: String = "",
     val description: String = "",
     val category: String = EventCategoryOptions.first(),
+    /** Categories the server offers. Empty means the built-in list above is used. */
+    val categories: List<EventCategoryInfo> = emptyList(),
+    val categoryCode: String = "",
+    val eventType: String = "in_person",
+    val onlineUrl: String = "",
+    val hasDeadline: Boolean = false,
+    val deadlineMillis: Long = 0L,
+    val externalUrl: String = "",
     val accent: Int = 0,
     val hostOptions: List<HostOption> = listOf(HostOption(null, "You")),
     val hostCommunityId: String? = null,
@@ -49,12 +58,20 @@ data class EventFormUiState(
     private val now get() = System.currentTimeMillis()
     val titleOk get() = title.trim().length in 3..80
     val descriptionOk get() = description.trim().length <= 1000
-    val venueOk get() = venueName.trim().length in 2..80
+    val needsVenue get() = eventType != "online"
+    val needsLink get() = eventType != "in_person"
+    val venueOk get() = !needsVenue || venueName.trim().length in 2..80
+    private fun httpsOk(v: String) = v.trim().let { it.startsWith("https://") && it.length in 12..500 && !it.contains(' ') }
+    val onlineUrlOk get() = !needsLink || httpsOk(onlineUrl)
+    val externalUrlOk get() = externalUrl.isBlank() || httpsOk(externalUrl)
+    /** Registration must close before the event ends, and still be ahead of us. */
+    val deadlineOk get() = !hasDeadline || (deadlineMillis <= endMillis && deadlineMillis > now)
+    val categoryOk get() = categories.isEmpty() || categoryCode.isNotBlank()
     val orderOk get() = endMillis > startMillis && endMillis - startMillis <= 48 * HOUR
     val startOk get() = (editing && startMillis == originalStart) || startMillis >= now + 5 * 60_000L
     val capacity: Int? get() = if (limitPlaces) capacityText.toIntOrNull() else null
     val capacityOk get() = !limitPlaces || (capacity != null && capacity!! in 1..5000)
-    val canSubmit get() = titleOk && descriptionOk && venueOk && orderOk && startOk && capacityOk && !submitting && doneId == null
+    val canSubmit get() = titleOk && descriptionOk && venueOk && onlineUrlOk && externalUrlOk && deadlineOk && categoryOk && orderOk && startOk && capacityOk && !submitting && doneId == null
 }
 
 /** Create an event, or edit one you host ([editId] != null). Edits can't change the host. */
@@ -71,7 +88,8 @@ class EventFormViewModel(
             val venues = runCatching { repository.getVenues() }.getOrDefault(emptyList())
             val hosts = runCatching { communities.getCommunities() }.getOrDefault(emptyList()).filter { it.isStaff }
                 .map { HostOption(it.id, it.name) }
-            _state.update { it.copy(venues = venues, hostOptions = listOf(HostOption(null, "You")) + hosts) }
+            val categories = runCatching { repository.eventCategories() }.getOrDefault(emptyList())
+            _state.update { it.copy(venues = venues, categories = categories, hostOptions = listOf(HostOption(null, "You")) + hosts) }
             if (editId != null) {
                 val d = runCatching { repository.getEvent(editId) }.getOrNull()
                 val e = d?.event
@@ -79,7 +97,9 @@ class EventFormViewModel(
                 val known = venues.firstOrNull { it.name == e.location }
                 _state.update {
                     it.copy(
-                        loading = false, title = e.title, description = d.description, category = e.category, accent = e.accent,
+                        loading = false, title = e.title, description = d.description, category = e.category, categoryCode = d.categoryCode, accent = e.accent,
+                        eventType = d.eventType, onlineUrl = d.onlineUrl.orEmpty(), externalUrl = d.externalUrl.orEmpty(),
+                        hasDeadline = d.registrationDeadlineMillis != null, deadlineMillis = d.registrationDeadlineMillis ?: (e.startMillis - HOUR),
                         hostCommunityId = e.hostCommunityId, startMillis = e.startMillis, endMillis = e.endMillis, originalStart = e.startMillis,
                         venueName = e.location, venueLat = d.latitude, venueLng = d.longitude, customVenue = known == null && d.latitude == null,
                         limitPlaces = d.capacity != null, capacityText = d.capacity?.toString().orEmpty(),
@@ -92,6 +112,12 @@ class EventFormViewModel(
     fun setTitle(v: String) = _state.update { it.copy(title = v) }
     fun setDescription(v: String) = _state.update { it.copy(description = v) }
     fun setCategory(v: String) = _state.update { it.copy(category = v) }
+    fun setCategoryCode(v: String) = _state.update { it.copy(categoryCode = v) }
+    fun setEventType(v: String) = _state.update { it.copy(eventType = v) }
+    fun setOnlineUrl(v: String) = _state.update { it.copy(onlineUrl = v.trim()) }
+    fun setExternalUrl(v: String) = _state.update { it.copy(externalUrl = v.trim()) }
+    fun setHasDeadline(on: Boolean) = _state.update { it.copy(hasDeadline = on, deadlineMillis = if (on && it.deadlineMillis == 0L) it.startMillis - HOUR else it.deadlineMillis) }
+    fun setDeadline(millis: Long) = _state.update { it.copy(deadlineMillis = millis) }
     fun setAccent(v: Int) = _state.update { it.copy(accent = v) }
     fun setHost(id: String?) = _state.update { it.copy(hostCommunityId = id) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
@@ -118,8 +144,11 @@ class EventFormViewModel(
             _state.update { it.copy(submitting = true) }
             try {
                 val draft = NewEvent(
-                    s.title.trim(), s.description.trim(), s.category, s.startMillis, s.endMillis, s.venueName.trim(),
+                    s.title.trim(), s.description.trim(), s.category, s.startMillis, s.endMillis, if (s.needsVenue) s.venueName.trim() else s.venueName.trim().ifBlank { "" },
                     s.venueLat, s.venueLng, s.capacity, s.accent, s.hostCommunityId,
+                    categoryCode = s.categoryCode.ifBlank { null }, eventType = s.eventType,
+                    onlineUrl = s.onlineUrl.takeIf { s.needsLink && it.isNotBlank() }, externalUrl = s.externalUrl.ifBlank { null },
+                    registrationDeadlineMillis = s.deadlineMillis.takeIf { s.hasDeadline }, timezone = ZoneId.systemDefault().id,
                 )
                 val id = if (editId != null) { repository.updateEvent(editId, draft); editId } else repository.createEvent(draft)
                 _state.update { it.copy(submitting = false, doneId = id) }

@@ -123,11 +123,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.withLink
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
@@ -145,7 +140,6 @@ import com.univibe.app.core.formatDayLabel
 import com.univibe.app.core.isSameDay
 import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.model.Message
-import com.univibe.app.data.model.activeLabel
 import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.ui.components.ChatPhoto
@@ -215,7 +209,6 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     val recorder = remember { VoiceRecorder(voiceContext.applicationContext) }
     var recordingStartedAt by remember { mutableStateOf<Long?>(null) }
     var recordedMs by remember { mutableLongStateOf(0L) }
-    var recordLevel by remember { mutableStateOf(0f) }
     val showMic = s.input.isBlank() && s.editing == null
     DisposableEffect(Unit) { onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
     LaunchedEffect(VoicePlayer.isPlaying) { while (VoicePlayer.isPlaying) { VoicePlayer.tick(); kotlinx.coroutines.delay(200) } }
@@ -225,7 +218,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         recordingStartedAt = null
         when {
             rec == null -> if (send) Toast.makeText(voiceContext, "Recording too short.", Toast.LENGTH_SHORT).show()
-            send -> viewModel.sendVoice(rec.path, rec.durationMs, rec.waveform)
+            send -> viewModel.sendVoice(rec.path, rec.durationMs)
             else -> java.io.File(rec.path).delete()
         }
     }
@@ -245,7 +238,6 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         val t = recordingStartedAt ?: return@LaunchedEffect
         while (true) {
             recordedMs = SystemClock.elapsedRealtime() - t
-            recordLevel = recorder.sample()
             if (recordedMs >= VoiceRecorder.MAX_MS) { finishRecording(true); break } // five minutes is the limit
             kotlinx.coroutines.delay(100)
         }
@@ -341,15 +333,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
                         Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
                             Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            // "Online", or when they were last active. Nothing at all (never "Offline") when they keep it private.
-                            val status = when {
-                                s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
-                                chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
-                                chat.online -> "Online"
-                                else -> activeLabel(false, chat.lastActiveMs, System.currentTimeMillis())
-                            }
-                            if (status != null) Text(
-                                status,
+                            Text(
+                                when {
+                                    s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
+                                    chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
+                                    chat.online -> "Online"
+                                    else -> "Offline"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (s.typing || chat.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -501,7 +491,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(Spacing.md),
                         )
                     } else if (recordingStartedAt != null) {
-                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) }, level = recordLevel)
+                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) })
                     } else {
                         MessageComposerCard(
                             s = s, showMic = showMic, focus = composerFocus,
@@ -555,10 +545,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     }
 }
 
-/**
- * The message box: one rounded row with the photo button, the text field and the send/mic button. It is as tall as one
- * line of text needs (never a fixed height, so it follows the person's font and text size) and grows to six lines.
- */
+/** The message box: a rounded card with the text on top and the photo and send/mic buttons underneath. */
 @Composable
 private fun MessageComposerCard(
     s: ConversationUiState,
@@ -579,14 +566,10 @@ private fun MessageComposerCard(
         border = BorderStroke(1.dp, if (tooLong) colors.error else colors.outlineVariant),
         modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.sm),
     ) {
-        // Buttons stay at the bottom edge while the field grows upwards.
-        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(onClick = onPhoto, modifier = Modifier.size(48.dp)) {
-                Icon(VibeIcons.Photo, contentDescription = "Send a photo", tint = colors.primary, modifier = Modifier.size(VibeIconSize.Action))
-            }
-            Box(Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = Spacing.xs, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
+        Column(Modifier.padding(start = Spacing.md, end = Spacing.sm, top = Spacing.sm + 4.dp, bottom = Spacing.sm)) {
+            Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.CenterStart) {
                 if (s.input.isEmpty()) {
-                    Text(hint, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(hint, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
                 }
                 BasicTextField(
                     value = s.input,
@@ -600,12 +583,14 @@ private fun MessageComposerCard(
                     keyboardActions = KeyboardActions(onSend = { onImeSend() }),
                 )
             }
-            if (tooLong) {
-                Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-                    Text("${s.input.length}/$MAX_MESSAGE", style = MaterialTheme.typography.labelSmall, color = colors.error, modifier = Modifier.padding(horizontal = Spacing.xs))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPhoto, modifier = Modifier.size(44.dp)) {
+                    Icon(VibeIcons.Photo, contentDescription = "Send a photo", tint = colors.primary, modifier = Modifier.size(VibeIconSize.Action))
                 }
-            }
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Spacer(Modifier.weight(1f))
+                if (tooLong) {
+                    Text("${s.input.length}/$MAX_MESSAGE", style = MaterialTheme.typography.labelSmall, color = colors.error, modifier = Modifier.padding(end = Spacing.sm))
+                }
                 Surface(
                     shape = CircleShape,
                     color = if (active) colors.primary else colors.surfaceContainerHighest,
@@ -681,29 +666,17 @@ private fun EditBar(m: Message, onCancel: () -> Unit) {
 
 private val MentionRegex = Regex("@[A-Za-z0-9._]+")
 
-/** Message text with @mentions bold and web addresses tappable. Uses only theme colors, so it follows the person's theme, font and text size. */
 @Composable
 private fun messageText(text: String, mine: Boolean): AnnotatedString {
     val primary = MaterialTheme.colorScheme.primary
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val uriHandler = LocalUriHandler.current
-    return remember(text, mine, primary, onPrimary, uriHandler) {
-        val mentionStyle = if (mine) SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline) else SpanStyle(fontWeight = FontWeight.Bold, color = primary)
-        val linkStyle = TextLinkStyles(SpanStyle(color = if (mine) onPrimary else primary, textDecoration = TextDecoration.Underline))
-        val links = findLinks(text)
-        // A mention that sits inside a link (https://x.com/@jane) belongs to the link.
-        val mentions = MentionRegex.findAll(text).filter { m -> links.none { it.range.first <= m.range.last && m.range.first <= it.range.last } }.toList()
+    return remember(text, mine, primary) {
+        val style = if (mine) SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline) else SpanStyle(fontWeight = FontWeight.Bold, color = primary)
         buildAnnotatedString {
             var last = 0
-            val pieces: List<Triple<Int, Int, LinkSpan?>> = links.map { Triple(it.range.first, it.range.last + 1, it) } + mentions.map { Triple(it.range.first, it.range.last + 1, null) }
-            for ((start, end, link) in pieces.sortedBy { it.first }) {
-                append(text.substring(last, start))
-                if (link != null) {
-                    // A failed open (no browser installed) is ignored rather than crashing the chat.
-                    val tag = LinkAnnotation.Clickable(link.url, linkStyle) { runCatching { uriHandler.openUri(link.url) } }
-                    withLink(tag) { append(text.substring(start, end)) }
-                } else withStyle(mentionStyle) { append(text.substring(start, end)) }
-                last = end
+            for (m in MentionRegex.findAll(text)) {
+                append(text.substring(last, m.range.first))
+                withStyle(style) { append(m.value) }
+                last = m.range.last + 1
             }
             append(text.substring(last))
         }
@@ -785,8 +758,6 @@ private fun MessageItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val mine = m.isMine
-    // About four fifths of the screen, so bubbles use the width of big phones and tablets without crowding small ones.
-    val maxBubble = (LocalConfiguration.current.screenWidthDp * 0.8f).coerceIn(280f, 440f).dp
     // Tight inside a group, wider between groups.
     SwipeToReply(onReply, Modifier.padding(top = if (pos.joinsOlder) 2.dp else 8.dp)) {
         Row(
@@ -809,7 +780,7 @@ private fun MessageItem(
                     shape = shape,
                     color = if (mine) colors.primary else colors.surfaceContainerHigh,
                     contentColor = if (mine) colors.onPrimary else colors.onSurface,
-                    modifier = Modifier.widthIn(max = maxBubble)
+                    modifier = Modifier.widthIn(max = 280.dp)
                         .then(if (highlighted) Modifier.border(2.dp, colors.tertiary, shape) else Modifier)
                         .clip(shape)
                         .combinedClickable(onClick = {}, onLongClick = onLongPress, onDoubleClick = onDoubleTap)
@@ -856,7 +827,6 @@ private fun MessageItem(
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
-                        m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }
                         Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
                             // One status tick per run of messages (on the last), unless a message is still sending.

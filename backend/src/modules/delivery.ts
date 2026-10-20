@@ -5,10 +5,6 @@ import type { PushSender } from '../push';
 import type { Hub } from '../realtime';
 import { withTx } from '../db';
 import { notify } from './notify';
-import { fetchLinkImage, fetchLinkPreview, firstLink } from '../linkpreview';
-import type { ImageProcessor } from '../imaging';
-import { randomUUID } from 'node:crypto';
-import { audience, loadMessage } from './messaging';
 
 /** Which push switch controls each notification type. `null` = account-critical, always allowed. */
 const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events' | null> = {
@@ -17,7 +13,6 @@ const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events
   community_join_request: 'push_social', community_join_approved: 'push_social', community_join_declined: 'push_social',
   community_invitation: 'push_social', community_role_changed: null, community_member_removed: null,
   community_announcement: 'push_social',
-  story_reaction: 'push_social',
 };
 
 export async function unreadCount(ctx: Ctx, userId: string): Promise<number> {
@@ -70,53 +65,8 @@ const loadPrefs = async (ctx: Ctx, userId: string): Promise<Prefs> => {
  * Handlers for the queue. Each one re-reads what it needs from the database (jobs carry only ids) and re-checks
  * every rule at delivery time, so a mute, a block or a read that happened after the job was queued is honoured.
  */
-export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: ImageProcessor): Record<string, Handler> {
+export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender): Record<string, Handler> {
   return {
-    // Reads the title and description of the first link in a message and tells the conversation. Never retried hard:
-    // a page that cannot be read (or must not be, see linkpreview.ts) simply gets no card.
-    'link.preview': async (job) => {
-      const { messageId, url } = job.payload;
-      if (typeof messageId !== 'string' || typeof url !== 'string') throw new PermanentJobError('payload incomplete');
-      const msg = (await ctx.pool.query<{ conversation_id: string; sender_id: string | null; content: string | null; status: string }>(
-        'select conversation_id, sender_id, content, status from messages where id = $1', [messageId])).rows[0];
-      // Unsent, sender gone, or edited to a different link since: nothing to do.
-      if (!msg || msg.status !== 'active' || !msg.sender_id || firstLink(msg.content) !== url) return;
-      const preview = await fetchLinkPreview(url);
-      if (!preview) return;
-      // The picture is optional: if it cannot be fetched, is not a real image, or storage is off, the card is text only.
-      let image: { key: string; width: number; height: number } | null = null;
-      if (preview.imageUrl && ctx.storage && images) {
-        try {
-          const got = await fetchLinkImage(preview.imageUrl);
-          if (got) {
-            const out = await images.process(got.bytes, got.contentType, 'linkpreview'); // re-encoded: no metadata, no odd formats
-            const key = `link-previews/${randomUUID()}.webp`;
-            await ctx.storage.write(key, out.full.bytes, out.full.contentType);
-            image = { key, width: out.full.width, height: out.full.height };
-          }
-        } catch { image = null; }
-      }
-      const removeFiles = (keys: (string | null | undefined)[]) => {
-        const list = keys.filter((k): k is string => Boolean(k));
-        if (list.length && ctx.storage) void ctx.storage.remove(list).catch(() => undefined);
-      };
-      // Reading the page took a while: if the message was edited or unsent meanwhile, a newer job owns the card.
-      const now = (await ctx.pool.query<{ content: string | null; status: string }>('select content, status from messages where id = $1', [messageId])).rows[0];
-      if (!now || now.status !== 'active' || firstLink(now.content) !== url) { removeFiles([image?.key]); return; }
-      const before = (await ctx.pool.query<{ image_key: string | null }>('select image_key from message_link_previews where message_id = $1', [messageId])).rows[0];
-      try {
-        await ctx.pool.query(
-          `insert into message_link_previews (message_id, url, host, title, description, site_name, image_key, image_width, image_height)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           on conflict (message_id) do update set url = excluded.url, host = excluded.host, title = excluded.title,
-             description = excluded.description, site_name = excluded.site_name, image_key = excluded.image_key,
-             image_width = excluded.image_width, image_height = excluded.image_height, created_at = now()`,
-          [messageId, url, preview.host, preview.title, preview.description, preview.siteName, image?.key ?? null, image?.width ?? null, image?.height ?? null]);
-      } catch (e) { removeFiles([image?.key]); throw e; }
-      if (before?.image_key && before.image_key !== image?.key) removeFiles([before.image_key]);
-      const message = await loadMessage(ctx, messageId);
-      hub.sendMany(await audience(ctx.pool, msg.conversation_id, msg.sender_id), { type: 'message:updated', conversationId: msg.conversation_id, message });
-    },
     // Fan-out of one announcement. Idempotent: notify() skips anyone already notified, so a retry never doubles up.
     // Muted members, blocked pairs and people who switched community notifications off are skipped inside notify().
     'community.announce': async (job) => {
@@ -146,6 +96,37 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
       }
       void sent;
     },
+    // A community's new event, announced in the app to members who asked for more than mentions. Idempotent: anyone who already
+    // has the notice is skipped, so a retry never doubles up. Muted members, blocked pairs and people who switched event
+    // notices off are skipped inside notify().
+    'event.announce': async (job) => {
+      const { eventId } = job.payload;
+      if (typeof eventId !== 'string') throw new PermanentJobError('eventId missing');
+      const ev = (await ctx.pool.query<{ organizer_id: string; community_id: string | null; title: string; status: string; ends_at: Date }>(
+        'select organizer_id, community_id, title, status, ends_at from events where id = $1', [eventId])).rows[0];
+      if (!ev || !ev.community_id || ev.status !== 'published' || new Date(ev.ends_at) <= new Date()) return; // cancelled or gone before delivery
+      const live = (await ctx.pool.query("select 1 from communities where id = $1 and status = 'active'", [ev.community_id])).rowCount;
+      if (!live) return;
+      let after = '00000000-0000-0000-0000-000000000000';
+      for (let page = 0; page < 25; page++) { // hard cap: 25 x 200 recipients per event
+        const { rows } = await ctx.pool.query<{ user_id: string }>(
+          `select m.user_id from community_members m
+            where m.community_id = $1 and m.status = 'active' and m.user_id <> $2 and m.user_id > $3
+              and m.notification_level in ('all', 'highlights', 'announcements')
+              and not exists (select 1 from community_mutes mu where mu.user_id = m.user_id and mu.community_id = m.community_id)
+              and not ${blockedBetween('m.user_id', '$2::uuid')}
+              and not exists (select 1 from notifications n where n.recipient_id = m.user_id and n.type = 'event_update' and n.entity_id = $4::uuid and n.metadata->>'kind' = 'community_event')
+            order by m.user_id limit 200`, [ev.community_id, ev.organizer_id, after, eventId]);
+        if (!rows.length) break;
+        for (const r of rows) {
+          await withTx(ctx.pool, (c) => notify(c, {
+            recipientId: r.user_id, actorId: null, type: 'event_update', entityType: 'event', entityId: eventId,
+            metadata: { kind: 'community_event', communityId: ev.community_id, title: ev.title }, preference: 'event_community',
+          }));
+        }
+        after = rows[rows.length - 1].user_id;
+      }
+    },
     // A stored notification: tell the person's open apps now, then push if they allow it.
     'notification.deliver': async (job) => {
       const id = job.payload.notificationId;
@@ -161,6 +142,11 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
       });
       // Message pushes are queued one per message ('push.message'), not per feed entry (the feed keeps one per conversation).
       if (n.type === 'message' || n.read_at) return;
+      // A community's new event is announced in the app, never pushed to every member by default.
+      if (n.type === 'event_update' && (n.metadata as Record<string, unknown> | null)?.kind === 'community_event') {
+        await ctx.pool.query("update notifications set push_status = 'skipped' where id = $1", [id]);
+        return;
+      }
       const sw = PUSH_SWITCH[n.type];
       const prefs = await loadPrefs(ctx, n.recipient_id);
       const allowed = sw === null ? true : prefs.push_enabled && prefs[sw ?? 'push_social'];

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
-import { acceptedFollow, userVisible } from '../access';
+import { userVisible } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { withTx } from '../db';
 import { HttpError } from '../errors';
@@ -11,7 +11,7 @@ import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard } from './cards';
 import { eventVisible } from './events';
 
 export const REPORT_REASONS = ['spam', 'harassment', 'hate', 'sexual', 'violence', 'self_harm', 'impersonation', 'misinformation', 'other'] as const;
-const TARGETS = ['user', 'post', 'comment', 'message', 'event', 'community', 'story'] as const;
+const TARGETS = ['user', 'post', 'comment', 'message', 'event', 'community'] as const;
 const MAX_SUSPENSION_DAYS = 30;
 
 const reportSchema = z.object({
@@ -45,7 +45,6 @@ async function ownerOf(q: Q, type: string, id: string): Promise<string | null> {
     message: 'select sender_id as owner from messages where id = $1',
     event: 'select organizer_id as owner from events where id = $1',
     community: 'select owner_id as owner from communities where id = $1',
-    story: 'select author_id as owner from stories where id = $1',
   };
   return (await q.query<{ owner: string | null }>(sql[type], [id])).rows[0]?.owner ?? null;
 }
@@ -70,9 +69,6 @@ export function moderationRoutes(ctx: Ctx) {
         message: [`select 1 from messages m join conversation_members cm on cm.conversation_id = m.conversation_id and cm.user_id = $1
                     where m.id = $2 and m.sender_id is distinct from $1 and m.status = 'active'`, [me.id, id]],
         event: [`select 1 from events e where e.id = $3 and e.organizer_id <> $1 and ${eventVisible('$1', '$2')}`, [me.id, me.universityId, id]],
-        // Only an active Story the reporter may see (same audience rules as viewing it).
-        story: [`select 1 from stories s join users a on a.id = s.author_id where s.id = $3 and s.author_id <> $1 and s.expires_at > now()
-                  and ${userVisible('a', '$1', '$2')} and (s.audience = 'campus' or ${acceptedFollow('$1::uuid', 's.author_id')})`, [me.id, me.universityId, id]],
         // Only communities whose profile the reporter could see (public, discoverable, or theirs).
         community: [`select 1 from communities c where c.id = $3 and c.owner_id <> $1 and c.university_id = $2 and c.status <> 'deleted' and (c.visibility = 'public' or c.discoverable or exists (select 1 from community_members vm where vm.community_id = c.id and vm.user_id = $1 and vm.status = 'active'))`, [me.id, me.universityId, id]],
       };
@@ -104,7 +100,6 @@ export function moderationRoutes(ctx: Ctx) {
         user: 'select handle as p from users where id = $1',
         event: 'select title as p from events where id = $1',
         community: 'select name as p from communities where id = $1',
-        story: "select case when kind = 'text' then left(text, 200) else coalesce(left(caption, 200), kind) end as p from stories where id = $1",
       };
       return (await pool.query<{ p: string | null }>(sql[r.target_type], [r.target_id])).rows[0]?.p ?? null;
     }

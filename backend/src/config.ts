@@ -20,8 +20,6 @@ const schema = z.object({
   // Notes: longest allowed text (in characters, so an emoji counts as one) and how long a Note stays up. Defaults: 60 and 24.
   NOTE_MAX_CHARS: z.coerce.number().int().min(1).max(200).optional(),
   NOTE_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
-  // Stories: how long a Story stays up. Default 24.
-  STORY_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
 });
 
 export type Config = z.infer<typeof schema>;

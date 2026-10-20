@@ -52,3 +52,34 @@ Implemented on the server; the Android app does not use the new fields yet.
 - **Home relevance (no flooding).** Event posts reach Home only for: the organizer; followers of the organizer; people who registered, are interested in, or saved the event; and members of the event's community (existing community gate). Only upcoming or live events; ended and completed ones leave Home. `not_interested` on the post and `hide_author` remove them. Everyone else finds events in the Events tab; broader distribution belongs to Discover (stage 4).
 - Announcement posts cannot be edited as posts (409 `event_post`); edit the event. Other post actions (comment, like, report, hide) work as for any post.
 - **Android:** Home draws event posts with `EventFeedCard` (reusing `EventCard`; RSVP sheet, save, share, open details). Discover, profile and community lists skip event posts for now (no event actions there yet). Home refreshes on resume, so changes made elsewhere appear.
+
+## Events v2, stage 4 (migration 028): Discover and search
+- `GET /api/v1/discover/events/sections` returns ordered sections, each `{key, title, items}`, items being the canonical event view plus `reason`. Order: communities, people you follow, recommended, trending, this week, one section per category group (`event_categories.discover_group`), online. **An event appears in at most one section**; empty sections are omitted. No location access is needed: relevance comes from campus, interests, communities, follows and history.
+- `GET /api/v1/discover/events` is the filtered list. Filters, all applied in SQL: `category` (comma list of codes), `format` (in_person, online, hybrid), `from`, `to`, `communityId`, `campus=mine|any`, `registrationOpen=true`, `saved=true`, `scope=upcoming|past`, `q`, `sort=rank|time`, `limit`, `cursor`. Invalid values return 400. There is no free/paid filter because events carry no payment information.
+- **Ranking** is a sum of named signals: joined community (+4), followed organizer (+3), interest match (+2), same campus (+1.5), similar events you registered for or saved (+1), starts soon (up to +3), engagement on a log scale (0.8 x ln(1 + going + interested + saved)), cover and description present (+0.5 each), full (-2), registration closed (-1), already going (-3). `reason` is the strongest applicable signal in one line.
+- **Paging** is by position (cursor `o:N`, at most 300 deep); the ranking is recomputed per page, so clients drop repeats by id. Time-ordered lists (`sort=time`, `scope=past`) are stable.
+- **Hide:** `PUT`/`DELETE /discover/events/:id/not-interested` (idempotent, 204, 404 for events you cannot see) hides one event from Discover and Home recommendations only; the Events tab, search and the event page still show it. To hide an organizer use the existing `POST /discover/feedback {kind: "hide_author", authorId}`; it also applies to events.
+- **Search** (`/search`, `/search/events`, and `q` above) now matches title, description, venue, address, category label, organizer name or handle, university, and the community name only for people allowed to know that community.
+- `GET /api/v1/event-categories` lists active categories; the Android filter chips use it.
+- **Android:** Discover > Events shows the server sections, with Online / Spots open / Saved / category chips and Today / This week windows sent to the server, a "why" line on each card, and "Not interested". A repository without these endpoints keeps the old on-device filtering.
+- **Not built:** "Upcoming near you" (no location data on events), free/paid filter, an explicit interests editor for events, a per-category "hide similar" (use hide organizer or not interested).
+
+## Events v2, stage 5 (migration 029): notifications and reminders
+All event notices use `type: event_update` with `metadata.kind` and carry no actor (the per-actor dedupe index used to drop a cancellation that followed a change; that is fixed). Tapping opens the event (`entityType: event`); an event that is gone or no longer visible shows the app's "not available" state.
+
+| kind | to | when | setting |
+|---|---|---|---|
+| `confirmed` | the person | they register (at most once per 10 minutes) | confirmations |
+| `reminder` (`offsetMinutes` 1440 or 60) | people going | 24 h / 1 h before the start | reminders + offsets |
+| `changed` | going + interested | time, end, venue, address, format or join link really changed; repeats within 15 minutes become one | changes |
+| `cancelled` | going + interested | the event is cancelled | cancellations |
+| `registrations` (`count`, `full`) | the organizer | 1st, 10th, 25th, 50th, 100th... registration, and when it fills | organizerUpdates |
+| `community_event` | community members | published in their community; in-app only, never pushed; only members at level all, highlights or announcements, not muted | community |
+
+- Every kind also needs the general `events` switch; `push_events` still decides phone alerts for the others.
+- `GET`/`PUT /me/event-notification-preferences`: `confirmations, reminders, changes, cancellations, community, organizerUpdates, reminderOffsets` (subset of 1440, 60; empty = none).
+- `PUT /events/:id/reminders {enabled}` silences reminders for one event you registered for (409 otherwise); `remindersOn` is in the event view.
+- **Reminder rules:** worked out from absolute times (no time zone or daylight-saving drift); each is sent once and only in the 30 minutes after its moment, so late registrants get no stale 24 h reminder; never for cancelled, completed, ended or already-started events, withdrawn people, or silenced events; moving the start clears the record so reminders follow the new time. The existing 5-minute scheduler runs `sendEventReminders`.
+- Community fan-out is the `event.announce` job (queued with the announcement, idempotent, capped at 5000 recipients).
+- **Not built:** invitations, waitlist notices, deadline-approaching notices (there are no invitations or waitlist).
+- **Android:** create/edit form now sends the server's fields (categories from the server, in-person/online/hybrid, join link, registration deadline, external link, community hosting, device time zone) and validates them like the server; Settings > Notifications has an "Event notices" section; notification text covers every kind. The app has no draft saving and no per-event reminder switch yet (server supports both).

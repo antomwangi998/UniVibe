@@ -103,7 +103,7 @@ class FeedPagingTest {
         val api = object : AuthedApi {
             override suspend fun authedCall(method: String, path: String, body: JSONObject?): AuthResult<HttpResponse> = error("nothing should be sent")
         }
-        val uploader = MediaUploader(api, object : FileUploader { override suspend fun put(url: String, contentType: String, file: File) { error("nothing should be uploaded") } })
+        val uploader = MediaUploader(api, FileUploader { _, _, _ -> error("nothing should be uploaded") })
         val photo = File.createTempFile("big", ".jpg").apply { deleteOnExit() }
         RandomAccessFile(photo, "rw").use { it.setLength(PostLimits.MAX_IMAGE_UPLOAD_BYTES + 1) }
         try {
