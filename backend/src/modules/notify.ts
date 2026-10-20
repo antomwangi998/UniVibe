@@ -3,6 +3,7 @@ import { blockedBetween } from '../access';
 import { enqueue } from '../jobs';
 
 export type NotificationType =
+  | 'story_reaction'
   | 'follow' | 'like' | 'comment' | 'reply'
   | 'message' | 'group_invite' | 'verification' | 'event_update'
   | 'community_join_request' | 'community_join_approved' | 'community_join_declined' | 'community_invitation'
@@ -10,6 +11,7 @@ export type NotificationType =
 
 /** Which user preference switch controls each type. `verification` is account-critical and cannot be switched off. */
 const PREFERENCE_COLUMN: Record<NotificationType, string | null> = {
+  story_reaction: 'story_reactions',
   follow: 'follows',
   like: 'likes', comment: 'comments', reply: 'comments',
   message: 'messages', group_invite: 'groups', event_update: 'events', verification: null,
