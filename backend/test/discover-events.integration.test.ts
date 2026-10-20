@@ -97,7 +97,9 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     await pool.query("update events set registration_deadline = now() - interval '1 minute' where id = $1", [closed.id]);
     const get = async (qs: string) => ids((await call('GET', `${D}?limit=30&${qs}`, viewer.token)).body);
     expect(await get('category=music')).toEqual([music.id]);
-    expect(await get('category=music,technology')).toEqual(expect.arrayContaining([music.id, tech.id]));
+    const mine = (e: { id: string; title: string }) => get(`category=music,technology&q=${encodeURIComponent(e.title)}`); // q keeps other tests' events out
+    expect(await mine(tech)).toEqual([tech.id]);
+    expect(await mine(music)).toEqual([music.id]);
     expect(await get('format=online')).toEqual([online.id]);
     const open = await get('registrationOpen=true');
     expect(open).toContain(tech.id);
@@ -121,7 +123,9 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     await pool.query("update events set starts_at = now() - interval '5 hours', ends_at = now() - interval '4 hours' where id = $1", [old.id]);
     const soon = await create(org.token, { startsAt: inHours(10), endsAt: inHours(11) });
     const later = await create(org2.token, { startsAt: inHours(70), endsAt: inHours(71) });
-    expect(ids((await call('GET', `${D}?scope=past&limit=30`, viewer.token)).body)).toContain(old.id);
+    const pastRes = await call('GET', `${D}?scope=past&limit=30`, viewer.token);
+    expect(pastRes.status, JSON.stringify(pastRes.body)).toBe(200);
+    expect(ids(pastRes.body)).toContain(old.id);
     expect(ids((await call('GET', `${D}?limit=30`, viewer.token)).body)).not.toContain(old.id);
     const timed = ids((await call('GET', `${D}?sort=time&limit=50`, viewer.token)).body);
     expect(timed.indexOf(soon.id)).toBeLessThan(timed.indexOf(later.id));

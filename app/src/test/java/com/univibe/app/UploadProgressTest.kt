@@ -39,7 +39,7 @@ class UploadProgressTest {
                 onProgress(100, 100)
             }
         }
-        val id = MediaUploader(api, files).upload(photo().path, "image", "message", tag = "local-1") { seen += it }
+        val id = MediaUploader(api, files).upload(photo().path, "image", "message", tag = "local-1", onProgress = { seen += it })
         assertEquals("m1", id)
         assertEquals(listOf(0f, 0.5f, 1f), seen)
         val live = during.single().single()
@@ -49,7 +49,7 @@ class UploadProgressTest {
 
     @Test fun anUploaderThatCannotReportProgressStillCompletesTheBar() = runBlocking {
         val seen = mutableListOf<Float>()
-        MediaUploader(api, object : FileUploader { override suspend fun put(url: String, contentType: String, file: File) = Unit }).upload(photo().path, "image", "post") { seen += it }
+        MediaUploader(api, object : FileUploader { override suspend fun put(url: String, contentType: String, file: File) = Unit }).upload(photo().path, "image", "post", onProgress = { seen += it })
         assertEquals(listOf(0f, 1f), seen) // the whole file arrived at once
     }
 
