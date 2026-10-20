@@ -199,7 +199,7 @@ interface MessageRepository {
     /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
     suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
-    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null): Unit =
+    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")
     suspend fun deleteMessage(chatId: String, messageId: String)
     /** One reaction per person per message; null removes yours. */
