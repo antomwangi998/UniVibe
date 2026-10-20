@@ -216,7 +216,7 @@ describe.skipIf(!url)('communities (needs TEST_DATABASE_URL)', () => {
     const owner = await h.student();
     const c = await create(owner.token, { visibility: 'private' });
     const a = await h.student();
-    await call('PUT', '/me/notification-preferences', a.token, { communities: false });
+    await call('PUT', `${V1}/me/notification-preferences`, a.token, { communities: false });
     await call('PUT', `${V1}/communities/${c.id}/membership`, a.token);
     const req = (await call('GET', `${V1}/communities/${c.id}/requests`, owner.token)).body.items[0].id;
     await call('POST', `${V1}/communities/${c.id}/requests/${req}/approve`, owner.token);
@@ -281,8 +281,9 @@ describe.skipIf(!url)('communities (needs TEST_DATABASE_URL)', () => {
 
   it('suggested communities exclude joined ones and give no unsupported reason', async () => {
     const owner = await h.student();
-    const c = await create(owner.token);
-    const v = await h.student();
+    const tag = 'zq' + Math.random().toString(36).slice(2, 8); // unique interest so this community ranks first
+    const c = await create(owner.token, { name: `Chess Club ${tag}` });
+    const v = await h.onboarded('Computer Science', [tag]);
     const first = await call('GET', `${V1}/communities/suggested`, v.token);
     const found = first.body.items.find((i: { id: string }) => i.id === c.id);
     expect(found).toBeTruthy();

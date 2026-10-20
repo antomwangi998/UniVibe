@@ -21,7 +21,7 @@ class PermissionsConsistencyTest {
     }
 
     @Test fun onlyKnownPermissionsAreDeclared() {
-        assertEquals(setOf("INTERNET", "POST_NOTIFICATIONS", "RECORD_AUDIO"), declared)
+        assertEquals(setOf("INTERNET", "ACCESS_NETWORK_STATE", "POST_NOTIFICATIONS", "RECORD_AUDIO"), declared)
     }
 
     @Test fun legalTextsExplainTheMicrophone() {
