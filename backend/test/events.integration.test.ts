@@ -366,6 +366,88 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     expect((await n()).rows[0].n).toBe(1);
   });
 
+  // ---- Events v2, stage 2: interested and saved ----
+  it('v2: interested never takes a seat, going replaces it, and a response can always be withdrawn', async () => {
+    const org = await h.student();
+    const a = await h.student();
+    const b = await h.student();
+    const e = await create(org.token, { capacity: 1 });
+    const rsvp = (token: string, state: string) => call('PUT', `${V1}/events/${e.id}/rsvp`, token, { state });
+    expect((await rsvp(a.token, 'interested')).body).toMatchObject({ myRsvp: 'interested', interestedCount: 1, registeredCount: 0, spotsLeft: 1 });
+    expect((await rsvp(a.token, 'interested')).body.interestedCount).toBe(1); // repeating changes nothing
+    expect((await rsvp(b.token, 'going')).body).toMatchObject({ myRsvp: 'going', spotsLeft: 0 });
+    // Interested did not reserve the only seat, and the full event now refuses A.
+    const full = await rsvp(a.token, 'going');
+    expect(full.status).toBe(409);
+    expect((await call('GET', `${V1}/events/${e.id}`, a.token)).body.myRsvp).toBe('interested'); // a refused change leaves the old response
+    // B swaps going for interested: the seat is released and A can take it.
+    expect((await rsvp(b.token, 'interested')).body).toMatchObject({ myRsvp: 'interested', registeredCount: 0 });
+    const took = (await rsvp(a.token, 'going')).body;
+    expect(took).toMatchObject({ myRsvp: 'going', registeredCount: 1, interestedCount: 1 });
+    expect((await rsvp(a.token, 'none')).body).toMatchObject({ myRsvp: null, registeredCount: 0 });
+    const rows = await pool.query('select (select count(*)::int from event_interest where event_id = $1 and user_id = $2) as i, (select count(*)::int from event_registrations where event_id = $1 and user_id = $2 and status = \'registered\') as r', [e.id, a.id]);
+    expect(rows.rows[0]).toEqual({ i: 0, r: 0 });
+    expect((await rsvp(a.token, 'maybe')).status).toBe(400);
+  });
+
+  it('v2: interested is refused on cancelled or ended events, but withdrawing still works', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    const e = await create(org.token);
+    await call('PUT', `${V1}/events/${e.id}/rsvp`, s1.token, { state: 'interested' });
+    await call('POST', `${V1}/events/${e.id}/cancel`, org.token);
+    expect((await call('PUT', `${V1}/events/${e.id}/rsvp`, s1.token, { state: 'interested' })).status).toBe(409);
+    expect((await call('PUT', `${V1}/events/${e.id}/rsvp`, s1.token, { state: 'none' })).body.myRsvp).toBeNull();
+  });
+
+  it('v2: concurrent going and interested changes never leave someone in both states or overbook', async () => {
+    const org = await h.student();
+    const people = await Promise.all([h.student(), h.student(), h.student(), h.student()]);
+    const e = await create(org.token, { capacity: 2 });
+    await Promise.all(people.flatMap((p, i) => [
+      call('PUT', `${V1}/events/${e.id}/rsvp`, p.token, { state: i % 2 ? 'interested' : 'going' }),
+      call('PUT', `${V1}/events/${e.id}/rsvp`, p.token, { state: 'going' }),
+    ]));
+    const reg = await pool.query("select count(*)::int as n from event_registrations where event_id = $1 and status = 'registered'", [e.id]);
+    expect(reg.rows[0].n).toBeLessThanOrEqual(2);
+    const both = await pool.query("select count(*)::int as n from event_interest i join event_registrations r on r.event_id = i.event_id and r.user_id = i.user_id and r.status = 'registered' where i.event_id = $1", [e.id]);
+    expect(both.rows[0].n).toBe(0);
+  });
+
+  it('v2: saved events are private, idempotent, paged newest first, and disappear when access is lost', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    const other = await h.student();
+    const e1 = await create(org.token, { title: 'First saved' });
+    const e2 = await create(org.token, { title: 'Second saved' });
+    const e3 = await create(org.token, { title: 'Third saved' });
+    for (const e of [e1, e2, e3]) {
+      expect((await call('PUT', `${V1}/events/${e.id}/save`, s1.token)).status).toBe(204);
+      expect((await call('PUT', `${V1}/events/${e.id}/save`, s1.token)).status).toBe(204); // repeat: still one row
+    }
+    expect((await pool.query('select count(*)::int as n from saved_events where user_id = $1', [s1.id])).rows[0].n).toBe(3);
+    expect((await call('GET', `${V1}/events/${e1.id}`, s1.token)).body.saved).toBe(true);
+    expect((await call('GET', `${V1}/events/${e1.id}`, other.token)).body.saved).toBe(false);
+    const p1 = await call('GET', `${V1}/me/saved-events?limit=2`, s1.token);
+    expect(p1.body.items.map((i: { id: string }) => i.id)).toEqual([e3.id, e2.id]);
+    const p2 = await call('GET', `${V1}/me/saved-events?limit=2&cursor=${p1.body.nextCursor}`, s1.token);
+    expect(p2.body.items.map((i: { id: string }) => i.id)).toEqual([e1.id]);
+    expect(p2.body.nextCursor).toBeNull();
+    expect((await call('GET', `${V1}/me/saved-events`, other.token)).body.items).toEqual([]);
+    expect((await call('DELETE', `${V1}/events/${e2.id}/save`, s1.token)).status).toBe(204);
+    expect((await call('GET', `${V1}/me/saved-events`, s1.token)).body.items.map((i: { id: string }) => i.id)).toEqual([e3.id, e1.id]);
+    // A draft cannot be saved by someone else, and losing access hides a saved event.
+    const draft = await create(org.token, { status: 'draft' });
+    expect((await call('PUT', `${V1}/events/${draft.id}/save`, s1.token)).status).toBe(404);
+    const owner = await h.student();
+    const secret = await makeCommunity(owner.token, { visibility: 'private', membershipPolicy: 'invite_only' });
+    await join(secret.id, s1.id);
+    const hidden = await create(owner.token, { communityId: secret.id });
+    expect((await call('PUT', `${V1}/events/${hidden.id}/save`, s1.token)).status).toBe(204);
+    await pool.query("update community_members set status = 'suspended' where community_id = $1 and user_id = $2", [secret.id, s1.id]);
+    expect((await call('GET', `${V1}/me/saved-events`, s1.token)).body.items.some((i: { id: string }) => i.id === hidden.id)).toBe(false);
+  });
+
   it('requires authentication', async () => {
     for (const [m, p] of [['GET', '/events'], ['POST', '/events'], ['GET', '/me/events']] as const) expect((await call(m, `${V1}${p}`)).status).toBe(401);
   });

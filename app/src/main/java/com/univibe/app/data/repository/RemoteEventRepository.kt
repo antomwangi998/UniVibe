@@ -29,12 +29,11 @@ private const val MAX_PAGES = 4
  * Campus events from the UniVibe server: real events, real registrations, capacity enforced by the server.
  *
  * What the server does not have, and so is not faked here:
- *  - "Interested": only "going" exists ([supportsInterested] is false, so the screens hide the option).
  *  - A venue directory and map positions: venues are plain text, so [getVenues] is empty and no map is shown.
  *  - Hosting for a community: communities are not on the server yet, so a draft that asks for it is refused.
  */
 class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
-    override val supportsInterested: Boolean get() = false
+    override val supportsInterested: Boolean get() = true
 
     private fun millis(iso: String) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(0L)
 
@@ -46,9 +45,13 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
         val id = o.getString("id")
         return CampusEvent(
             id = id, title = o.getString("title"), month = month, day = day, timeLabel = label,
-            location = o.optString("venueName"), going = o.optInt("registeredCount", 0), interested = 0,
+            location = o.optString("venueName"), going = o.optInt("registeredCount", 0), interested = o.optInt("interestedCount", 0),
             category = categoryFromServer(o.optString("category")), accent = accentFor(id),
-            rsvp = if (o.isNull("myRegistration")) RsvpState.None else RsvpState.Going,
+            rsvp = when (o.optString("myRsvp")) {
+                "going" -> RsvpState.Going
+                "interested" -> RsvpState.Interested
+                else -> if (o.isNull("myRegistration")) RsvpState.None else RsvpState.Going
+            },
             isPast = System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
             hostName = organizer.optString("fullName"), hostCommunityId = null,
             cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
@@ -99,12 +102,10 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
         }
     }
 
+    /** One call sets the whole response, so the server never counts someone as both interested and going. */
     override suspend fun setRsvp(eventId: String, state: RsvpState) = explained {
-        when (state) {
-            RsvpState.Going -> api.send("POST", "/api/v1/events/$eventId/register", ok = setOf(200, 201))
-            RsvpState.None -> api.send("DELETE", "/api/v1/events/$eventId/register", ok = setOf(204))
-            RsvpState.Interested -> throw UnsupportedOperationException("Interested isn't available yet.")
-        }
+        val wire = when (state) { RsvpState.Going -> "going"; RsvpState.Interested -> "interested"; RsvpState.None -> "none" }
+        api.send("PUT", "/api/v1/events/$eventId/rsvp", JSONObject().put("state", wire))
         Unit
     }
 
