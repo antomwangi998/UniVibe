@@ -35,7 +35,7 @@ export function harness(pool: () => Pool) {
   }
 
   async function student(domain = 'lakeside.example', universityId = 'lakeside'): Promise<Student> {
-    const email = `s${Date.now()}x${n++}@${domain}`;
+    const email = `s${Date.now()}x${n++}r${Math.random().toString(36).slice(2, 8)}@${domain}`;
     await call('POST', '/auth/register', undefined, { fullName: 'Test Student', email, universityId, password: PASSWORD, acceptedTerms: true });
     // The email goes out just after the response, so under load the code can arrive a moment later.
     for (let i = 0; i < 100 && !codes.has(email); i++) await new Promise((r) => setTimeout(r, 20));
