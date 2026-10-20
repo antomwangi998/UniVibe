@@ -148,6 +148,20 @@ interface EventRepository {
     /** Host only, and only while nobody else has RSVPed (otherwise cancel it so attendees are told). */
     suspend fun deleteEvent(id: String)
     suspend fun getVenues(): List<Venue>
+
+    /** False when the server has no event discovery; Discover then falls back to the plain [getEvents] list. */
+    val supportsDiscover: Boolean get() = false
+    /** The categories the server offers, as data, so new ones appear without an app update. */
+    suspend fun eventCategories(): List<EventCategoryInfo> = emptyList()
+    /** Filtered, ranked events, one page at a time. Pass the previous page's cursor for the next one. */
+    suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String? = null): EventDiscoverPage =
+        throw UnsupportedOperationException("Discovering events isn't available yet.")
+    /** The named sections of the Discover page, in the server's order. An event is in at most one section. */
+    suspend fun discoverSections(): List<EventSection> = emptyList()
+    /** Private feedback that hides an event from recommendations. false undoes it. */
+    suspend fun setNotInterested(eventId: String, notInterested: Boolean) {
+        throw UnsupportedOperationException("Hiding events isn't available yet.")
+    }
 }
 
 interface ProfileRepository {
