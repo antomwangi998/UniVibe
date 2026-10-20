@@ -39,7 +39,7 @@ class UploadProgressTest {
                 onProgress(100, 100)
             }
         }
-        val id = MediaUploader(api, files).upload(photo().path, "image", "message", tag = "local-1") { seen += it }
+        val id = MediaUploader(api, files).upload(photo().path, "image", "message", tag = "local-1", onProgress = { seen += it })
         assertEquals("m1", id)
         assertEquals(listOf(0f, 0.5f, 1f), seen)
         val live = during.single().single()
@@ -49,12 +49,12 @@ class UploadProgressTest {
 
     @Test fun anUploaderThatCannotReportProgressStillCompletesTheBar() = runBlocking {
         val seen = mutableListOf<Float>()
-        MediaUploader(api, FileUploader { _, _, _ -> }).upload(photo().path, "image", "post") { seen += it }
+        MediaUploader(api, object : FileUploader { override suspend fun put(url: String, contentType: String, file: File) = Unit }).upload(photo().path, "image", "post", onProgress = { seen += it })
         assertEquals(listOf(0f, 1f), seen) // the whole file arrived at once
     }
 
     @Test fun aFailedUploadLeavesNothingShownAsUploading() = runBlocking {
-        val files = FileUploader { _, _, _ -> throw IOException("connection lost") }
+        val files = object : FileUploader { override suspend fun put(url: String, contentType: String, file: File) { throw IOException("connection lost") } }
         try { MediaUploader(api, files).upload(photo().path, "image", "post"); throw AssertionError("expected an IOException") }
         catch (e: IOException) { /* expected */ }
         assertTrue(UploadTracker.uploads.value.isEmpty())
@@ -62,7 +62,7 @@ class UploadProgressTest {
 
     @Test fun tooBigAFileIsRefusedBeforeAnyUploadIsShown() = runBlocking {
         val big = File.createTempFile("voice", ".m4a").apply { deleteOnExit(); RandomAccessFile0(this, 5L * 1024 * 1024 + 1) }
-        try { MediaUploader(api, FileUploader { _, _, _ -> }).upload(big.path, "audio", "message", durationMs = 1000); throw AssertionError("expected an IOException") }
+        try { MediaUploader(api, object : FileUploader { override suspend fun put(url: String, contentType: String, file: File) = Unit }).upload(big.path, "audio", "message", durationMs = 1000); throw AssertionError("expected an IOException") }
         catch (e: IOException) { assertTrue(e.message!!.contains("too large")) }
         assertTrue(UploadTracker.uploads.value.isEmpty())
     }
