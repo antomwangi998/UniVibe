@@ -10,7 +10,6 @@ import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
 import { notify } from './notify';
-import { presenceOf } from './presence';
 
 export const EDIT_WINDOW_MINUTES = 15;
 const MAX_GROUP_MEMBERS = 256;
@@ -290,7 +289,6 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                 coalesce(ps.read_receipts, true) as read_receipts from conversation_members m
            join users u on u.id = m.user_id ${cardJoin('u')} left join privacy_settings ps on ps.user_id = u.id
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
-      const presence = await presenceOf(ctx, hub, me.id, rows.map((r) => r.card_id as string));
       return {
         id: conv.id, kind: conv.kind, title: conv.title, createdAt: conv.created_at, lastMessageAt: conv.last_message_at,
         description: conv.description ?? '', createdBy: conv.created_by, photoUrl: await signedUrl(ctx, conv.photo_key ?? null),
@@ -302,8 +300,6 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           lastReadSeq: r.card_id === me.id || r.read_receipts ? Number(r.last_read_seq) : 0, lastDeliveredSeq: Number(r.last_delivered_seq),
           // Online state is shown only for people who allow it (always to themselves).
           online: r.card_id === me.id ? hub.isOnline(me.id) : r.show_online ? hub.isOnline(r.card_id) : null,
-          // When they were last connected; null for someone who keeps their activity private (or has not connected yet).
-          lastActiveAt: presence.get(r.card_id)?.lastActiveAt ?? null,
         }))),
       };
     }
@@ -352,15 +348,12 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
       const last = page[page.length - 1];
-      // Direct chats: is the other person active, and when were they last? Null when they keep that private.
-      const presence = await presenceOf(ctx, hub, me.id, page.filter((r) => r.card_id).map((r) => r.card_id as string));
       return {
         items: await Promise.all(page.map(async (r) => ({
           id: r.id, kind: r.kind, title: r.title, lastMessageAt: r.last_message_at, unreadCount: Number(r.unread),
           mutedUntil: r.muted_until, archived: r.archived, pinned: r.pinned, markedUnread: r.marked_unread,
           memberCount: Number(r.member_count), members: r.members_preview, photoUrl: await signedUrl(ctx, r.photo_key ?? null),
           with: r.card_id ? await toCard(ctx, r as CardRow) : null,
-          presence: r.card_id ? presence.get(r.card_id) ?? null : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
           mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, senderName: r.lm_sender_name ?? null,

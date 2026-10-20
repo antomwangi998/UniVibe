@@ -254,6 +254,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     tab(TopLevelDestination.Home.route) {
                         HomeScreen(
                             onOpenEvents = { selectTab(TopLevelDestination.Events.route) },
+                            onOpenEvent = { open(AppRoutes.event(it)) },
                             onOpenComments = { open(AppRoutes.comments(it)) },
                             onOpenStudent = { open(AppRoutes.student(it)) },
                             onCreatePost = { open(AppRoutes.CREATE_POST) },

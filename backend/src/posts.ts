@@ -3,6 +3,7 @@ import { blockedBetween, notSuspended } from './access';
 import { enqueue } from './jobs';
 import { notify, retract } from './modules/notify';
 import { assertMayPostInCommunity, joinState } from './modules/community_state';
+import { eventVisible, loadEventViews } from './modules/events';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { withTx } from './db';
@@ -58,7 +59,7 @@ const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() }
  * Followers-only posts need a follow. The server is the only place this is enforced.
  */
 export const visible = (p: string, author: string) =>
-  `(${p}.status = 'active' and (` +
+  `(${p}.status = 'active' and (${p}.event_id is null or exists (select 1 from events pe where pe.id = ${p}.event_id and ${eventVisible('$1', '$2', 'pe')})) and (` +
   // Personal-feed posts: unchanged rules.
   `(${p}.audience <> 'community' and (${p}.author_id = $1 or (` +
   `((${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
@@ -83,7 +84,7 @@ export const commentShown = (c: string) =>
   `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
 
 export const POST_COLS =
-  'p.id, p.text, p.audience, p.community_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
+  'p.id, p.text, p.audience, p.community_id, p.event_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
   ', pc.name as c_name, pc.slug as c_slug, pc.visibility as c_visibility, pc.membership_policy as c_policy' +
@@ -106,7 +107,7 @@ export const POST_FROM =
   'left join communities pc on pc.id = p.community_id';
 
 export type PostRow = AuthorCols & {
-  id: string; text: string; audience: string; community_id: string | null; is_announcement: boolean; share_count: number; poll_options: string[] | null;
+  id: string; text: string; audience: string; community_id: string | null; event_id: string | null; is_announcement: boolean; share_count: number; poll_options: string[] | null;
   created_at: Date; edited_at: Date | null; age_seconds: number;
   c_name: string | null; c_slug: string | null; c_visibility: string | null; c_policy: string | null; c_members: number | null;
   c_status: string | null; c_avatar_key: string | null; c_avatar_url?: string | null;
@@ -117,7 +118,7 @@ export type PostRow = AuthorCols & {
 
 type MediaOut = { id: string; kind: string; url: string; thumbUrl: string | null; width: number | null; height: number | null };
 
-function postJson(r: PostRow, media: MediaOut[]) {
+function postJson(r: PostRow, media: MediaOut[], event: unknown = null) {
   const counts = r.vote_counts ?? {};
   return {
     id: r.id,
@@ -128,6 +129,9 @@ function postJson(r: PostRow, media: MediaOut[]) {
     text: r.text,
     audience: r.audience,
     announcement: r.is_announcement,
+    // An event announcement carries the event's CURRENT state, built by the same code as the Events tab. Null for other posts.
+    eventId: r.event_id,
+    event,
     community: r.community_id
       ? {
           id: r.community_id, name: r.c_name, slug: r.c_slug, visibility: r.c_visibility, memberCount: r.c_members,
@@ -152,8 +156,9 @@ function postJson(r: PostRow, media: MediaOut[]) {
 }
 
 /** Posts as the API returns them, with short-lived links to their photos and videos. Shared with Discover. */
-export async function presentPosts(pool: Pool, storage: Storage | null | undefined, rows: PostRow[]) {
+export async function presentPosts(pool: Pool, storage: Storage | null | undefined, rows: PostRow[], viewer?: { id: string; universityId: string }) {
   if (rows.length === 0) return [];
+  const events = viewer ? await loadEventViews({ pool, storage: storage ?? null }, viewer, rows.flatMap((r) => (r.event_id ? [r.event_id] : []))) : new Map();
   await signAuthors(storage ?? undefined, rows);
   await Promise.all(rows.map(async (r) => {
     r.c_avatar_url = r.c_avatar_key && storage ? await storage.signedUrl(r.c_avatar_key, 900) : null;
@@ -170,7 +175,7 @@ export async function presentPosts(pool: Pool, storage: Storage | null | undefin
       byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url, thumbUrl, width: f.width, height: f.height }]);
     }
   }
-  return rows.map((r) => postJson(r, byPost.get(r.id) ?? []));
+  return rows.map((r) => postJson(r, byPost.get(r.id) ?? [], r.event_id ? events.get(r.event_id) ?? null : null));
 }
 
 const COMMENT_COLS =
@@ -218,18 +223,18 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   }
 
   /** Posts as the API returns them, with short-lived links to their photos and videos. */
-  const present = (rows: PostRow[]) => presentPosts(pool, ctx.storage, rows);
+  const present = (rows: PostRow[], user?: SignedInUser) => presentPosts(pool, ctx.storage, rows, user ? { id: user.id, universityId: user.university_id } : undefined);
 
   async function presentOne(user: SignedInUser, id: string) {
     const row = await fetchPost(user, id);
     if (!row) throw new HttpError(404, 'not_found', 'That post is not available.');
-    return (await present([row]))[0];
+    return (await present([row], user))[0];
   }
 
   /** The post, if this student may see it. Everything else is "not found", so private posts are not revealed. */
   async function visiblePost(user: SignedInUser, id: string) {
-    const { rows } = await pool.query<{ author_id: string; audience: string; poll_options: string[] | null }>(
-      `select p.author_id, p.audience, p.poll_options from posts p join users a on a.id = p.author_id ` +
+    const { rows } = await pool.query<{ author_id: string; audience: string; poll_options: string[] | null; event_id: string | null }>(
+      `select p.author_id, p.audience, p.poll_options, p.event_id from posts p join users a on a.id = p.author_id ` +
         `where p.id = $3 and ${visible('p', 'a')}`,
       [user.id, user.university_id, id],
     );
@@ -279,12 +284,25 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const communityGate = author
       ? ''
       : "and (p.audience <> 'community' or exists (select 1 from community_members hm where hm.community_id = p.community_id and hm.user_id = $1 and hm.status = 'active' and hm.notification_level <> 'muted') and not exists (select 1 from community_mutes hmu where hmu.user_id = $1 and hmu.community_id = p.community_id) and not exists (select 1 from discover_feedback hf where hf.user_id = $1 and hf.kind = 'not_interested' and hf.post_id = p.id)) ";
+    // Event announcements reach Home only when they are relevant to this person, so a busy campus cannot flood the feed:
+    // the person follows the organizer, answered or saved the event, is the organizer, or the event belongs to a community
+    // they joined (the community gate above already checked that). Upcoming and live events only, and never ones they
+    // marked not interested or whose organizer they hid. Everyone else finds events in the Events tab and Discover.
+    const eventGate = author
+      ? ''
+      : "and (p.event_id is null or (exists (select 1 from events fe where fe.id = p.event_id and fe.ends_at > now() and fe.status <> 'completed') " +
+        "and not exists (select 1 from discover_feedback ef where ef.user_id = $1 and ((ef.kind = 'not_interested' and ef.post_id = p.id) or (ef.kind = 'hide_author' and ef.author_id = p.author_id))) " +
+        "and (p.audience = 'community' or p.author_id = $1 " +
+        "or exists (select 1 from follows ef2 where ef2.follower_id = $1 and ef2.followee_id = p.author_id) " +
+        "or exists (select 1 from event_registrations er where er.event_id = p.event_id and er.user_id = $1 and er.status = 'registered') " +
+        "or exists (select 1 from event_interest ei where ei.event_id = p.event_id and ei.user_id = $1) " +
+        "or exists (select 1 from saved_events es where es.event_id = p.event_id and es.user_id = $1)))) ";
     params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
-      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${communityGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
+      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${communityGate} ${eventGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
       params,
     );
-    return present(rows);
+    return present(rows, user);
   });
 
   app.get('/posts/saved', async (req) => {
@@ -304,7 +322,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
         `where ${visible('p', 'a')} ${older} order by sv.created_at desc, p.id desc limit $${params.length}`,
       params,
     );
-    return present(rows);
+    return present(rows, user);
   });
 
   app.get('/posts/:id', async (req) => {
@@ -363,6 +381,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const b = editSchema.parse(req.body ?? {});
     const post = await visiblePost(user, id);
     if (post.author_id !== user.id) throw new HttpError(403, 'forbidden', 'You can only change your own posts.');
+    if (post.event_id) throw new HttpError(409, 'event_post', 'Edit the event itself; its announcement follows it.');
     if (b.text === '') {
       const hasMedia = await pool.query('select 1 from media where post_id = $1 limit 1', [id]);
       if (!hasMedia.rowCount) throw new HttpError(400, 'validation', 'Write something first.');
