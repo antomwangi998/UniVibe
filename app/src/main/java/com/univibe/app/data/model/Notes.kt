@@ -23,10 +23,6 @@ data class Note(
     val version: Long,
     val createdAtMs: Long,
     val expiresAtMs: Long,
-    /** The author is connected right now. False also when they keep their activity private. */
-    val online: Boolean = false,
-    /** When the author was last active (epoch ms); null when private or unknown. */
-    val lastActiveMs: Long? = null,
 ) {
     fun isActiveAt(nowMs: Long): Boolean = expiresAtMs > nowMs
 }
@@ -60,22 +56,4 @@ fun checkNoteDraft(text: String, maxChars: Int): NoteDraftCheck {
     if (clean.isEmpty()) return NoteDraftCheck.Empty
     val length = noteLength(clean)
     return if (length > maxChars) NoteDraftCheck.TooLong(length, maxChars) else NoteDraftCheck.Ok
-}
-
-/**
- * "Active now", "Active 5m ago", "Active 3h ago", "Active yesterday", "Active 4d ago". Null when there is nothing honest to
- * say (private, never seen, or more than a month ago): the app then shows nothing rather than "Offline".
- */
-fun activeLabel(online: Boolean, lastActiveMs: Long?, nowMs: Long): String? {
-    if (online) return "Active now"
-    val last = lastActiveMs ?: return null
-    val minutes = ((nowMs - last) / 60_000).coerceAtLeast(0)
-    return when {
-        minutes < 1 -> "Active now"
-        minutes < 60 -> "Active ${minutes}m ago"
-        minutes < 24 * 60 -> "Active ${minutes / 60}h ago"
-        minutes < 48 * 60 -> "Active yesterday"
-        minutes < 30 * 24 * 60 -> "Active ${minutes / (24 * 60)}d ago"
-        else -> null
-    }
 }

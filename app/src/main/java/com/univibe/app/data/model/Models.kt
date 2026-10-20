@@ -71,6 +71,11 @@ data class Post(
     /** Set when the post was published in a community; the author and the community stay distinct. */
     val community: PostCommunity? = null,
     val announcement: Boolean = false,
+    /**
+     * Set when the post announces an event. It is the event's CURRENT state, from the same server data as the Events tab and
+     * the details screen, so a cancellation or RSVP shows up here too. The text of such a post is empty.
+     */
+    val event: CampusEvent? = null,
 ) {
     /** True when the post carries something besides text, so its text may be empty. */
     val hasAttachment: Boolean
@@ -125,8 +130,6 @@ data class Chat(
     val avatarUrl: String? = null,
     /** For groups: the uploaded group photo (a signed link), when there is one. */
     val groupPhotoUrl: String? = null,
-    /** When the other person was last active (epoch ms). Null when they keep it private or have not been seen yet. */
-    val lastActiveMs: Long? = null,
 ) {
     val hasUnread: Boolean get() = unread > 0
 }
@@ -164,6 +167,10 @@ data class CampusEvent(
     val cancelled: Boolean = false,
     /** You created it, so you can edit, cancel or delete it. */
     val mine: Boolean = false,
+    /** Signed link to the cover photo, when the organizer added one. Expires, so it is never stored. */
+    val coverUrl: String? = null,
+    /** You bookmarked it (saved on the server, so it follows you across devices). */
+    val saved: Boolean = false,
 ) {
     /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
     val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
