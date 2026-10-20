@@ -99,6 +99,17 @@ class NotesViewModel(
             }.collect { me -> _state.update { it.copy(me = me) } }
         }
         load()
+        // The teal dot follows live presence. Only people who share their activity with me ever send it.
+        viewModelScope.launch {
+            repository.presence().collect { p ->
+                _state.update { s ->
+                    s.copy(others = s.others.map { n ->
+                        if (n.authorId != p.userId) n
+                        else n.copy(online = p.online, lastActiveMs = if (p.online) n.lastActiveMs else now())
+                    })
+                }
+            }
+        }
         // The server says when something changed; a short pause lets a burst of events become one reload.
         viewModelScope.launch { repository.changes().conflate().collect { delay(300); load(silent = true) } }
         // Fallback only: while the live connection is down, ask now and then. When it is up, events do the work.
@@ -161,7 +172,17 @@ class NotesViewModel(
         if (mine == null) openCompose(existing = null) else _state.update { it.copy(sheet = NotesSheet.Mine) }
     }
 
+    /** The Note bubble (mine): open my Note so I can read, edit or delete it. */
+    fun onMyNoteClick() = _state.update { if (it.myActive != null) it.copy(sheet = NotesSheet.Mine) else it }
+
+    /** The Note bubble: always opens the Note. */
     fun onNoteClick(authorId: String) = _state.update { it.copy(sheet = NotesSheet.Theirs(authorId)) }
+
+    /**
+     * The avatar. With no Story it opens the person's Note, the same as the bubble. When Stories arrive, an avatar with a
+     * teal ring opens the Story viewer here, which is why the bubble is a separate button.
+     */
+    fun onAvatarClick(authorId: String) = onNoteClick(authorId)
 
     fun editMine() = openCompose(existing = _state.value.myActive)
 

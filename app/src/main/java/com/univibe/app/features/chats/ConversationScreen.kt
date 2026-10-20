@@ -140,6 +140,7 @@ import com.univibe.app.core.formatDayLabel
 import com.univibe.app.core.isSameDay
 import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.model.Message
+import com.univibe.app.data.model.activeLabel
 import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.ui.components.ChatPhoto
@@ -333,13 +334,15 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                         else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
                         Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
                             Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                when {
-                                    s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
-                                    chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
-                                    chat.online -> "Online"
-                                    else -> "Offline"
-                                },
+                            // "Online", or when they were last active. Nothing at all (never "Offline") when they keep it private.
+                            val status = when {
+                                s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
+                                chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
+                                chat.online -> "Online"
+                                else -> activeLabel(false, chat.lastActiveMs, System.currentTimeMillis())
+                            }
+                            if (status != null) Text(
+                                status,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (s.typing || chat.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -7,6 +7,7 @@ import { HttpError } from '../errors';
 import type { Hub } from '../realtime';
 import { markDeliveredAll } from './chat_extras';
 import { markRead, sendMessage, typingSignal } from './messaging';
+import { touchLastSeen } from './presence';
 
 const MAX_FRAME_BYTES = 16 * 1024;
 const AUTH_TIMEOUT_MS = 5000;
@@ -74,7 +75,7 @@ export function wsRoutes(ctx: Ctx, hub: Hub) {
             user = await ctx.authToken(frame.token);
             token = frame.token;
             clearTimeout(authTimer);
-            if (hub.add(user.id, socket)) void announcePresence(user.id, true);
+            if (hub.add(user.id, socket)) { void touchLastSeen(ctx, user.id); void announcePresence(user.id, true); }
             // Whatever arrived while this person was offline counts as delivered now; senders are told.
             void markDeliveredAll(ctx, hub, user).catch((e) => app.log.error({ err: e }, 'marking messages delivered failed'));
             return send({ type: 'auth:ok', userId: user.id });
@@ -116,7 +117,7 @@ export function wsRoutes(ctx: Ctx, hub: Hub) {
             .then((r) => hub.sendMany(r.rows.map((x: { user_id: string }) => x.user_id), { type: 'typing:update', conversationId, userId: me.id, typing: false }))
             .catch(() => undefined);
         });
-        if (hub.remove(me.id, socket)) void announcePresence(me.id, false).catch(() => undefined);
+        if (hub.remove(me.id, socket)) { void touchLastSeen(ctx, me.id); void announcePresence(me.id, false).catch(() => undefined); }
       });
     });
   };

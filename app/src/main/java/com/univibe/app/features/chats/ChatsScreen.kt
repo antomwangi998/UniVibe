@@ -60,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.model.Chat
 import com.univibe.app.data.model.Delivery
+import com.univibe.app.data.model.activeLabel
 import com.univibe.app.data.model.LastKind
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
@@ -113,7 +114,13 @@ fun ChatsScreen(
             modifier = Modifier.padding(horizontal = Spacing.md),
         )
         // Notes sit between the search field and the filters. The row is compact and never replaces the conversation list.
-        NotesRow(state = notes, onAddNote = notesViewModel::onAddNoteClick, onOpenNote = notesViewModel::onNoteClick)
+        NotesRow(
+            state = notes,
+            onAddNote = notesViewModel::onAddNoteClick,
+            onOpenMyNote = notesViewModel::onMyNoteClick,
+            onOpenAvatar = notesViewModel::onAvatarClick,
+            onOpenNote = notesViewModel::onNoteClick,
+        )
         AnimatedVisibility(visible = state.showFilters) {
             Row(
                 Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
@@ -362,7 +369,7 @@ private fun PreviewLine(chat: Chat, unread: Boolean, modifier: Modifier) {
             Icon(VibeIcons.Photo, contentDescription = null, tint = tint, modifier = Modifier.padding(end = 4.dp).size(16.dp))
         }
         Text(
-            chat.lastMessage.ifBlank { "Say hello" },
+            chat.lastMessage.ifBlank { if (chat.isGroup) "Say hello" else activeLabel(chat.online, chat.lastActiveMs, System.currentTimeMillis()) ?: "Say hello" },
             style = MaterialTheme.typography.bodyMedium,
             fontStyle = if (chat.lastKind == LastKind.Deleted) FontStyle.Italic else FontStyle.Normal,
             fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal,
