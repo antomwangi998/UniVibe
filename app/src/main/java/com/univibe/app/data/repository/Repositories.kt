@@ -274,3 +274,8 @@ interface CommunityRepository {
     /** Posts addressed to this community. Private communities only show them to members. */
     suspend fun getPosts(id: String): List<com.univibe.app.data.model.Post>
 }
+
+}
+
+/** A person the app may see went online or offline. */
+data class PresenceChange(val userId: String, val online: Boolean)
