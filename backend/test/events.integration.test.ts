@@ -97,7 +97,9 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await bad({ capacity: 5001 }, 400);
     await bad({ startsAt: 'tomorrow' }, 400);
     await bad({ organizerId: 'someone-else' }, 400);
-    expect((await call('GET', `${V1}/events?category=nonsense`, org.token)).status).toBe(400);
+    const unknown = await call('GET', `${V1}/events?category=nonsense`, org.token); // a filter, not a write: matches nothing
+    expect(unknown.status).toBe(200);
+    expect(unknown.body.items ?? unknown.body).toEqual([]);
   });
 
   it('limits upcoming events per organizer', async () => {
