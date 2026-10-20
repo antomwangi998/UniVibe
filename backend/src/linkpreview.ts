@@ -11,11 +11,16 @@ import { BlockList, isIP, type LookupFunction } from 'node:net';
  *  - the connection itself refuses private, loopback, link-local and other non-public addresses (checked at connect
  *    time, so a host name that changes its answer cannot slip through);
  *  - redirects are followed by hand, at most 3, and every hop goes through the same checks;
- *  - 4 seconds of silence or 6 seconds in total ends the fetch, and at most 128 KB of an HTML page is read.
+ *  - 4 seconds of silence or 6 seconds in total ends the fetch, and at most 128 KB of an HTML page (3 MB of an image) is read.
+ * The page's picture is fetched under the same rules, checked by its first bytes (not its label), and re-encoded by the caller.
  * Any failure simply means "no preview".
  */
 
-export interface LinkPreviewData { host: string; title: string | null; description: string | null; siteName: string | null }
+export interface LinkPreviewData {
+  host: string; title: string | null; description: string | null; siteName: string | null;
+  /** The page's picture (Open Graph / Twitter card) as a full, allowed address, or null. Not fetched yet. */
+  imageUrl: string | null;
+}
 
 // ---- Finding the link in a message (the app uses the same rules to make links tappable) ----
 
@@ -118,42 +123,55 @@ const guardedLookup: LookupFunction = (hostname, options, cb) => {
 
 export interface Page { status: number; location?: string; contentType: string; body: string }
 export type PageFetcher = (url: URL) => Promise<Page>;
+export interface Download { status: number; location?: string; contentType: string; bytes: Uint8Array; /** The file was bigger than the limit. */ truncated: boolean }
+export type Downloader = (url: URL) => Promise<Download>;
 
-const MAX_BYTES = 128 * 1024;
+const MAX_PAGE_BYTES = 128 * 1024;
+export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const IDLE_MS = 4000;
 const TOTAL_MS = 6000;
 const MAX_REDIRECTS = 3;
 
-export const fetchPageSafely: PageFetcher = (url) => new Promise<Page>((resolve, reject) => {
-  // Node does not look up an address that is already an IP, so the connection guard below cannot see one: refuse it here.
-  if (!parsePublicUrl(url.href)) return reject(new Error('address not allowed'));
-  let done = false;
-  const finish = (fn: () => void) => { if (!done) { done = true; clearTimeout(deadline); fn(); } };
-  const lib = url.protocol === 'https:' ? https : http;
-  const req = lib.request(url, {
-    method: 'GET', lookup: guardedLookup, timeout: IDLE_MS,
-    headers: { 'User-Agent': 'UniVibeLinkPreview/1.0', Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'en' },
-  }, (res) => {
-    const status = res.statusCode ?? 0;
-    const location = typeof res.headers.location === 'string' ? res.headers.location : undefined;
-    const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
-    if (status !== 200 || !/^(text\/html|application\/xhtml\+xml)/.test(contentType)) {
-      res.destroy();
-      return finish(() => resolve({ status, location, contentType, body: '' }));
-    }
-    const chunks: Buffer[] = [];
-    let size = 0;
-    res.on('data', (c: Buffer) => { size += c.length; chunks.push(c); if (size >= MAX_BYTES) res.destroy(); });
-    const end = () => finish(() => resolve({ status, location, contentType, body: Buffer.concat(chunks).subarray(0, MAX_BYTES).toString('utf8') }));
-    res.on('end', end);
-    res.on('close', end);
-    res.on('error', end);
+/** One guarded GET. Reads at most [maxBytes] of a 200 response whose type matches [accept]; anything else gives no body. */
+function download(url: URL, accept: RegExp, acceptHeader: string, maxBytes: number): Promise<Download> {
+  return new Promise<Download>((resolve, reject) => {
+    // Node does not look up an address that is already an IP, so the connection guard below cannot see one: refuse it here.
+    if (!parsePublicUrl(url.href)) return reject(new Error('address not allowed'));
+    let done = false;
+    const finish = (fn: () => void) => { if (!done) { done = true; clearTimeout(deadline); fn(); } };
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request(url, {
+      method: 'GET', lookup: guardedLookup, timeout: IDLE_MS,
+      headers: { 'User-Agent': 'UniVibeLinkPreview/1.0', Accept: acceptHeader, 'Accept-Language': 'en' },
+    }, (res) => {
+      const status = res.statusCode ?? 0;
+      const location = typeof res.headers.location === 'string' ? res.headers.location : undefined;
+      const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
+      const empty = (truncated: boolean) => { res.destroy(); finish(() => resolve({ status, location, contentType, bytes: new Uint8Array(), truncated })); };
+      if (status !== 200 || !accept.test(contentType)) return empty(false);
+      if (Number(res.headers['content-length']) > maxBytes && maxBytes === MAX_IMAGE_BYTES) return empty(true);
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on('data', (c: Buffer) => { size += c.length; chunks.push(c); if (size >= maxBytes) res.destroy(); });
+      const end = () => finish(() => resolve({ status, location, contentType, bytes: new Uint8Array(Buffer.concat(chunks).subarray(0, maxBytes)), truncated: size >= maxBytes }));
+      res.on('end', end);
+      res.on('close', end);
+      res.on('error', end);
+    });
+    const deadline = setTimeout(() => req.destroy(new Error('took too long')), TOTAL_MS);
+    req.on('timeout', () => req.destroy(new Error('no data')));
+    req.on('error', (e) => finish(() => reject(e)));
+    req.end();
   });
-  const deadline = setTimeout(() => req.destroy(new Error('took too long')), TOTAL_MS);
-  req.on('timeout', () => req.destroy(new Error('no data')));
-  req.on('error', (e) => finish(() => reject(e)));
-  req.end();
-});
+}
+
+export const fetchPageSafely: PageFetcher = async (url) => {
+  const r = await download(url, /^(text\/html|application\/xhtml\+xml)/, 'text/html,application/xhtml+xml', MAX_PAGE_BYTES);
+  return { status: r.status, location: r.location, contentType: r.contentType, body: Buffer.from(r.bytes).toString('utf8') };
+};
+
+export const fetchImageSafely: Downloader = (url) =>
+  download(url, /^(image\/|application\/octet-stream)/, 'image/webp,image/jpeg,image/png', MAX_IMAGE_BYTES);
 
 /** Reads the preview for [raw], or null when there is nothing safe and useful to show. Never throws for ordinary failures. */
 export async function fetchLinkPreview(raw: string, fetchPage: PageFetcher = fetchPageSafely): Promise<LinkPreviewData | null> {
@@ -172,7 +190,37 @@ export async function fetchLinkPreview(raw: string, fetchPage: PageFetcher = fet
       continue;
     }
     if (page.status !== 200) return null;
-    return parsePreview(page.body, host);
+    return parsePreview(page.body, host, url);
+  }
+  return null;
+}
+
+export type SniffedImage = 'image/jpeg' | 'image/png' | 'image/webp';
+
+/** What a file really is, from its first bytes (a site's Content-Type label is not trusted). Only the three formats the server can process. */
+export function sniffImageType(b: Uint8Array): SniffedImage | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a) return 'image/png';
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.subarray(from, to));
+  if (b.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+/** Downloads the picture at [raw] (already an allowed address, but every redirect is checked again). Null unless it is a whole, real jpeg/png/webp. */
+export async function fetchLinkImage(raw: string, fetchImage: Downloader = fetchImageSafely): Promise<{ bytes: Uint8Array; contentType: SniffedImage } | null> {
+  let url = parsePublicUrl(raw);
+  for (let hop = 0; url && hop <= MAX_REDIRECTS; hop++) {
+    let got: Download;
+    try { got = await fetchImage(url); } catch { return null; }
+    if (got.status >= 300 && got.status < 400 && got.location) {
+      let next: URL;
+      try { next = new URL(got.location, url); } catch { return null; }
+      url = parsePublicUrl(next.href);
+      continue;
+    }
+    if (got.status !== 200 || got.truncated || got.bytes.length === 0) return null;
+    const contentType = sniffImageType(got.bytes);
+    return contentType ? { bytes: got.bytes, contentType } : null;
   }
   return null;
 }
@@ -202,7 +250,7 @@ function clean(s: string | undefined, max: number): string | null {
 const ATTR_RE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
 
 /** Title, description and site name from a page's HTML (Open Graph and Twitter tags first, then the plain ones). */
-export function parsePreview(html: string, host: string): LinkPreviewData | null {
+export function parsePreview(html: string, host: string, base?: URL): LinkPreviewData | null {
   const metas: Record<string, string> = {};
   // The length limits keep a hostile page (thousands of "<meta" with no ">") from costing real time.
   for (const tag of html.matchAll(/<meta\b[^>]{0,2000}>/gi)) {
@@ -222,5 +270,11 @@ export function parsePreview(html: string, host: string): LinkPreviewData | null
   const description = clean(metas['og:description'] ?? metas['twitter:description'] ?? metas.description, 200);
   const siteName = clean(metas['og:site_name'], 60);
   if (!title && !description) return null;
-  return { host, title, description, siteName };
+  // The picture: a full address, or one relative to the page; it must pass the same checks as any address the server fetches.
+  const rawImage = metas['og:image:secure_url'] ?? metas['og:image'] ?? metas['og:image:url'] ?? metas['twitter:image'] ?? metas['twitter:image:src'];
+  let imageUrl: string | null = null;
+  if (rawImage && rawImage.length <= 2048) {
+    try { imageUrl = parsePublicUrl(new URL(decodeEntities(rawImage).trim(), base).href)?.href ?? null; } catch { imageUrl = null; }
+  }
+  return { host, title, description, siteName, imageUrl };
 }

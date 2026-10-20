@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fetchLinkPreview, firstLink, isBlockedAddress, parsePreview, parsePublicUrl, type Page, type PageFetcher } from '../src/linkpreview';
+import { type Download, type Downloader, fetchLinkImage, fetchLinkPreview, firstLink, isBlockedAddress, parsePreview, parsePublicUrl, sniffImageType, type Page, type PageFetcher } from '../src/linkpreview';
 
 describe('firstLink (must agree with the app)', () => {
   it('finds the first address and adds https to a bare www. one', () => {
@@ -66,11 +66,11 @@ describe('parsePreview', () => {
       <meta property="og:title" content="Campus &amp; Co &#8211; Events">
       <meta property='og:description' content='Join us &quot;this&quot; Friday'>
       <meta property="og:site_name" content="UniVibe"></head></html>`;
-    expect(parsePreview(html, 'univibe.app')).toEqual({ host: 'univibe.app', title: 'Campus & Co – Events', description: 'Join us "this" Friday', siteName: 'UniVibe' });
+    expect(parsePreview(html, 'univibe.app')).toEqual({ host: 'univibe.app', title: 'Campus & Co – Events', description: 'Join us "this" Friday', siteName: 'UniVibe', imageUrl: null });
   });
   it('falls back to the title tag and the plain description', () => {
     const html = '<title>\n  Hello   world \n</title><meta name="description" content="A page">';
-    expect(parsePreview(html, 'a.com')).toEqual({ host: 'a.com', title: 'Hello world', description: 'A page', siteName: null });
+    expect(parsePreview(html, 'a.com')).toEqual({ host: 'a.com', title: 'Hello world', description: 'A page', siteName: null, imageUrl: null });
   });
   it('gives nothing when the page has no title or description', () => {
     expect(parsePreview('<html><body>hi</body></html>', 'a.com')).toBeNull();
@@ -99,7 +99,7 @@ describe('fetchLinkPreview', () => {
   };
 
   it('reads a page', async () => {
-    expect(await fetchLinkPreview('https://www.example.com/x', fake({ 'https://www.example.com/x': html('Hi') }))).toEqual({ host: 'example.com', title: 'Hi', description: null, siteName: null });
+    expect(await fetchLinkPreview('https://www.example.com/x', fake({ 'https://www.example.com/x': html('Hi') }))).toEqual({ host: 'example.com', title: 'Hi', description: null, siteName: null, imageUrl: null });
   });
   it('follows a redirect, checking each step', async () => {
     const seen: string[] = [];
@@ -127,6 +127,88 @@ describe('fetchLinkPreview', () => {
     const seen: string[] = [];
     expect(await fetchLinkPreview('http://localhost/', fake({}, seen))).toBeNull();
     expect(await fetchLinkPreview('http://10.0.0.5/', fake({}, seen))).toBeNull();
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('the picture on a link card', () => {
+  const page = (img: string) => `<title>T</title><meta property="og:image" content="${img}">`;
+  const base = new URL('https://news.example.com/a/b');
+
+  it('takes the Open Graph picture, resolved against the page when it is relative', () => {
+    expect(parsePreview(page('https://cdn.example.com/p.jpg'), 'h', base)?.imageUrl).toBe('https://cdn.example.com/p.jpg');
+    expect(parsePreview(page('/img/p.png'), 'h', base)?.imageUrl).toBe('https://news.example.com/img/p.png');
+    expect(parsePreview(page('//cdn.example.com/p.png?a=1&amp;b=2'), 'h', base)?.imageUrl).toBe('https://cdn.example.com/p.png?a=1&b=2');
+  });
+  it('falls back to the Twitter card picture', () => {
+    expect(parsePreview('<title>T</title><meta name="twitter:image" content="https://c.example.com/t.jpg">', 'h', base)?.imageUrl).toBe('https://c.example.com/t.jpg');
+  });
+  it('drops a picture the server may not fetch', () => {
+    for (const img of ['http://127.0.0.1/x.png', 'http://169.254.169.254/latest', 'http://localhost/x.png', 'data:image/png;base64,AAAA', 'javascript:alert(1)', 'file:///etc/passwd', 'https://cdn.example.com:8443/p.jpg', 'https://u:p@cdn.example.com/p.jpg']) {
+      expect(parsePreview(page(img), 'h', base)?.imageUrl).toBeNull();
+    }
+  });
+  it('has no picture when the page names none, and a relative one without a page to resolve it against is dropped', () => {
+    expect(parsePreview('<title>T</title>', 'h', base)?.imageUrl).toBeNull();
+    expect(parsePreview(page('/img/p.png'), 'h')?.imageUrl).toBeNull();
+  });
+});
+
+describe('sniffImageType', () => {
+  const bytes = (...n: number[]) => new Uint8Array(n);
+  it('recognises jpeg, png and webp by their first bytes', () => {
+    expect(sniffImageType(bytes(0xff, 0xd8, 0xff, 0xe0, 0, 0))).toBe('image/jpeg');
+    expect(sniffImageType(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0))).toBe('image/png');
+    expect(sniffImageType(new TextEncoder().encode('RIFF\u0000\u0000\u0000\u0000WEBPVP8 '))).toBe('image/webp');
+  });
+  it('rejects everything else, whatever a site calls it', () => {
+    expect(sniffImageType(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>'))).toBeNull();
+    expect(sniffImageType(new TextEncoder().encode('GIF89a......'))).toBeNull();
+    expect(sniffImageType(new TextEncoder().encode('<html><title>x</title></html>'))).toBeNull();
+    expect(sniffImageType(new Uint8Array())).toBeNull();
+  });
+});
+
+describe('fetchLinkImage', () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const got = (over: Partial<Download> = {}): Download => ({ status: 200, contentType: 'image/jpeg', bytes: jpeg, truncated: false, ...over });
+  const fake = (pages: Record<string, Download>, seen: string[] = []): Downloader => async (url) => {
+    seen.push(url.href);
+    const p = pages[url.href];
+    if (!p) throw new Error('no such file');
+    return p;
+  };
+
+  it('returns a whole, real image with the type found from its bytes', async () => {
+    const r = await fetchLinkImage('https://c.example.com/p.jpg', fake({ 'https://c.example.com/p.jpg': got({ contentType: 'text/plain' }) }));
+    expect(r?.contentType).toBe('image/jpeg');
+    expect(r?.bytes.length).toBe(7);
+  });
+  it('refuses a file that is not an image, however it is labelled', async () => {
+    const html = new TextEncoder().encode('<html>not an image</html>');
+    expect(await fetchLinkImage('https://c.example.com/p.jpg', fake({ 'https://c.example.com/p.jpg': got({ bytes: html }) }))).toBeNull();
+  });
+  it('refuses a file that was too big, or empty, or not found', async () => {
+    expect(await fetchLinkImage('https://c.example.com/p.jpg', fake({ 'https://c.example.com/p.jpg': got({ truncated: true }) }))).toBeNull();
+    expect(await fetchLinkImage('https://c.example.com/p.jpg', fake({ 'https://c.example.com/p.jpg': got({ bytes: new Uint8Array() }) }))).toBeNull();
+    expect(await fetchLinkImage('https://c.example.com/p.jpg', fake({ 'https://c.example.com/p.jpg': got({ status: 404 }) }))).toBeNull();
+    expect(await fetchLinkImage('https://c.example.com/p.jpg', fake({}))).toBeNull();
+  });
+  it('follows a redirect but never into the private network', async () => {
+    const seen: string[] = [];
+    const ok = { 'https://c.example.com/a': got({ status: 302, location: 'https://c.example.com/b', bytes: new Uint8Array() }), 'https://c.example.com/b': got() };
+    expect((await fetchLinkImage('https://c.example.com/a', fake(ok, seen)))?.contentType).toBe('image/jpeg');
+    expect(seen).toEqual(['https://c.example.com/a', 'https://c.example.com/b']);
+    for (const target of ['http://127.0.0.1/x', 'http://169.254.169.254/x', 'http://[::1]/x', 'http://localhost/x']) {
+      const s2: string[] = [];
+      const bad = { 'https://c.example.com/a': got({ status: 302, location: target, bytes: new Uint8Array() }) };
+      expect(await fetchLinkImage('https://c.example.com/a', fake(bad, s2))).toBeNull();
+      expect(s2).toEqual(['https://c.example.com/a']);
+    }
+  });
+  it('never fetches an address that is not allowed in the first place', async () => {
+    const seen: string[] = [];
+    expect(await fetchLinkImage('http://127.0.0.1/p.jpg', fake({}, seen))).toBeNull();
     expect(seen).toEqual([]);
   });
 });
