@@ -78,8 +78,16 @@ class RemoteNotificationRepository(
             "event_update" -> {
                 title = meta.optString("title").ifBlank { "An event" }
                 val what = when (meta.optString("kind")) {
-                    "reminder" -> "starts soon"
+                    "reminder" -> when (meta.optInt("offsetMinutes", 0)) {
+                        1440 -> "starts in 24 hours"
+                        60 -> "starts in 1 hour"
+                        else -> "starts soon"
+                    }
                     "cancelled" -> "was cancelled"
+                    "changed" -> "has a new time or place"
+                    "confirmed" -> "registration confirmed"
+                    "registrations" -> if (meta.optBoolean("full", false)) "is now full" else "has ${meta.optInt("count", 0)} registered"
+                    "community_event" -> "is a new event in your community"
                     else -> "was updated"
                 }
                 Shape(NotificationType.Event, what, NotificationTarget.Event(entityId))

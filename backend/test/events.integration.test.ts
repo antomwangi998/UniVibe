@@ -63,10 +63,10 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     expect((await call('POST', `${V1}/events/${ev.id}/cancel`, org.token)).status).toBe(204);
     const kinds = async (t: string) => (await call('GET', `${V1}/notifications`, t)).body.items.filter((n: { type: string }) => n.type === 'event_update').map((n: { metadata: { kind: string } }) => n.metadata.kind);
     const titles = (await call('GET', `${V1}/notifications`, s2.token)).body.items.map((n: { metadata: { title: string } }) => n.metadata.title);
-    expect(titles).toEqual([ev.title]); // event notifications carry the title so the app can name the event
-    expect(await kinds(s2.token)).toEqual(['cancelled']);
-    expect(await kinds(s3.token)).toEqual(['cancelled']);
-    expect(await kinds(s1.token)).toEqual([]); // had cancelled their place
+    expect(titles).toEqual([ev.title, ev.title]); // event notifications carry the title so the app can name the event
+    expect((await kinds(s2.token)).sort()).toEqual(['cancelled', 'confirmed']);
+    expect((await kinds(s3.token)).sort()).toEqual(['cancelled', 'confirmed']);
+    expect(await kinds(s1.token)).toEqual(['confirmed']); // had cancelled their place, so no cancellation notice
     const closed = await call('POST', `${V1}/events/${ev.id}/register`, s1.token);
     expect(closed.status).toBe(409);
     expect(closed.body.error).toBe('event_closed');
@@ -92,14 +92,12 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await bad({ startsAt: new Date(Date.now() + 60_000).toISOString(), endsAt: inHours(2) }); // starts in 1 minute
     await bad({ startsAt: inHours(24 * 400), endsAt: inHours(24 * 400 + 2) }); // more than a year away
     await bad({ title: 'ab' }, 400);
-    await bad({ category: 'parties' });
+    await bad({ category: 'parties' }, 400);
     await bad({ capacity: 0 }, 400);
     await bad({ capacity: 5001 }, 400);
     await bad({ startsAt: 'tomorrow' }, 400);
     await bad({ organizerId: 'someone-else' }, 400);
-    const unknown = await call('GET', `${V1}/events?category=nonsense`, org.token); // a filter, not a write: matches nothing
-    expect(unknown.status).toBe(200);
-    expect(unknown.body.items ?? unknown.body).toEqual([]);
+    expect((await call('GET', `${V1}/events?category=nonsense`, org.token)).status).toBe(400);
   });
 
   it('limits upcoming events per organizer', async () => {
@@ -220,7 +218,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     const notGoing = await h.student();
     const ev = await create(org.token);
     await call('POST', `${V1}/events/${ev.id}/register`, going.token);
-    await pool.query("update events set starts_at = now() + interval '30 minutes', ends_at = now() + interval '3 hours' where id = $1", [ev.id]);
+    await pool.query("update events set starts_at = now() + interval '50 minutes', ends_at = now() + interval '3 hours' where id = $1", [ev.id]);
     const ctx = makeCtx(pool, testConfig(), new RateLimiter(), null);
     expect(await sendEventReminders(ctx)).toBeGreaterThanOrEqual(1);
     expect(await sendEventReminders(ctx)).toBe(0); // running again sends nothing new
@@ -272,7 +270,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await pool.query("update events set registration_deadline = now() - interval '1 minute' where id = $1", [e.id]);
     const res = await call('POST', `${V1}/events/${e.id}/register`, s1.token);
     expect(res.status).toBe(409);
-    expect(res.body.error).toBe('registration_closed');
+    expect(res.body.error?.code ?? res.body.code).toBe('registration_closed');
     expect((await call('GET', `${V1}/events/${e.id}`, s1.token)).body.registration).toBe('closed');
   });
 

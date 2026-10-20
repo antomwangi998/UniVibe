@@ -2,6 +2,7 @@ package com.univibe.app
 
 import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.RsvpState
+import com.univibe.app.data.model.updated
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.HttpResponse
 import com.univibe.app.data.repository.InMemoryRecentSearches
@@ -108,7 +109,7 @@ class RemoteEventRepositoryTest {
         try { repo.setRsvp("e1", RsvpState.Going); fail() } catch (e: IllegalStateException) { assertEquals("This event is full.", e.message) }
     }
 
-    @Test fun creatingSendsServerCategoryAndIsoTimes_andRefusesCommunityHosting() = runTest {
+    @Test fun creatingSendsServerFieldsAndIsoTimes() = runTest {
         val api = ScriptedApi { reply(eventJson("new1"), 201) }
         val repo = RemoteEventRepository(api)
         val draft = NewEvent("Career fair", "Meet employers", "Career", 1_900_000_000_000L, 1_900_003_600_000L, "Main hall", null, null, 50, 0, null)
@@ -117,8 +118,35 @@ class RemoteEventRepositoryTest {
         assertEquals("career", sent.getString("category"))
         assertEquals("Main hall", sent.getString("venueName"))
         assertTrue(sent.getString("startsAt").endsWith("Z"))
-        try { repo.createEvent(draft.copy(hostCommunityId = "c1")); fail() } catch (_: IllegalStateException) { }
-        assertEquals(1, api.calls.size) // the refused draft never reached the server
+        assertEquals("in_person", sent.getString("eventType"))
+        assertTrue(sent.isNull("communityId"))
+        assertTrue(sent.isNull("onlineUrl") && sent.isNull("registrationDeadline"))
+    }
+
+    @Test fun anOnlineEventSendsItsLinkDeadlineAndCommunity_andNeedsNoVenue() = runTest {
+        val api = ScriptedApi { reply(eventJson("new2"), 201) }
+        val repo = RemoteEventRepository(api)
+        val draft = NewEvent(
+            "Webinar", "", "Career", 1_900_000_000_000L, 1_900_003_600_000L, "", null, null, null, 0, "c1",
+            categoryCode = "study_groups", eventType = "online", onlineUrl = "https://meet.example/x",
+            registrationDeadlineMillis = 1_899_990_000_000L, externalUrl = "https://forms.example/r", timezone = "Africa/Nairobi",
+        )
+        repo.createEvent(draft)
+        val sent = api.calls.single().body!!
+        assertEquals("study_groups", sent.getString("category")) // the server's code wins over the display name
+        assertEquals("online", sent.getString("eventType"))
+        assertFalse(sent.has("venueName"))
+        assertEquals("https://meet.example/x", sent.getString("onlineUrl"))
+        assertEquals("https://forms.example/r", sent.getString("externalRegistrationUrl"))
+        assertTrue(sent.getString("registrationDeadline").endsWith("Z"))
+        assertEquals("c1", sent.getString("communityId"))
+        assertEquals("Africa/Nairobi", sent.getString("timezone"))
+    }
+
+    @Test fun editingNeverSendsTheCommunity() = runTest {
+        val api = ScriptedApi { reply("{}") }
+        RemoteEventRepository(api).updateEvent("e1", NewEvent("Career fair", "", "Career", 1_900_000_000_000L, 1_900_003_600_000L, "Hall", null, null, null, 0, "c1"))
+        assertFalse(api.calls.single().body!!.has("communityId"))
     }
 }
 
@@ -183,6 +211,31 @@ class RemoteEventDiscoveryTest {
         assertTrue(none.copy(savedOnly = true).isActive)
         assertTrue(none.copy(categories = setOf("music")).isActive)
         assertTrue(none.copy(toMillis = 1L).isActive)
+    }
+}
+
+class RemoteEventNotificationPrefsTest {
+    @Test fun loadsAndSavesOnlyWhatChanged() = runTest {
+        val api = ScriptedApi {
+            reply("""{"confirmations":false,"reminders":true,"changes":true,"cancellations":true,"community":true,"organizerUpdates":true,"reminderOffsets":[1440]}""")
+        }
+        val repo = RemoteEventRepository(api)
+        assertTrue(repo.supportsEventNotificationPrefs)
+        val loaded = repo.eventNotificationPrefs()
+        assertFalse(loaded.confirmations)
+        assertEquals(listOf(1440), loaded.reminderOffsets)
+        repo.saveEventNotificationPrefs(com.univibe.app.data.model.EventNotificationPrefsChange(reminderOffsets = listOf(1440, 60)))
+        val sent = api.calls.last()
+        assertEquals("PUT /api/v1/me/event-notification-preferences", "${sent.method} ${sent.path}")
+        assertEquals(setOf("reminderOffsets"), sent.body!!.keys().asSequence().toSet())
+    }
+
+    @Test fun aChangeIsAppliedToTheShownPreferences() {
+        val p = com.univibe.app.data.model.EventNotificationPrefs()
+        val next = p.updated(com.univibe.app.data.model.EventNotificationPrefsChange(reminders = false))
+        assertFalse(next.reminders)
+        assertTrue(next.changes && next.cancellations)
+        assertEquals(listOf(1440, 60), next.reminderOffsets)
     }
 }
 

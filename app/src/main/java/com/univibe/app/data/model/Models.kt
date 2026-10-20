@@ -130,24 +130,14 @@ data class Chat(
     val avatarUrl: String? = null,
     /** For groups: the uploaded group photo (a signed link), when there is one. */
     val groupPhotoUrl: String? = null,
-    /** When the other person was last active (epoch ms). Null when they keep it private or have not been seen yet. */
-    val lastActiveMs: Long? = null,
 ) {
     val hasUnread: Boolean get() = unread > 0
 }
 
 data class ChatMember(val id: String, val name: String)
 
-/** A link card: what the page at [url] is called and says. Only http(s) addresses are ever kept. */
-data class LinkPreview(
-    val url: String, val host: String, val title: String?, val description: String?, val siteName: String?,
-    /** The page's picture, kept by our server (a short-lived link), and its width / height; null when the page has none. */
-    val imageUrl: String? = null, val imageRatio: Float? = null,
-)
-
 /** A recorded voice message: where to play it from and how long it is. */
-/** [waveform] is 0..100 bar heights from the sender's phone; empty for older messages, which then show even bars. */
-data class VoiceNote(val source: String, val durationMs: Int, val waveform: List<Int> = emptyList())
+data class VoiceNote(val source: String, val durationMs: Int)
 
 enum class LastKind { None, Text, Photo, Voice, Deleted }
 
@@ -200,6 +190,30 @@ enum class EventStatus { Upcoming, Live, Ended, Cancelled }
 /** Ended events stay visible under Past for a week (photos, memories, deep links), then are deleted with their RSVPs. */
 const val EVENT_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 
+/** Which event notices the person wants. These refine the general "Event updates" switch; they never override it. */
+data class EventNotificationPrefs(
+    val confirmations: Boolean = true,
+    val reminders: Boolean = true,
+    val changes: Boolean = true,
+    val cancellations: Boolean = true,
+    val community: Boolean = true,
+    val organizerUpdates: Boolean = true,
+    /** Minutes before the start; only 1440 (24 hours) and 60 (1 hour) are offered. */
+    val reminderOffsets: List<Int> = listOf(1440, 60),
+)
+
+/** Only the fields that are set are sent. */
+data class EventNotificationPrefsChange(
+    val confirmations: Boolean? = null, val reminders: Boolean? = null, val changes: Boolean? = null,
+    val cancellations: Boolean? = null, val community: Boolean? = null, val organizerUpdates: Boolean? = null,
+    val reminderOffsets: List<Int>? = null,
+)
+
+fun EventNotificationPrefs.updated(c: EventNotificationPrefsChange) = EventNotificationPrefs(
+    c.confirmations ?: confirmations, c.reminders ?: reminders, c.changes ?: changes, c.cancellations ?: cancellations,
+    c.community ?: community, c.organizerUpdates ?: organizerUpdates, c.reminderOffsets ?: reminderOffsets,
+)
+
 /** One category the server offers. The list is data on the server, so new categories appear without an app update. */
 data class EventCategoryInfo(val code: String, val label: String)
 
@@ -238,6 +252,15 @@ data class NewEvent(
     val capacity: Int?,
     val accent: Int,
     val hostCommunityId: String?,
+    /** Server category code. Set when categories come from the server; otherwise [category] is mapped. */
+    val categoryCode: String? = null,
+    /** in_person, online or hybrid. Online and hybrid events need a join link. */
+    val eventType: String = "in_person",
+    val onlineUrl: String? = null,
+    val registrationDeadlineMillis: Long? = null,
+    val externalUrl: String? = null,
+    /** The device's time zone id, kept so the event can be shown in the zone it was planned in. */
+    val timezone: String? = null,
 )
 
 enum class EventsTab { Upcoming, MyEvents, Past }
@@ -289,6 +312,11 @@ data class EventDetails(
     /** Venue position for the map; null hides the map (e.g. online events). */
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val eventType: String = "in_person",
+    val onlineUrl: String? = null,
+    val registrationDeadlineMillis: Long? = null,
+    val externalUrl: String? = null,
+    val categoryCode: String = "",
 ) {
     /** Full for everyone except people who already hold a place. */
     val isFull: Boolean
@@ -355,8 +383,6 @@ data class Message(
     val myReaction: Reaction? = null,
     val forwarded: Boolean = false,
     val edited: Boolean = false,
-    /** Title and description of the first web address in the text, read by the server; null until ready. */
-    val linkPreview: LinkPreview? = null,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }

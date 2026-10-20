@@ -43,9 +43,8 @@ type Filters = z.infer<typeof filterSchema>;
 const MAX_OFFSET = 300;
 function offsetOf(raw: string | undefined): number {
   if (!raw) return 0;
-  const m = /^o:(\d{1,9})$/.exec(Buffer.from(raw, 'base64url').toString('utf8'));
-  const n = m ? Number(m[1]) : -1;
-  if (n < 0) throw new HttpError(400, 'invalid_cursor', 'That page cursor is not valid.');
+  const n = Number(Buffer.from(raw, 'base64url').toString('utf8').replace(/^o:/, ''));
+  if (!Number.isInteger(n) || n < 0) throw new HttpError(400, 'invalid_cursor', 'That page cursor is not valid.');
   return n;
 }
 const cursorFor = (offset: number) => Buffer.from(`o:${offset}`).toString('base64url');
