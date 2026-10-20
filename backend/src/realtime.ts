@@ -13,6 +13,8 @@ export type ServerEvent =
   | { type: 'message:reaction'; conversationId: string; messageId: string; userId: string; reaction: string | null; reactions: Record<string, number> }
   | { type: 'notification:created'; notification: { id: string; type: string; actorId: string | null; entityType: string | null; entityId: string | null; createdAt: string }; unreadCount: number }
   | { type: 'notification:unread'; unreadCount: number }
+  /** Someone's Note changed or went away. Carries no text: the app re-reads the authoritative list. */
+  | { type: 'note:changed'; userId: string; kind: 'updated' | 'deleted' }
   | { type: 'community:membership'; communityId: string; membership: JoinState; memberCount: number };
 
 /**
@@ -42,6 +44,7 @@ export class Hub {
     return false;
   }
 
+  onlineUserIds = (): string[] => [...this.sockets.keys()];
   isOnline = (userId: string) => (this.sockets.get(userId)?.size ?? 0) > 0;
   connectionCount = () => [...this.sockets.values()].reduce((n, s) => n + s.size, 0);
 

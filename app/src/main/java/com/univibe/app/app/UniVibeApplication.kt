@@ -201,6 +201,9 @@ object AppContainer {
     val chatRepository: ChatRepository by lazy {
         api?.let { RemoteChatRepository(it, chatSocket) { accountOf(authRepository.session.value)?.id } } ?: UnavailableChatRepository
     }
+    val noteRepository: com.univibe.app.data.repository.NoteRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteNoteRepository(it, chatSocket) } ?: com.univibe.app.data.repository.UnavailableNoteRepository
+    }
     val messageRepository: MessageRepository by lazy {
         api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id }.also { r -> r.outbox = outbox } }
             ?: UnavailableMessageRepository

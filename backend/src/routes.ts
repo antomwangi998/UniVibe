@@ -7,6 +7,7 @@ import { eventRoutes } from './modules/events';
 import { chatExtraRoutes } from './modules/chat_extras';
 import { messagingRoutes } from './modules/messaging';
 import { groupRoutes } from './modules/groups';
+import { noteRoutes } from './modules/notes';
 import { moderationRoutes } from './modules/moderation';
 import { notificationRoutes } from './modules/notifications';
 import { privacyRoutes } from './modules/privacy';
@@ -36,5 +37,6 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(accountStatusRoutes(ctx));
     await app.register(notificationRoutes(ctx, hub));
     await app.register(communityRoutes(ctx, hub));
+    await app.register(noteRoutes(ctx, hub));
   };
 }

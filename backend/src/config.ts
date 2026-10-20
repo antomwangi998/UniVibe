@@ -17,6 +17,9 @@ const schema = z.object({
   FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   // OAuth *web* client id(s) (comma-separated) accepted as the audience of Google ID tokens. Not a secret. Without it Google sign-in is off.
   GOOGLE_WEB_CLIENT_ID: z.string().optional(),
+  // Notes: longest allowed text (in characters, so an emoji counts as one) and how long a Note stays up. Defaults: 60 and 24.
+  NOTE_MAX_CHARS: z.coerce.number().int().min(1).max(200).optional(),
+  NOTE_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
