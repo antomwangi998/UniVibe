@@ -2,6 +2,10 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.core.eventDateParts
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventCategoryInfo
+import com.univibe.app.data.model.EventDiscoverFilter
+import com.univibe.app.data.model.EventDiscoverPage
+import com.univibe.app.data.model.EventSection
 import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.RsvpState
@@ -11,6 +15,7 @@ import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.accentFor
 import com.univibe.app.data.net.send
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.time.Instant
 
 /** The app's category names and the server's. Both sides know the same six, plus the server's extras. */
@@ -25,6 +30,36 @@ private fun categoryFromServer(code: String) = FROM_SERVER[code] ?: code.replace
 private const val PAGE = 50
 private const val MAX_PAGES = 4
 
+private fun millis(iso: String) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(0L)
+
+/**
+ * One server event, as the app models it. Used by the Events tab, the details screen and Home Feed announcements, so the
+ * same event looks the same everywhere (the server decides what is going, interested and cancelled).
+ */
+internal fun parseCampusEvent(o: JSONObject): CampusEvent {
+    val start = millis(o.getString("startsAt"))
+    val end = millis(o.getString("endsAt"))
+    val (month, day, label) = eventDateParts(start)
+    val organizer = o.getJSONObject("organizer")
+    val id = o.getString("id")
+    return CampusEvent(
+        id = id, title = o.getString("title"), month = month, day = day, timeLabel = label,
+        location = o.optString("venueName"), going = o.optInt("registeredCount", 0), interested = o.optInt("interestedCount", 0),
+        category = categoryFromServer(o.optString("category")), accent = accentFor(id),
+        rsvp = when (o.optString("myRsvp")) {
+            "going" -> RsvpState.Going
+            "interested" -> RsvpState.Interested
+            else -> if (o.isNull("myRegistration")) RsvpState.None else RsvpState.Going
+        },
+        isPast = System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
+        hostName = organizer.optString("fullName"), hostCommunityId = null,
+        cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
+        coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifBlank { null },
+        saved = o.optBoolean("saved", false),
+        reason = if (o.isNull("reason")) null else o.optString("reason").ifBlank { null },
+    )
+}
+
 /**
  * Campus events from the UniVibe server: real events, real registrations, capacity enforced by the server.
  *
@@ -34,28 +69,51 @@ private const val MAX_PAGES = 4
  */
 class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
     override val supportsInterested: Boolean get() = true
+    override val supportsSaved: Boolean get() = true
 
-    private fun millis(iso: String) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(0L)
+    override suspend fun setSaved(eventId: String, saved: Boolean) = explained {
+        api.send(if (saved) "PUT" else "DELETE", "/api/v1/events/$eventId/save", ok = setOf(204))
+        Unit
+    }
 
-    private fun toEvent(o: JSONObject): CampusEvent {
-        val start = millis(o.getString("startsAt"))
-        val end = millis(o.getString("endsAt"))
-        val (month, day, label) = eventDateParts(start)
-        val organizer = o.getJSONObject("organizer")
-        val id = o.getString("id")
-        return CampusEvent(
-            id = id, title = o.getString("title"), month = month, day = day, timeLabel = label,
-            location = o.optString("venueName"), going = o.optInt("registeredCount", 0), interested = o.optInt("interestedCount", 0),
-            category = categoryFromServer(o.optString("category")), accent = accentFor(id),
-            rsvp = when (o.optString("myRsvp")) {
-                "going" -> RsvpState.Going
-                "interested" -> RsvpState.Interested
-                else -> if (o.isNull("myRegistration")) RsvpState.None else RsvpState.Going
-            },
-            isPast = System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
-            hostName = organizer.optString("fullName"), hostCommunityId = null,
-            cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
+    private fun toEvent(o: JSONObject): CampusEvent = parseCampusEvent(o)
+
+    // ---- Discover: the server ranks, filters and sections events; the app only draws what it returns.
+    override val supportsDiscover: Boolean get() = true
+
+    override suspend fun eventCategories(): List<EventCategoryInfo> {
+        val items = JSONObject(api.send("GET", "/api/v1/event-categories")).getJSONArray("items")
+        return (0 until items.length()).map { items.getJSONObject(it).let { c -> EventCategoryInfo(c.getString("code"), c.getString("label")) } }
+    }
+
+    override suspend fun discoverSections(): List<EventSection> {
+        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections")).getJSONArray("sections")
+        return (0 until sections.length()).map { i ->
+            val s = sections.getJSONObject(i)
+            val items = s.getJSONArray("items")
+            EventSection(s.getString("key"), s.getString("title"), (0 until items.length()).map { toEvent(items.getJSONObject(it)) })
+        }
+    }
+
+    override suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String?): EventDiscoverPage {
+        val q = mutableListOf("limit=20")
+        if (filter.categories.isNotEmpty()) q += "category=" + filter.categories.joinToString(",")
+        if (filter.onlineOnly) q += "format=online,hybrid"
+        filter.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
+        if (filter.registrationOpen) q += "registrationOpen=true"
+        if (filter.savedOnly) q += "saved=true"
+        cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
+        val body = JSONObject(api.send("GET", "/api/v1/discover/events?" + q.joinToString("&")))
+        val items = body.getJSONArray("items")
+        return EventDiscoverPage(
+            (0 until items.length()).map { toEvent(items.getJSONObject(it)) },
+            if (body.isNull("nextCursor")) null else body.optString("nextCursor").ifBlank { null },
         )
+    }
+
+    override suspend fun setNotInterested(eventId: String, hidden: Boolean) = explained {
+        api.send(if (hidden) "PUT" else "DELETE", "/api/v1/discover/events/$eventId/not-interested")
+        Unit
     }
 
     /** Upcoming events first, then the recently ended ones (the server keeps those for a week, for the Past tab). */

@@ -56,6 +56,8 @@ fun EventCard(
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Brush.linearGradient(accentGradient(event.accent))),
         ) {
+            // The gradient stays underneath as the placeholder while the cover loads or if it fails.
+            event.coverUrl?.let { PhotoImage(it, contentDescription = null) }
             Surface(
                 modifier = Modifier.align(Alignment.TopStart).padding(Spacing.md),
                 shape = RoundedCornerShape(14.dp),

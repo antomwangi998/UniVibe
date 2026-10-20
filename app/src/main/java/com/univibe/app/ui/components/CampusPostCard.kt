@@ -61,6 +61,9 @@ fun CampusPostCard(
     /** Null makes any poll read-only (results shown, no voting). */
     onVote: ((Int) -> Unit)? = null,
 ) {
+    // Event announcements are drawn by EventFeedCard (Home). Other lists don't have event actions yet, so they skip them
+    // rather than show an empty post.
+    if (post.event != null) return
     var viewerIndex by remember(post.id) { mutableStateOf<Int?>(null) }
     val photos = remember(post.imagePath, post.imagePaths) {
         post.imagePaths.ifEmpty { listOfNotNull(post.imagePath) }

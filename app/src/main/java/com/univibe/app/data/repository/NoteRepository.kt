@@ -11,7 +11,6 @@ import com.univibe.app.data.net.send
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import org.json.JSONObject
@@ -27,8 +26,6 @@ interface NoteRepository {
     suspend fun setMuted(userId: String, muted: Boolean)
     /** Fires when the server says a Note changed, and after every reconnect (so missed events are reconciled). */
     fun changes(): Flow<Unit> = emptyFlow()
-    /** Someone went online or offline (only for people who share their activity with me). */
-    fun presence(): Flow<PresenceChange> = emptyFlow()
     /** Whether the live connection is up. Without one there is nothing to be offline from. */
     fun connected(): Flow<Boolean> = flowOf(true)
 }
@@ -51,11 +48,6 @@ class RemoteNoteRepository(
     override fun changes(): Flow<Unit> = live?.events
         ?.filter { it is ChatEvent.NoteChanged || it is ChatEvent.Connected }
         ?.map { }
-        ?: emptyFlow()
-
-    override fun presence(): Flow<PresenceChange> = live?.events
-        ?.filterIsInstance<ChatEvent.Presence>()
-        ?.map { PresenceChange(it.userId, it.online) }
         ?: emptyFlow()
 
     override fun connected(): Flow<Boolean> = live?.connected ?: flowOf(true)
@@ -96,9 +88,6 @@ fun parseNote(o: JSONObject): Note {
         version = o.optLong("version", 1),
         createdAtMs = Instant.parse(o.getString("createdAt")).toEpochMilli(),
         expiresAtMs = Instant.parse(o.getString("expiresAt")).toEpochMilli(),
-        online = o.optJSONObject("presence")?.optBoolean("online", false) ?: false,
-        lastActiveMs = o.optJSONObject("presence")?.takeIf { !it.isNull("lastActiveAt") }
-            ?.optString("lastActiveAt")?.takeIf { it.isNotEmpty() }?.let { Instant.parse(it).toEpochMilli() },
     )
 }
 

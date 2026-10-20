@@ -3,12 +3,12 @@ import type { Ctx } from './context';
 import { communityRoutes } from './modules/communities';
 import { discoverRoutes } from './modules/discover';
 import { discoverFeedRoutes } from './modules/discover_feed';
+import { discoverEventRoutes } from './modules/discover_events';
 import { eventRoutes } from './modules/events';
 import { chatExtraRoutes } from './modules/chat_extras';
 import { messagingRoutes } from './modules/messaging';
 import { groupRoutes } from './modules/groups';
 import { noteRoutes } from './modules/notes';
-import { storyRoutes } from './modules/stories';
 import { moderationRoutes } from './modules/moderation';
 import { notificationRoutes } from './modules/notifications';
 import { privacyRoutes } from './modules/privacy';
@@ -27,6 +27,7 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(privacyRoutes(ctx));
     await app.register(discoverRoutes(ctx));
     await app.register(discoverFeedRoutes(ctx));
+    await app.register(discoverEventRoutes(ctx));
     await app.register(messagingRoutes(ctx, hub));
     await app.register(groupRoutes(ctx, hub));
     await app.register(chatExtraRoutes(ctx, hub));
@@ -39,6 +40,5 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(notificationRoutes(ctx, hub));
     await app.register(communityRoutes(ctx, hub));
     await app.register(noteRoutes(ctx, hub));
-    await app.register(storyRoutes(ctx, hub));
   };
 }

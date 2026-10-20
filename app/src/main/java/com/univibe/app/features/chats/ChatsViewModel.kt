@@ -61,15 +61,6 @@ class ChatsViewModel(
         load()
         // The server says when something changed; a short pause lets a burst of events become one reload.
         viewModelScope.launch { repository.changes().conflate().collect { delay(300); load(silent = true) } }
-        // The teal dot follows live presence. Only people who share their activity with this student ever send it.
-        viewModelScope.launch {
-            repository.presence().collect { p ->
-                _state.update { s ->
-                    val apply = { c: Chat -> if (c.studentId == p.userId) c.copy(online = p.online, lastActiveMs = if (p.online) c.lastActiveMs else System.currentTimeMillis()) else c }
-                    s.copy(all = s.all.map(apply), archived = s.archived.map(apply))
-                }
-            }
-        }
         viewModelScope.launch { repository.typingByChat().collect { t -> _state.update { it.copy(typing = t) } } }
     }
 

@@ -122,6 +122,70 @@ class RemoteEventRepositoryTest {
     }
 }
 
+class RemoteEventDiscoveryTest {
+    private fun withReason(id: String, reason: String) = eventJson(id = id).replace("\"isOrganizer\":false", "\"isOrganizer\":false,\"reason\":\"$reason\"")
+
+    @Test fun sectionsKeepTheServersOrderTitlesAndReasons() = runTest {
+        val api = ScriptedApi {
+            reply("""{"sections":[
+              {"key":"communities","title":"From your communities","items":[${withReason("a", "From a community you joined")}]},
+              {"key":"online","title":"Online events","items":[${eventJson(id = "b")}]}]}""")
+        }
+        val repo = RemoteEventRepository(api)
+        assertTrue(repo.supportsDiscover)
+        val sections = repo.discoverSections()
+        assertEquals("GET /api/v1/discover/events/sections", api.calls.single().let { "${it.method} ${it.path}" })
+        assertEquals(listOf("communities", "online"), sections.map { it.key })
+        assertEquals("From your communities", sections[0].title)
+        assertEquals("From a community you joined", sections[0].events.single().reason)
+        assertNull(sections[1].events.single().reason)
+    }
+
+    @Test fun everyFilterIsSentToTheServer() = runTest {
+        val api = ScriptedApi { page(eventJson(id = "a"), next = "abc") }
+        val repo = RemoteEventRepository(api)
+        val result = repo.discoverEvents(
+            com.univibe.app.data.model.EventDiscoverFilter(
+                categories = setOf("music", "technology"), onlineOnly = true, registrationOpen = true, savedOnly = true, toMillis = 1_900_000_000_000L,
+            ),
+            cursor = "c1",
+        )
+        val path = api.calls.single().path
+        assertTrue(path, path.startsWith("/api/v1/discover/events?"))
+        for (part in listOf("category=music,technology", "format=online,hybrid", "registrationOpen=true", "saved=true", "cursor=c1")) assertTrue("$part in $path", part in path)
+        assertTrue(path, "to=2030-" in path.replace("%3A", ":"))
+        assertEquals("abc", result.nextCursor)
+        assertEquals(listOf("a"), result.events.map { it.id })
+    }
+
+    @Test fun anUnfilteredQueryAsksForNothingExtra() = runTest {
+        val api = ScriptedApi { page() }
+        RemoteEventRepository(api).discoverEvents(com.univibe.app.data.model.EventDiscoverFilter())
+        assertEquals("/api/v1/discover/events?limit=20", api.calls.single().path)
+    }
+
+    @Test fun categoriesComeFromTheServer() = runTest {
+        val repo = RemoteEventRepository(ScriptedApi { reply("""{"items":[{"code":"study_groups","label":"Study Groups"},{"code":"other","label":"Other"}]}""") })
+        assertEquals(listOf("study_groups" to "Study Groups", "other" to "Other"), repo.eventCategories().map { it.code to it.label })
+    }
+
+    @Test fun notInterestedAndUndoUseTheRightCalls() = runTest {
+        val api = ScriptedApi { reply("", 204) }
+        val repo = RemoteEventRepository(api)
+        repo.setNotInterested("e1", true)
+        repo.setNotInterested("e1", false)
+        assertEquals(listOf("PUT /api/v1/discover/events/e1/not-interested", "DELETE /api/v1/discover/events/e1/not-interested"), api.calls.map { "${it.method} ${it.path}" })
+    }
+
+    @Test fun theFilterKnowsWhenItIsOn() {
+        val none = com.univibe.app.data.model.EventDiscoverFilter()
+        assertFalse(none.isActive)
+        assertTrue(none.copy(savedOnly = true).isActive)
+        assertTrue(none.copy(categories = setOf("music")).isActive)
+        assertTrue(none.copy(toMillis = 1L).isActive)
+    }
+}
+
 class RemoteDiscoverContentTest {
     @Test fun parsesReasonsAndTheNextCursor() = runTest {
         val post = """{"id":"p1","author":${organizer()},"ageSeconds":60,"text":"hi","audience":"campus","likeCount":0,"commentCount":0,"shareCount":0,

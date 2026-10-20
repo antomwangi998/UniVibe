@@ -7,7 +7,6 @@ import { HttpError } from '../errors';
 import { idParam } from '../http';
 import type { Hub } from '../realtime';
 import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard, type UserCard } from './cards';
-import { type Presence, presenceOf } from './presence';
 
 export const DEFAULT_NOTE_MAX_CHARS = 60;
 export const DEFAULT_NOTE_TTL_HOURS = 24;
@@ -56,17 +55,14 @@ export interface NoteView {
   version: number;
   createdAt: string;
   expiresAt: string;
-  /** Whether the author is active now / when they were last. Null when they keep it private. Absent on your own Note. */
-  presence?: Presence | null;
 }
 
 const NOTE_COLUMNS = `n.id, n.author_id, n.text, n.audience, n.version::text as version, n.created_at, n.expires_at, ${CARD_COLUMNS}`;
 
-async function toView(ctx: Ctx, r: NoteRow, presence?: Map<string, Presence | null>): Promise<NoteView> {
+async function toView(ctx: Ctx, r: NoteRow): Promise<NoteView> {
   return {
     id: r.id, author: await toCard(ctx, r), text: r.text, audience: r.audience, version: Number(r.version),
     createdAt: r.created_at.toISOString(), expiresAt: r.expires_at.toISOString(),
-    ...(presence ? { presence: presence.get(r.author_id) ?? null } : {}),
   };
 }
 
@@ -129,12 +125,11 @@ export function noteRoutes(ctx: Ctx, hub: Hub) {
               and not exists (select 1 from note_mutes nm where nm.user_id = $1 and nm.muted_id = n.author_id)
             order by n.created_at desc, n.id desc limit 60`, [me.id, me.universityId]),
       ]);
-      const presence = await presenceOf(ctx, hub, me.id, others.rows.map((r) => r.author_id));
       return {
         serverTime: clock.rows[0].now.toISOString(),
         limits,
         mine: mine.rows[0] ? await toView(ctx, mine.rows[0]) : null,
-        items: await Promise.all(others.rows.map((r) => toView(ctx, r, presence))),
+        items: await Promise.all(others.rows.map((r) => toView(ctx, r))),
       };
     });
 
@@ -150,7 +145,7 @@ export function noteRoutes(ctx: Ctx, hub: Hub) {
               and (n.audience = 'campus' or ${acceptedFollow('$2::uuid', 'n.author_id')})))`,
         [authorId, me.id, me.universityId]);
       if (!rows[0]) throw new HttpError(404, 'not_found', 'Not found.');
-      return toView(ctx, rows[0], rows[0].author_id === me.id ? undefined : await presenceOf(ctx, hub, me.id, [authorId]));
+      return toView(ctx, rows[0]);
     });
 
     /** Publish, edit or replace my Note. Safe to repeat: the same request twice leaves one Note. */
