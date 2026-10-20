@@ -1,6 +1,7 @@
 package com.univibe.app.data.repository
 
 import android.content.Context
+import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.parseStudent
@@ -13,8 +14,14 @@ data class SearchPostHit(val id: String, val snippet: String, val author: Studen
 data class SearchEventHit(val id: String, val title: String, val venue: String, val category: String)
 
 /** A few matches of each kind. The server limits who can be found (same university, not blocked) before this is built. */
-data class SearchOverview(val people: List<Student>, val posts: List<SearchPostHit>, val events: List<SearchEventHit>) {
-    val isEmpty: Boolean get() = people.isEmpty() && posts.isEmpty() && events.isEmpty()
+data class SearchOverview(
+    val people: List<Student>,
+    val posts: List<SearchPostHit>,
+    val events: List<SearchEventHit>,
+    /** Community profiles only. Private communities' posts and members are never searchable by outsiders. */
+    val communities: List<Community> = emptyList(),
+) {
+    val isEmpty: Boolean get() = people.isEmpty() && posts.isEmpty() && events.isEmpty() && communities.isEmpty()
 }
 
 const val MIN_SEARCH_LENGTH = 2
@@ -29,6 +36,7 @@ class RemoteSearchRepository(private val api: AuthedApi) : SearchRepository {
         val users = o.getJSONArray("users")
         val posts = o.getJSONArray("posts")
         val events = o.getJSONArray("events")
+        val communities = o.optJSONArray("communities")
         return SearchOverview(
             people = (0 until users.length()).map { parseStudent(users.getJSONObject(it)) },
             posts = (0 until posts.length()).map {
@@ -39,6 +47,7 @@ class RemoteSearchRepository(private val api: AuthedApi) : SearchRepository {
                 val e = events.getJSONObject(it)
                 SearchEventHit(e.getString("id"), e.getString("title"), e.optString("venueName"), e.optString("category"))
             },
+            communities = if (communities == null) emptyList() else (0 until communities.length()).map { parseCommunity(communities.getJSONObject(it)) },
         )
     }
 }
