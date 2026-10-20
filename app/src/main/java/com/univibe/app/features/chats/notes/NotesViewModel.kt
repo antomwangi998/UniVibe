@@ -7,10 +7,13 @@ import com.univibe.app.data.model.Note
 import com.univibe.app.data.model.NoteAudience
 import com.univibe.app.data.model.NoteDraftCheck
 import com.univibe.app.data.model.NotesSnapshot
+import com.univibe.app.data.model.StoryTrayEntry
 import com.univibe.app.data.model.checkNoteDraft
 import com.univibe.app.data.model.cleanNoteDraft
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.repository.NoteRepository
+import com.univibe.app.data.repository.StoryRepository
+import com.univibe.app.data.repository.UnavailableStoryRepository
 import com.univibe.app.domain.auth.AuthState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,6 +30,21 @@ import java.io.IOException
 
 /** The signed-in student as the Notes row shows them. Their avatar is the real profile photo, never a stand-in icon. */
 data class NotesMe(val id: String, val name: String, val avatarUrl: String?)
+
+/**
+ * One person in the row (never me). A Note and a Story are independent: a person can have either, both, or (never listed)
+ * neither. [story] drives the ring; [note] drives the bubble.
+ */
+data class RowPerson(
+    val authorId: String,
+    val name: String,
+    val avatarUrl: String?,
+    val note: Note?,
+    val story: StoryTrayEntry?,
+) {
+    val online: Boolean get() = note?.online == true
+    val hasUnviewedStory: Boolean get() = story?.hasUnviewed == true
+}
 
 /** Which Notes sheet is open, if any. */
 sealed interface NotesSheet {
@@ -46,6 +64,8 @@ data class NotesUiState(
     val me: NotesMe? = null,
     val mine: Note? = null,
     val others: List<Note> = emptyList(),
+    /** Everyone with an active Story I may see, including me. Empty until the first answer; kept when a refresh fails. */
+    val stories: List<StoryTrayEntry> = emptyList(),
     val maxChars: Int = 60,
     val ttlHours: Int = 24,
     /** Server-corrected "now" in epoch ms. It moves when a Note expires, so expired Notes disappear without a reload. */
@@ -63,6 +83,25 @@ data class NotesUiState(
     val draftCheck: NoteDraftCheck get() = checkNoteDraft(draft, maxChars)
     val canPublish: Boolean get() = draftCheck is NoteDraftCheck.Ok && !publishing
     val hasAnyNote: Boolean get() = myActive != null || visibleOthers.isNotEmpty()
+    /** My own active Story, if any (ring around my avatar, plus badge kept). */
+    val myStory: StoryTrayEntry? get() = stories.firstOrNull { it.isMine || it.authorId == me?.id }
+
+    /**
+     * The people shown after me. With [withStories] false (the Story viewer is not available) only people with a Note
+     * appear and no ring is shown, so nothing in the row promises something that cannot be opened. Order: unseen Stories
+     * first, then whoever posted most recently (a Note or a Story).
+     */
+    fun people(withStories: Boolean): List<RowPerson> {
+        val notes = visibleOthers.associateBy { it.authorId }
+        val storyBy = if (withStories) stories.filter { !it.isMine && it.authorId != me?.id }.associateBy { it.authorId } else emptyMap()
+        return (notes.keys + storyBy.keys).map { id ->
+            val n = notes[id]; val st = storyBy[id]
+            RowPerson(id, n?.authorName ?: st!!.authorName, n?.avatarUrl ?: st?.avatarUrl, n, st)
+        }.sortedWith(
+            compareByDescending<RowPerson> { it.hasUnviewedStory }
+                .thenByDescending { maxOf(it.note?.createdAtMs ?: 0L, it.story?.latestAtMs ?: 0L) },
+        )
+    }
 }
 
 /**
@@ -77,6 +116,7 @@ class NotesViewModel(
     private val session: Flow<AuthState> = AppContainer.authRepository.session,
     private val deviceClock: () -> Long = System::currentTimeMillis,
     private val fallbackPollMs: Long = 5 * 60_000L,
+    private val storyRepository: StoryRepository = UnavailableStoryRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(NotesUiState(nowMs = deviceClock()))
     val state: StateFlow<NotesUiState> = _state.asStateFlow()
@@ -84,6 +124,7 @@ class NotesViewModel(
     private var clockOffsetMs = 0L
     private var expiryJob: Job? = null
     private var loadJob: Job? = null
+    private var storiesJob: Job? = null
     /** While my own change is in flight, a refresh must not overwrite it with an answer computed before it. */
     private var mutating = 0
 
@@ -112,6 +153,7 @@ class NotesViewModel(
         }
         // The server says when something changed; a short pause lets a burst of events become one reload.
         viewModelScope.launch { repository.changes().conflate().collect { delay(300); load(silent = true) } }
+        viewModelScope.launch { storyRepository.changes().conflate().collect { delay(300); loadStories() } }
         // Fallback only: while the live connection is down, ask now and then. When it is up, events do the work.
         viewModelScope.launch {
             repository.connected().collectLatest { up ->
@@ -121,6 +163,7 @@ class NotesViewModel(
     }
 
     fun load(silent: Boolean = false) {
+        loadStories()
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             if (!silent && _state.value.mine == null && _state.value.others.isEmpty()) _state.update { it.copy(loading = true, error = null) }
@@ -134,6 +177,20 @@ class NotesViewModel(
                     if (s.mine == null && s.others.isEmpty() && !silent) s.copy(loading = false, error = "Couldn't load Notes.")
                     else s.copy(loading = false)
                 }
+            }
+        }
+    }
+
+    /** Stories load on their own, so a slow or failed Stories call never delays or hides Notes (and the other way round). */
+    private fun loadStories() {
+        storiesJob?.cancel()
+        storiesJob = viewModelScope.launch {
+            try {
+                val tray = storyRepository.tray()
+                _state.update { it.copy(stories = tray) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // Keep the last known rings. A failed refresh must not make everyone's Story look gone.
             }
         }
     }
@@ -179,8 +236,8 @@ class NotesViewModel(
     fun onNoteClick(authorId: String) = _state.update { it.copy(sheet = NotesSheet.Theirs(authorId)) }
 
     /**
-     * The avatar. With no Story it opens the person's Note, the same as the bubble. When Stories arrive, an avatar with a
-     * teal ring opens the Story viewer here, which is why the bubble is a separate button.
+     * The avatar when the person has no Story ring (or Stories are not available): opens their Note, the same as the
+     * bubble. An avatar with a ring is routed to the Story viewer by the screen before this is called.
      */
     fun onAvatarClick(authorId: String) = onNoteClick(authorId)
 

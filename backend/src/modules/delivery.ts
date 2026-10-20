@@ -13,6 +13,7 @@ const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events
   community_join_request: 'push_social', community_join_approved: 'push_social', community_join_declined: 'push_social',
   community_invitation: 'push_social', community_role_changed: null, community_member_removed: null,
   community_announcement: 'push_social',
+  story_reaction: 'push_social',
 };
 
 export async function unreadCount(ctx: Ctx, userId: string): Promise<number> {
