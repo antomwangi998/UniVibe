@@ -111,7 +111,9 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     )
                     Text("Category", style = MaterialTheme.typography.titleSmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        EventCategoryOptions.forEach { c -> InterestChip(c, selected = s.category == c, onClick = { viewModel.setCategory(c) }) }
+                        // The list comes from the server so new categories appear without an app update.
+                        if (s.categories.isNotEmpty()) s.categories.forEach { c -> InterestChip(c.label, selected = s.categoryCode == c.code, onClick = { viewModel.setCategoryCode(c.code) }) }
+                        else EventCategoryOptions.forEach { c -> InterestChip(c, selected = s.category == c, onClick = { viewModel.setCategory(c) }) }
                     }
                     if (!s.editing && s.hostOptions.size > 1) {
                         Text("Hosted by", style = MaterialTheme.typography.titleSmall)
@@ -124,9 +126,37 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     if (!s.startOk) Text("Start at least 5 minutes from now.", style = MaterialTheme.typography.bodySmall, color = colors.error)
                     DateTimeRow("Ends", s.endMillis, viewModel::setEnd)
                     if (!s.orderOk) Text("The event must end after it starts, and last at most 48 hours.", style = MaterialTheme.typography.bodySmall, color = colors.error)
-                    Text("Where", style = MaterialTheme.typography.titleSmall)
-                    PickerRow(VibeIcons.Place, "Venue", s.venueName.ifBlank { "Choose a venue" }) { venueSheet = true }
-                    if (s.customVenue) {
+                    Text("Registration", style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Registration deadline", style = MaterialTheme.typography.bodyLarge)
+                            Text("People can't register after this time.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                        }
+                        Switch(checked = s.hasDeadline, onCheckedChange = viewModel::setHasDeadline)
+                    }
+                    if (s.hasDeadline) {
+                        DateTimeRow("Registration closes", s.deadlineMillis, viewModel::setDeadline)
+                        if (!s.deadlineOk) Text("Pick a time that is still ahead and before the event ends.", style = MaterialTheme.typography.bodySmall, color = colors.error)
+                    }
+                    VibeTextField(
+                        s.externalUrl, viewModel::setExternalUrl, label = "Registration link (optional)", isError = !s.externalUrlOk,
+                        supportingText = "A link that starts with https://",
+                    )
+                    Text("Format", style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        listOf("in_person" to "In person", "online" to "Online", "hybrid" to "Hybrid").forEach { (code, label) ->
+                            InterestChip(label, selected = s.eventType == code, onClick = { viewModel.setEventType(code) })
+                        }
+                    }
+                    if (s.needsLink) {
+                        VibeTextField(
+                            s.onlineUrl, viewModel::setOnlineUrl, label = "Link to join online", isError = s.onlineUrl.isNotEmpty() && !s.onlineUrlOk,
+                            supportingText = "Starts with https://. Only you and people who registered can see it.",
+                        )
+                    }
+                    if (s.needsVenue) Text("Where", style = MaterialTheme.typography.titleSmall)
+                    if (s.needsVenue) PickerRow(VibeIcons.Place, "Venue", s.venueName.ifBlank { "Choose a venue" }) { venueSheet = true }
+                    if (s.needsVenue && s.customVenue) {
                         VibeTextField(
                             s.venueName, viewModel::setCustomVenueName, label = "Venue name", isError = s.venueName.isNotEmpty() && !s.venueOk,
                             supportingText = "No map is shown for venues that aren't on the campus list.",

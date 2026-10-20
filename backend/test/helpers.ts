@@ -53,7 +53,7 @@ export function harness(pool: () => Pool) {
   }
 
   /** Runs the upstream upload flow for a small valid JPEG and returns the finished media id. */
-  async function image(token: string, purpose: 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'story') {
+  async function image(token: string, purpose: 'post' | 'avatar' | 'cover' | 'message' | 'event') {
     const up = await call('POST', '/media/uploads', token, { kind: 'image', purpose, contentType: 'image/jpeg', size: JPEG.length });
     expect(up.status, JSON.stringify(up.body)).toBe(201);
     const key = (await pool().query<{ object_key: string }>('select object_key from media where id = $1', [up.body.mediaId])).rows[0].object_key;

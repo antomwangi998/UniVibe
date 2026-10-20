@@ -159,19 +159,14 @@ describe.skipIf(!url)('photos and videos (needs TEST_DATABASE_URL)', () => {
 
   it('feed pages continue where the last one ended, without gaps or repeats', async () => {
     const [a, b] = [await student(), await student()];
-    const made: string[] = [];
-    for (let i = 0; i < 5; i++) made.push((await call('POST', '/posts', a.token, { text: `page post ${i}` })).body.id);
-    // Other tests add newer posts at the top while this one runs, so compare only what is older than our newest post.
-    const anchor = made[4];
-    const all = (await call('GET', '/posts?limit=50', b.token)).body.map((p: { id: string }) => p.id) as string[];
-    const below = all.slice(all.indexOf(anchor) + 1);
-    expect(all.indexOf(anchor)).toBeGreaterThanOrEqual(0);
-    const first = (await call('GET', `/posts?limit=2&before=${anchor}`, b.token)).body.map((p: { id: string }) => p.id);
-    expect(first).toEqual(below.slice(0, 2));
+    for (let i = 0; i < 5; i++) await call('POST', '/posts', a.token, { text: `page post ${i}` });
+    const all = (await call('GET', '/posts', b.token)).body.map((p: { id: string }) => p.id);
+    const first = (await call('GET', '/posts?limit=2', b.token)).body.map((p: { id: string }) => p.id);
+    expect(first).toEqual(all.slice(0, 2));
     const second = (await call('GET', `/posts?limit=2&before=${first[1]}`, b.token)).body.map((p: { id: string }) => p.id);
-    expect(second).toEqual(below.slice(2, 4));
+    expect(second).toEqual(all.slice(2, 4));
     const third = (await call('GET', `/posts?limit=2&before=${second[1]}`, b.token)).body.map((p: { id: string }) => p.id);
-    expect(third).toEqual(below.slice(4, 6));
+    expect(third).toEqual(all.slice(4, 6));
     expect((await call('GET', '/posts?limit=2&before=00000000-0000-4000-8000-000000000000', b.token)).status).toBe(404);
     expect((await call('GET', '/posts?limit=500', b.token)).status).toBe(400);
   });

@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 
-export type ImagePurpose = 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'group' | 'community' | 'story' | 'linkpreview';
+export type ImagePurpose = 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'group' | 'community';
 
 export interface ImageVariant {
   bytes: Uint8Array;
@@ -33,9 +33,6 @@ export const IMAGE_PRESETS: Record<ImagePurpose, { full: number; thumb: number |
   group: { full: 512, thumb: null },
   cover: { full: 1600, thumb: null },
   community: { full: 1024, thumb: null },
-  story: { full: 1440, thumb: 360 },
-  // The picture on a link card: shown about a phone's width wide, so no bigger than this.
-  linkpreview: { full: 640, thumb: null },
 };
 
 const FORMAT_OF: Record<string, string> = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' };

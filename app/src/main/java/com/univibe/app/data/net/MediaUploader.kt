@@ -4,7 +4,6 @@ import com.univibe.app.data.model.PostLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -81,17 +80,17 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
      */
     suspend fun upload(
         path: String, kind: String, purpose: String, durationMs: Int? = null,
-        tag: String? = null, onProgress: ((Float) -> Unit)? = null, waveform: List<Int>? = null,
+        tag: String? = null, onProgress: ((Float) -> Unit)? = null,
     ): String {
         val id = UploadTracker.begin(kind, tag)
         try {
-            return transfer(path, kind, purpose, durationMs, waveform) { f -> UploadTracker.progress(id, f); onProgress?.invoke(f) }
+            return transfer(path, kind, purpose, durationMs) { f -> UploadTracker.progress(id, f); onProgress?.invoke(f) }
         } finally {
             UploadTracker.end(id)
         }
     }
 
-    private suspend fun transfer(path: String, kind: String, purpose: String, durationMs: Int?, waveform: List<Int>?, report: (Float) -> Unit): String {
+    private suspend fun transfer(path: String, kind: String, purpose: String, durationMs: Int?, report: (Float) -> Unit): String {
         val file = File(path)
         if (!file.isFile || file.length() == 0L) throw IOException("The file is missing")
         // Fail at once, before using any data, when the server would refuse the file anyway.
@@ -103,8 +102,6 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
         // Pixel size lets the feed reserve the right space before the file loads. Best effort: skipped if unreadable.
         if (kind != "audio") MediaDimensions.read(file, kind)?.let { (w, h) -> request.put("width", w).put("height", h) }
         if (kind == "audio") request.put("durationMs", durationMs ?: throw IOException("The recording has no length"))
-        // Bar heights for the voice message's waveform; optional, the server accepts up to 64 values of 0..100.
-        if (kind == "audio" && !waveform.isNullOrEmpty()) request.put("waveform", JSONArray(waveform.take(64).map { it.coerceIn(0, 100) }))
         val created = JSONObject(api.send("POST", "/media/uploads", request, setOf(201)))
         report(0f)
         files.put(created.getString("uploadUrl"), contentType, file) { sent, total -> report(if (total > 0) sent.toFloat() / total else 1f) }

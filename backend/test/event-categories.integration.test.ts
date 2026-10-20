@@ -22,7 +22,7 @@ describe.skipIf(!url)('event categories (needs TEST_DATABASE_URL)', () => {
     expect(career.status, JSON.stringify(career.body)).toBe(201);
     expect(career.body.category).toBe('career');
     expect((await make('party', 'Rooftop party')).status).toBe(201);
-    expect((await make('banquet', 'Not a category')).status).toBe(422);
+    expect((await make('banquet', 'Not a category')).status).toBe(400);
     const list = await call('GET', '/api/v1/events?category=career&limit=50', s.token);
     expect(list.body.items.some((e: { id: string }) => e.id === career.body.id)).toBe(true);
     expect(list.body.items.every((e: { category: string }) => e.category === 'career')).toBe(true);

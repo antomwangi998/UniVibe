@@ -10,14 +10,6 @@ A Note is one short text update per student that disappears by itself. It is its
 - **Audience** (`campus` | `followers`) is enforced inside the query on every read. A block in either direction, a suspended or unverified author, another university, or a mute by the viewer all read as "not found".
 - **Live updates carry no text.** `{"type":"note:changed","userId":"…","kind":"updated"|"deleted"}` goes to the author's other devices and to connected students who may see the Note (same university, not blocked, not muted, and a follower when the audience is `followers`). The app then re-reads `GET /notes`.
 
-## Presence (online dot and "last active")
-- `users.last_seen_at` is written when a student's first device connects and when their last one disconnects.
-- `GET /notes`, `GET /users/:id/note`, `GET /conversations` (`presence` beside `with`) and `GET /conversations/:id` (`members[].lastActiveAt`) return
-  `{ online, lastActiveAt }`. It is `null` for anyone who turned **Show online status** off, so a private person looks the same as one never seen.
-  `lastActiveAt` is `null` until the person has connected once. The app never shows "Offline": it shows a time or nothing.
-- Limitation: live `presence:update` events only reach people who share a conversation with the student, so the dot in the Notes row of a
-  non-contact refreshes on the next load (resume, reconnect or Note change), not instantly.
-
 ## Routes
 | Route | Purpose |
 |---|---|
