@@ -54,7 +54,6 @@ import coil.compose.AsyncImagePainter
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.runtime.State
-import androidx.compose.runtime.asState
 
 /** Corner radius shared by every piece of post media so photos, galleries and video match. */
 val PostMediaShape = RoundedCornerShape(16.dp)

@@ -50,7 +50,7 @@ export function groupRoutes(ctx: Ctx, hub: Hub) {
           if (!ok.rowCount) throw new HttpError(422, 'invalid_media', 'That photo is not available.');
         }
         const before = (await client.query<{ photo_media_id: string | null; key: string | null }>(
-          'select c.photo_media_id, m.object_key as key from conversations c left join media m on m.id = c.photo_media_id where c.id = $1 for update', [id])).rows[0];
+          'select c.photo_media_id, m.object_key as key from conversations c left join media m on m.id = c.photo_media_id where c.id = $1 for update of c', [id])).rows[0];
         await client.query(
           `update conversations set title = coalesce($2, title),
               description = case when $3::boolean then $4 else description end,
