@@ -20,12 +20,12 @@ export const CARD_JOIN = cardJoin('u');
 export interface CardRow { card_id: string; card_handle: string; card_name: string; card_verified: boolean; card_avatar_key: string | null }
 
 /** Media is private: a URL is only ever minted for a payload the viewer is already allowed to see, and it expires. */
-export async function signedUrl(ctx: Ctx, key: string | null): Promise<string | null> {
+export async function signedUrl(ctx: Pick<Ctx, 'storage'>, key: string | null): Promise<string | null> {
   if (!key || !ctx.storage) return null;
   return ctx.storage.signedUrl(key, URL_TTL_SECONDS);
 }
 
-export async function toCard(ctx: Ctx, r: CardRow): Promise<UserCard> {
+export async function toCard(ctx: Pick<Ctx, 'storage'>, r: CardRow): Promise<UserCard> {
   return {
     id: r.card_id, handle: r.card_handle, fullName: r.card_name,
     studentVerified: r.card_verified, avatarUrl: await signedUrl(ctx, r.card_avatar_key),

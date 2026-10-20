@@ -11,6 +11,8 @@ import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.RsvpState
+import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.model.PostLimits
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.FeedRepository
@@ -53,6 +55,8 @@ data class HomeUiState(
     val loadingMore: Boolean = false,
     /** True once the server has no older posts to give. */
     val endReached: Boolean = false,
+    /** The event announcement whose RSVP sheet is open. */
+    val rsvpPost: Post? = null,
 ) {
     val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
     val visibleStories: List<Student> get() = stories.filter { it.id !in blocked }
@@ -62,7 +66,11 @@ class HomeViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
     private val privacy: PrivacyRepository = AppContainer.privacyRepository,
+    private val events: EventRepository = AppContainer.eventRepository,
 ) : ViewModel() {
+    val supportsInterested: Boolean get() = events.supportsInterested
+    val supportsSavedEvents: Boolean get() = events.supportsSaved
+
     /** False when the server can't store photos and videos yet: the composer then hides those buttons. */
     val supportsMedia: Boolean = repository.supportsMedia
     private val _state = MutableStateFlow(HomeUiState())
@@ -155,6 +163,45 @@ class HomeViewModel(
         val nowSaved = !target.savedByMe
         updatePost(postId) { it.copy(savedByMe = nowSaved) }
         viewModelScope.launch { runCatching { repository.setSaved(postId, nowSaved) } }
+    }
+
+    // ---- event announcements: every change goes to the event itself, so the Events tab and details agree with Home.
+    fun openRsvp(post: Post) = _state.update { it.copy(rsvpPost = post) }
+    fun closeRsvp() = _state.update { it.copy(rsvpPost = null) }
+
+    fun chooseRsvp(newState: RsvpState) {
+        val post = _state.value.rsvpPost ?: return
+        val event = post.event ?: return
+        _state.update { it.copy(rsvpPost = null) }
+        updatePost(post.id) { p ->
+            val e = p.event ?: return@updatePost p
+            var going = e.going
+            var interested = e.interested
+            if (e.rsvp == RsvpState.Going) going--
+            if (e.rsvp == RsvpState.Interested) interested--
+            if (newState == RsvpState.Going) going++
+            if (newState == RsvpState.Interested) interested++
+            p.copy(event = e.copy(rsvp = newState, going = going, interested = interested))
+        }
+        viewModelScope.launch {
+            try { events.setRsvp(event.id, newState) } catch (e: Exception) {
+                // The server said no (full, closed, offline): show what it really has instead of a false answer.
+                _state.update { it.copy(notice = e.message?.takeIf { m -> m.length < 90 } ?: "Couldn't save your RSVP.") }
+                refresh()
+            }
+        }
+    }
+
+    fun toggleEventSave(post: Post) {
+        val event = post.event ?: return
+        val nowSaved = !event.saved
+        updatePost(post.id) { p -> p.copy(event = p.event?.copy(saved = nowSaved)) }
+        viewModelScope.launch {
+            try { events.setSaved(event.id, nowSaved) } catch (e: Exception) {
+                updatePost(post.id) { p -> p.copy(event = p.event?.copy(saved = !nowSaved)) }
+                _state.update { it.copy(notice = "Couldn't update your saved events.") }
+            }
+        }
     }
 
     private fun updatePost(id: String, change: (Post) -> Post) =
