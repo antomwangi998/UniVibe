@@ -67,6 +67,7 @@ import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.components.rememberBottomClearance
 import com.univibe.app.ui.theme.Spacing
+import com.univibe.app.navigation.rememberTabListState
 
 class ProfileActions(
     val onOpenSettings: () -> Unit = {},
@@ -97,6 +98,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
             state.loading -> LoadingSkeleton(Modifier.padding(Spacing.md), itemCount = 1)
             state.error != null || profile == null -> ErrorState(state.error ?: "Something went wrong.", viewModel::load)
             else -> VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
+                state = rememberTabListState("profile"),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {

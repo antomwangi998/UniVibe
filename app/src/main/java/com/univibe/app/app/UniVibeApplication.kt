@@ -77,10 +77,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.univibe.app.data.prefs.DraftStore
 
 class UniVibeApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        DraftStore.init(this)
         AppContainer.init(this)
     }
 
@@ -106,6 +108,8 @@ object AppContainer {
         com.univibe.app.push.NotificationChannels.ensure(application)
         // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
+        // Unsent drafts belong to the account that wrote them: a deliberate sign-out clears them.
+        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) com.univibe.app.data.prefs.DraftStore.clearAll() } }
         // Once signed in, make sure this device's push address is registered with the server (cheap no-op when unchanged).
         appScope.launch {
             authRepository.session.collect { state ->

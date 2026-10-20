@@ -9,7 +9,15 @@ enum class MessagePolicy(val label: String, val description: String) {
 }
 
 enum class TextScale(val label: String, val factor: Float) {
-    Default("Default", 1f), Large("Large", 1.15f), Larger("Larger", 1.3f)
+    Small("Small", 0.9f), Default("Default", 1f), Large("Large", 1.15f), Larger("Larger", 1.3f), Largest("Largest", 1.45f)
+}
+
+/** The typeface used for all text. The first is UniVibe's own; the others come with the phone, so they cost no download. */
+enum class AppFont(val label: String, val description: String) {
+    UniVibe("UniVibe", "Poppins, the app's own look"),
+    System("Phone default", "The font your phone uses everywhere"),
+    Serif("Serif", "Classic, book-like letters"),
+    Mono("Monospace", "Even-width, typewriter style"),
 }
 
 data class BlockedUser(val id: String, val name: String)
@@ -44,6 +52,7 @@ data class AppSettings(
     // Accessibility
     val reduceMotion: Boolean = false,
     val textScale: TextScale = TextScale.Default,
+    val font: AppFont = AppFont.UniVibe,
     // Home feed
     val feedFilter: FeedFilter = FeedFilter.Campus,
 )

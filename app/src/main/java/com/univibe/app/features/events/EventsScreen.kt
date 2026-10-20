@@ -56,6 +56,7 @@ import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
+import com.univibe.app.navigation.rememberTabListState
 
 @Composable
 fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit = {}, viewModel: EventsViewModel = viewModel()) {
@@ -113,6 +114,7 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
                 onAction = { viewModel.setTab(EventsTab.Upcoming) },
             )
             else -> VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
+                state = rememberTabListState("events"),
                 contentPadding = PaddingValues(start = Spacing.md, end = Spacing.md, top = Spacing.md, bottom = rememberBottomClearance()),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {

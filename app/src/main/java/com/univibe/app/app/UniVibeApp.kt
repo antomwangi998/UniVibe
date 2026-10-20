@@ -47,10 +47,10 @@ fun UniVibeApp(appViewModel: AppViewModel = viewModel()) {
     val reduceMotion = remember(settings.reduceMotion) { settings.reduceMotion || systemAnimationsOff(context) }
 
     CompositionLocalProvider(
-        LocalDensity provides Density(density.density, density.fontScale * settings.textScale.factor),
+        LocalDensity provides Density(density.density, (density.fontScale * settings.textScale.factor).coerceAtMost(2f)),
         LocalReduceMotion provides reduceMotion,
     ) {
-        UniVibeTheme(darkTheme = darkTheme) {
+        UniVibeTheme(darkTheme = darkTheme, appFont = settings.font) {
             AuthGate(themeMode = themeMode, onThemeModeChange = appViewModel::setThemeMode)
         }
     }

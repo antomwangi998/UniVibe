@@ -50,6 +50,9 @@ import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.theme.Spacing
+import com.univibe.app.data.settings.AppFont
+import com.univibe.app.data.settings.TextScale
+import com.univibe.app.ui.theme.family
 
 /**
  * The settings hub: your account at the top, a search box, then the categories that exist.
@@ -172,7 +175,8 @@ private fun iconFor(category: String): ImageVector = when (category) {
 
 /** Settings → Appearance. The theme is a device preference, applied app-wide immediately. */
 @Composable
-fun AppearanceScreen(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
+fun AppearanceScreen(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     SettingsPage("Appearance", onBack) {
         item { SettingsSectionTitle("Theme") }
         item {
@@ -182,7 +186,31 @@ fun AppearanceScreen(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Uni
                 ThemeOption("Dark", VibeIcons.Moon, themeMode == ThemeMode.DARK, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.DARK) }
             }
         }
-        item { SettingsNote("System follows your phone's light or dark setting. Text size and motion are under Accessibility.") }
+        item { SettingsNote("System follows your phone's light or dark setting.") }
+        item {
+            SettingsGroup {
+                SettingsSectionTitle("Font")
+                AppFont.entries.forEach { f ->
+                    SettingsRadioRow(f.label, f.description, settings.font == f, f.family()) { viewModel.update { it.copy(font = f) } }
+                }
+            }
+        }
+        item {
+            SettingsGroup {
+                SettingsSectionTitle("Text size")
+                TextScale.entries.forEach { sc ->
+                    SettingsRadioRow(sc.label, null, settings.textScale == sc) { viewModel.update { it.copy(textScale = sc) } }
+                }
+            }
+        }
+        item {
+            VibeCard {
+                Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Great session today on AI & innovation!", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Spacing.xs))
+                Text("Study group at the library, 6 PM.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.xs))
+            }
+        }
+        item { SettingsNote("Changes apply everywhere straight away. Reduce motion is under Accessibility.") }
     }
 }
 

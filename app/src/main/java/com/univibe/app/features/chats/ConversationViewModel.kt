@@ -21,6 +21,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import com.univibe.app.ui.components.UNDO_WINDOW_MS
+import com.univibe.app.data.prefs.DraftStore
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 const val MAX_MESSAGE = 1000
 const val MAX_FORWARD_TARGETS = 5
@@ -56,6 +64,8 @@ data class ConversationUiState(
     val forwardBusy: Boolean = false,
     val viewerPath: String? = null,
     val notice: String? = null,
+    /** The message deleted a moment ago; Undo brings it back until the undo window closes. */
+    val undoMessage: Message? = null,
     /** The live connection has been down for a moment (not just a blink). Messages may fail until it is back. */
     val offline: Boolean = false,
     /** A photo that could not be sent; the screen offers Retry. */
@@ -110,6 +120,26 @@ class ConversationViewModel(
     private val _state = MutableStateFlow(ConversationUiState())
     val state: StateFlow<ConversationUiState> = _state.asStateFlow()
 
+    private val draftKey = "chat:$chatId"
+    private val deleteScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var pendingDelete: Pair<Message, Job>? = null
+    /** Messages the person deleted: hidden at once, removed on the server once the undo window closes. */
+    private val hiddenIds = mutableSetOf<String>()
+    private var latestMessages: List<Message> = emptyList()
+
+    private fun publishMessages() = _state.update { s -> s.copy(messages = latestMessages.filterNot { it.id in hiddenIds }) }
+
+    init {
+        _state.update { it.copy(input = DraftStore.get(draftKey)) }
+        // Keep the unsent text, so leaving the chat or closing the app does not lose it (not while editing an old message).
+        viewModelScope.launch {
+            _state.map { it.input to (it.editing != null) }.distinctUntilChanged().collectLatest { (text, editing) ->
+                delay(400)
+                if (!editing) DraftStore.set(draftKey, text)
+            }
+        }
+    }
+
     init {
         viewModelScope.launch {
             val chat = runCatching { chats.getChat(chatId) }.getOrNull()
@@ -117,7 +147,7 @@ class ConversationViewModel(
             val group = if (chat.isGroup) runCatching { groups.getGroup(chatId) }.getOrNull() else null
             _state.update { it.copy(loading = false, chat = chat, group = group) }
             runCatching { messages.markRead(chatId) }
-            launch { messages.messages(chatId).collect { list -> _state.update { it.copy(messages = list) } } }
+            launch { messages.messages(chatId).collect { list -> latestMessages = list; publishMessages() } }
             launch { messages.typing(chatId).collect { t -> _state.update { it.copy(typing = t && it.showTyping) } } }
             launch { messages.pinnedMessageId(chatId).collect { id -> _state.update { it.copy(pinnedId = id) } } }
             launch { messages.hasOlder(chatId).collect { more -> _state.update { it.copy(canLoadOlder = more) } } }
@@ -265,16 +295,41 @@ class ConversationViewModel(
 
     fun deleteMessage() {
         val m = _state.value.menuMessage ?: return
+        commitPendingDelete()
+        hiddenIds += m.id
         _state.update {
             it.copy(
                 menuMessage = null,
                 replyTo = if (it.replyTo?.id == m.id) null else it.replyTo,
                 editing = if (it.editing?.id == m.id) null else it.editing,
+                undoMessage = m,
             )
         }
-        viewModelScope.launch {
-            try { messages.deleteMessage(chatId, m.id) }
-            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't delete the message. Try again.") } }
+        publishMessages()
+        pendingDelete = m to deleteScope.launch { delay(UNDO_WINDOW_MS); finishDelete(m) }
+    }
+
+    fun undoDelete() {
+        val (m, job) = pendingDelete ?: return
+        job.cancel(); pendingDelete = null
+        hiddenIds -= m.id
+        _state.update { it.copy(undoMessage = null) }
+        publishMessages()
+    }
+
+    private fun commitPendingDelete() {
+        val (m, job) = pendingDelete ?: return
+        job.cancel(); pendingDelete = null
+        deleteScope.launch { finishDelete(m) }
+    }
+
+    private suspend fun finishDelete(m: Message) {
+        _state.update { if (it.undoMessage?.id == m.id) it.copy(undoMessage = null) else it }
+        try { messages.deleteMessage(chatId, m.id) }
+        catch (e: Exception) {
+            hiddenIds -= m.id
+            publishMessages()
+            _state.update { it.copy(notice = "Couldn't delete the message. Try again.") }
         }
     }
 

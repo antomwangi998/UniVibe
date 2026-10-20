@@ -38,6 +38,7 @@ import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.theme.Spacing
+import androidx.compose.ui.text.font.FontFamily
 
 /** Shared frame for every settings page: back button, title, scrolling content, system insets. */
 @Composable
@@ -151,7 +152,7 @@ fun SettingsSwitchRow(
 }
 
 @Composable
-fun SettingsRadioRow(title: String, subtitle: String?, selected: Boolean, onClick: () -> Unit) {
+fun SettingsRadioRow(title: String, subtitle: String?, selected: Boolean, titleFont: FontFamily? = null, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 60.dp)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
@@ -161,7 +162,7 @@ fun SettingsRadioRow(title: String, subtitle: String?, selected: Boolean, onClic
         RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(title, style = MaterialTheme.typography.bodyLarge.let { if (titleFont != null) it.copy(fontFamily = titleFont) else it })
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

@@ -20,6 +20,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import com.univibe.app.ui.components.UNDO_WINDOW_MS
 
 const val MAX_POST_LENGTH = PostLimits.MAX_TEXT
 
@@ -40,6 +46,8 @@ data class HomeUiState(
     val editingPost: Post? = null,
     val savingEdit: Boolean = false,
     val deletingPost: Post? = null,
+    /** A post deleted a moment ago; it can still be brought back until the undo window closes. */
+    val undoPost: Post? = null,
     val notice: String? = null,
     /** True while the next page is being fetched at the bottom of the feed. */
     val loadingMore: Boolean = false,
@@ -205,17 +213,46 @@ class HomeViewModel(
     fun askDelete() = _state.update { it.copy(deletingPost = it.menuPost, menuPost = null) }
     fun cancelDelete() = _state.update { it.copy(deletingPost = null) }
 
+    // The post leaves the feed at once, but the server is only told after the undo window, so Undo can bring it back.
+    private val deleteScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var pendingDelete: Job? = null
+    private var pendingIndex = 0
+
     fun confirmDelete() {
         val post = _state.value.deletingPost ?: return
-        _state.update { it.copy(deletingPost = null) }
-        viewModelScope.launch {
-            try {
-                repository.deletePost(post.id)
-                _state.update { s -> s.copy(posts = s.posts.filterNot { it.id == post.id }, notice = "Post deleted.") }
-                post.imagePaths.ifEmpty { listOfNotNull(post.imagePath) }.forEach { PhotoStore.delete(it) }
-                VideoStore.delete(post.videoPath)
-            } catch (e: Exception) {
-                _state.update { it.copy(notice = "Couldn't delete the post. Please try again.") }
+        flushPendingDelete()
+        pendingIndex = _state.value.posts.indexOfFirst { it.id == post.id }.coerceAtLeast(0)
+        _state.update { s -> s.copy(deletingPost = null, posts = s.posts.filterNot { it.id == post.id }, undoPost = post) }
+        pendingDelete = deleteScope.launch { delay(UNDO_WINDOW_MS); commitDelete(post) }
+    }
+
+    fun undoDelete() {
+        val post = _state.value.undoPost ?: return
+        pendingDelete?.cancel(); pendingDelete = null
+        _state.update { s ->
+            val list = s.posts.toMutableList().also { it.add(pendingIndex.coerceIn(0, it.size), post) }
+            s.copy(posts = list, undoPost = null)
+        }
+    }
+
+    /** A second delete (or leaving) while the first is still undoable: make the first one final now. */
+    private fun flushPendingDelete() {
+        val post = _state.value.undoPost ?: return
+        pendingDelete?.cancel(); pendingDelete = null
+        deleteScope.launch { commitDelete(post) }
+    }
+
+    private suspend fun commitDelete(post: Post) {
+        _state.update { if (it.undoPost?.id == post.id) it.copy(undoPost = null) else it }
+        try {
+            repository.deletePost(post.id)
+            post.imagePaths.ifEmpty { listOfNotNull(post.imagePath) }.forEach { PhotoStore.delete(it) }
+            VideoStore.delete(post.videoPath)
+        } catch (e: Exception) {
+            // Put it back so nothing disappears that the server still has.
+            _state.update { s ->
+                val list = s.posts.toMutableList().also { it.add(pendingIndex.coerceIn(0, it.size), post) }
+                s.copy(posts = list, notice = "Couldn't delete the post. Please try again.")
             }
         }
     }

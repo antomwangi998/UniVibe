@@ -17,6 +17,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.univibe.app.data.prefs.DraftStore
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 
 const val MAX_POST_PHOTOS = 4
 
@@ -49,6 +54,17 @@ class CreatePostViewModel(
     val supportsMedia: Boolean = repository.supportsMedia
     private val _state = MutableStateFlow(CreatePostUiState())
     val state: StateFlow<CreatePostUiState> = _state.asStateFlow()
+
+    init {
+        _state.update { it.copy(text = DraftStore.get(DRAFT_KEY)) }
+        // The words of an unfinished post survive leaving the screen and closing the app.
+        viewModelScope.launch {
+            _state.map { it.text to it.published }.distinctUntilChanged().collectLatest { (text, published) ->
+                delay(400)
+                if (!published) DraftStore.set(DRAFT_KEY, text)
+            }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -98,6 +114,7 @@ class CreatePostViewModel(
             _state.update { it.copy(publishing = true, error = null) }
             try {
                 repository.publishPost(NewPost(s.text.trim(), s.photos, s.audience))
+                DraftStore.clear(DRAFT_KEY)
                 _state.update { it.copy(publishing = false, published = true) }
             } catch (e: Exception) {
                 _state.update { it.copy(publishing = false, error = "Couldn't post. Your draft is safe, so try again.") }
@@ -108,8 +125,11 @@ class CreatePostViewModel(
     /** User chose to throw the draft away. */
     fun discard() {
         _state.value.photos.forEach(PhotoStore::delete)
+        DraftStore.clear(DRAFT_KEY)
         _state.update { it.copy(photos = emptyList(), text = "") }
     }
+
+    private companion object { const val DRAFT_KEY = "create_post" }
 
     override fun onCleared() {
         // Photos of a post that was never published are private files nobody references.
