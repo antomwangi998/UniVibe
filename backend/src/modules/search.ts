@@ -7,7 +7,7 @@ import { decodeCursor, pageSchema, toPage, tsText } from '../http';
 import { visible } from '../posts';
 import { cardColumns, cardJoin, type CardRow, toCard } from './cards';
 import { listCommunities } from './communities';
-import { eventVisible } from './events';
+import { eventTextMatch, eventVisible } from './events';
 
 const termSchema = z.object({ q: z.string().trim().min(2, 'Type at least 2 characters.').max(80) });
 /** The term is matched literally: % and _ typed by the user are not wildcards. Everything goes through parameters. */
@@ -61,7 +61,7 @@ export function searchRoutes(ctx: Ctx) {
         `select e.id, e.title, e.venue_name, e.category, e.starts_at, ${tsText('e.starts_at')} as "cursorT"
            from events e
           where ${eventVisible('$1', '$2')} and e.status = 'published' and e.ends_at > now()
-            and (e.title ilike '%' || $3 || '%' or e.venue_name ilike '%' || $3 || '%')
+            and ${eventTextMatch('$3')}
             and ($4::timestamptz is null or (e.starts_at, e.id) > ($4::timestamptz, $5::uuid))
           order by e.starts_at, e.id limit $6`,
         [meId, uni, escapeLike(term), cur?.t ?? null, cur?.id ?? null, limit + 1],

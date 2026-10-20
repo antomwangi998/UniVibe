@@ -1,6 +1,10 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventCategoryInfo
+import com.univibe.app.data.model.EventDiscoverFilter
+import com.univibe.app.data.model.EventDiscoverPage
+import com.univibe.app.data.model.EventSection
 import com.univibe.app.data.model.CommunityMember
 import com.univibe.app.data.model.CommunityPrivacy
 import com.univibe.app.data.model.CommunityRole
