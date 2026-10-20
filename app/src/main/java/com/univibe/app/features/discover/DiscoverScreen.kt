@@ -125,6 +125,10 @@ fun DiscoverScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state.category) {
                 DiscoverCategory.People -> PeopleDeck(onOpenStudent, peopleViewModel)
+                DiscoverCategory.Communities -> DiscoverCommunities(
+                    onOpenCommunity = com.univibe.app.ui.components.LocalOpenCommunity.current,
+                    onBrowseAll = com.univibe.app.ui.components.LocalOpenCommunityList.current,
+                )
                 DiscoverCategory.ForYou -> DiscoverPostList(
                     list = state.list(ListKey.ForYou), listState = forYouList,
                     emptyTitle = "Nothing to show yet", emptyMessage = "Follow a few students or post something, and Discover will fill in.",
