@@ -127,6 +127,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
@@ -214,6 +215,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     val recorder = remember { VoiceRecorder(voiceContext.applicationContext) }
     var recordingStartedAt by remember { mutableStateOf<Long?>(null) }
     var recordedMs by remember { mutableLongStateOf(0L) }
+    var recordLevel by remember { mutableStateOf(0f) }
     val showMic = s.input.isBlank() && s.editing == null
     DisposableEffect(Unit) { onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
     LaunchedEffect(VoicePlayer.isPlaying) { while (VoicePlayer.isPlaying) { VoicePlayer.tick(); kotlinx.coroutines.delay(200) } }
@@ -223,7 +225,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         recordingStartedAt = null
         when {
             rec == null -> if (send) Toast.makeText(voiceContext, "Recording too short.", Toast.LENGTH_SHORT).show()
-            send -> viewModel.sendVoice(rec.path, rec.durationMs)
+            send -> viewModel.sendVoice(rec.path, rec.durationMs, rec.waveform)
             else -> java.io.File(rec.path).delete()
         }
     }
@@ -243,6 +245,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         val t = recordingStartedAt ?: return@LaunchedEffect
         while (true) {
             recordedMs = SystemClock.elapsedRealtime() - t
+            recordLevel = recorder.sample()
             if (recordedMs >= VoiceRecorder.MAX_MS) { finishRecording(true); break } // five minutes is the limit
             kotlinx.coroutines.delay(100)
         }
@@ -498,7 +501,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(Spacing.md),
                         )
                     } else if (recordingStartedAt != null) {
-                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) })
+                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) }, level = recordLevel)
                     } else {
                         MessageComposerCard(
                             s = s, showMic = showMic, focus = composerFocus,
@@ -782,6 +785,8 @@ private fun MessageItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val mine = m.isMine
+    // About four fifths of the screen, so bubbles use the width of big phones and tablets without crowding small ones.
+    val maxBubble = (LocalConfiguration.current.screenWidthDp * 0.8f).coerceIn(280f, 440f).dp
     // Tight inside a group, wider between groups.
     SwipeToReply(onReply, Modifier.padding(top = if (pos.joinsOlder) 2.dp else 8.dp)) {
         Row(
@@ -804,7 +809,7 @@ private fun MessageItem(
                     shape = shape,
                     color = if (mine) colors.primary else colors.surfaceContainerHigh,
                     contentColor = if (mine) colors.onPrimary else colors.onSurface,
-                    modifier = Modifier.widthIn(max = 280.dp)
+                    modifier = Modifier.widthIn(max = maxBubble)
                         .then(if (highlighted) Modifier.border(2.dp, colors.tertiary, shape) else Modifier)
                         .clip(shape)
                         .combinedClickable(onClick = {}, onLongClick = onLongPress, onDoubleClick = onDoubleTap)
@@ -851,6 +856,7 @@ private fun MessageItem(
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
+                        m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }
                         Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
                             // One status tick per run of messages (on the last), unless a message is still sending.

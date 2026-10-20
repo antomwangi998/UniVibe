@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +24,25 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.univibe.app.ui.theme.BrandMint
 import com.univibe.app.ui.theme.BrandTeal
+
+/**
+ * A still ring drawn around an avatar to say "this person has an active Story": teal when there is something you have
+ * not seen, a muted outline once you have seen it all. It fills its parent and draws nothing else.
+ */
+@Composable
+fun StoryStatusRing(unviewed: Boolean, modifier: Modifier = Modifier) {
+    val muted = MaterialTheme.colorScheme.outlineVariant
+    Box(
+        modifier.drawBehind {
+            val stroke = (if (unviewed) 2.5.dp else 1.5.dp).toPx()
+            drawCircle(
+                color = if (unviewed) BrandTeal else muted,
+                radius = size.minDimension / 2f - stroke / 2f,
+                style = Stroke(width = stroke),
+            )
+        },
+    )
+}
 
 /** Gradient ring that slowly rotates (static when system animations are off). */
 @Composable

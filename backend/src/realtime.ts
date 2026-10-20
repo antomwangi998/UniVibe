@@ -16,7 +16,7 @@ export type ServerEvent =
   /** Someone's Note changed or went away. Carries no text: the app re-reads the authoritative list. */
   | { type: 'note:changed'; userId: string; kind: 'updated' | 'deleted' }
   /** Someone posted or removed a Story. Carries no content: the app re-reads the authoritative list. */
-  | { type: 'story:changed'; userId: string; kind: 'created' | 'deleted' }
+  | { type: 'story:changed'; userId: string; kind: 'created' | 'deleted' | 'updated' }
   | { type: 'community:membership'; communityId: string; membership: JoinState; memberCount: number };
 
 /**

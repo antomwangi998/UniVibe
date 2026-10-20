@@ -62,7 +62,7 @@ async function main() {
   } else {
     console.warn('FCM_SERVICE_ACCOUNT_JSON is not set, so push notifications are skipped (in-app notifications still work).');
   }
-  const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push), app.log);
+  const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push, images), app.log);
   worker.start();
   every('community-invitation-expiry', 3600 * 1000, async () => {
     const r = await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
