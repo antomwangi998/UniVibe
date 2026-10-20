@@ -103,9 +103,6 @@ interface DiscoverRepository {
     suspend fun recordDecision(studentId: String, liked: Boolean)
 }
 
-/** A person the app may see went online or offline. */
-data class PresenceChange(val userId: String, val online: Boolean)
-
 interface ChatRepository {
     suspend fun getChats(): List<Chat>
     suspend fun getChat(chatId: String): Chat?
@@ -124,8 +121,6 @@ interface ChatRepository {
     fun typingByChat(): Flow<Map<String, Set<String>>> = kotlinx.coroutines.flow.emptyFlow()
     /** Whether the live connection is up. Implementations without one report true (nothing to be offline from). */
     fun connected(): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true)
-    /** Someone went online or offline, only for people who share their activity with this student. */
-    fun presence(): Flow<PresenceChange> = kotlinx.coroutines.flow.emptyFlow()
     /** Fires when the server says something changed in the chat list (new message, read elsewhere, reconnect). */
     fun changes(): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
 }
@@ -133,6 +128,9 @@ interface ChatRepository {
 interface EventRepository {
     /** False when the server only knows "going" (no "interested"); screens then hide the Interested option. */
     val supportsInterested: Boolean get() = true
+    /** False until the server stores bookmarks; screens then hide the save action instead of faking it. */
+    val supportsSaved: Boolean get() = false
+    suspend fun setSaved(eventId: String, saved: Boolean) { throw UnsupportedOperationException("Saving events isn't available yet.") }
     suspend fun getEvents(): List<CampusEvent>
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getEvent(id: String): EventDetails?

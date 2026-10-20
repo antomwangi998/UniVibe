@@ -129,10 +129,15 @@ import com.univibe.app.navigation.rememberTabListState
 import com.univibe.app.data.prefs.DraftStore
 import kotlinx.coroutines.delay
 import com.univibe.app.ui.components.UndoBar
+import com.univibe.app.ui.components.EventFeedCard
+import com.univibe.app.ui.components.shareEvent
+import com.univibe.app.data.model.RsvpState
+import com.univibe.app.features.events.RsvpOption
 
 @Composable
 fun HomeScreen(
     onOpenEvents: () -> Unit = {},
+    onOpenEvent: (String) -> Unit = {},
     onOpenComments: (String) -> Unit = {},
     onOpenStudent: (String) -> Unit = {},
     onCreatePost: () -> Unit = {},
@@ -231,8 +236,19 @@ fun HomeScreen(
                         )
                     }
                 }
-                else -> items(state.visiblePosts, key = { it.id }, contentType = { "post" }) { post ->
-                    CampusPostCard(
+                else -> items(state.visiblePosts, key = { it.id }, contentType = { if (it.event != null) "event" else "post" }) { post ->
+                    val announced = post.event
+                    if (announced != null) {
+                        EventFeedCard(
+                            post = post, event = announced,
+                            onOpen = { onOpenEvent(announced.id) },
+                            onRsvp = { viewModel.openRsvp(post) },
+                            onSave = if (viewModel.supportsSavedEvents) ({ viewModel.toggleEventSave(post) }) else null,
+                            onShare = { shareEvent(context, announced) },
+                            onMore = { viewModel.openPostMenu(post) },
+                            onAuthorClick = { onOpenStudent(post.author.id) },
+                        )
+                    } else CampusPostCard(
                         post = post,
                         onLike = { viewModel.toggleLike(post.id) },
                         onComment = { onOpenComments(post.id) },
@@ -314,6 +330,19 @@ fun HomeScreen(
             },
             onDismiss = { showFilters = false },
         )
+    }
+
+    state.rsvpPost?.let { post ->
+        val event = post.event
+        if (event != null) VibeBottomSheet(onDismiss = viewModel::closeRsvp) {
+            Text(event.title, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.size(Spacing.sm))
+            RsvpOption(VibeIcons.Check, "Going", event.rsvp == RsvpState.Going) { viewModel.chooseRsvp(RsvpState.Going) }
+            if (viewModel.supportsInterested) {
+                RsvpOption(VibeIcons.Star, "Interested", event.rsvp == RsvpState.Interested) { viewModel.chooseRsvp(RsvpState.Interested) }
+            }
+            RsvpOption(VibeIcons.Close, "Not going", event.rsvp == RsvpState.None) { viewModel.chooseRsvp(RsvpState.None) }
+        }
     }
 
     state.menuPost?.let { post ->

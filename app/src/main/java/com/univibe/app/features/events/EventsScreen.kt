@@ -159,7 +159,7 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
 }
 
 @Composable
-private fun RsvpOption(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun RsvpOption(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()

@@ -44,3 +44,11 @@ Implemented on the server; the Android app does not use the new fields yet.
 - `PUT`/`DELETE /events/:id/save` (idempotent, 204) and `GET /me/saved-events` (cursor-paged, newest saved first). The list only includes events the person may still see.
 - **Not built:** waitlist (a full event is simply full), formal registration forms or eligibility rules, Attended state beyond the existing organizer check-in.
 - The Android app now uses `PUT /rsvp` and shows Interested. It does not use saved events yet (no UI).
+
+## Events v2, stage 3 (migration 027): Home Feed
+- **One announcement per event.** Publishing (create as published, or `POST /events/:id/publish`) adds one post with `posts.event_id` set (empty text; author = organizer; audience `campus`, or `community` for community events). A unique index guarantees at most one, so repeating publish or editing the event never adds another. Deleting or purging the event deletes the post. Existing events are not backfilled.
+- **Cards are the live event.** Post JSON has `eventId` and `event`, the same object as `GET /events/:id` (built by the same code), so RSVP, saved, counts and cancellation are identical on Home, the Events tab and details. A cancelled event stays in the feed marked cancelled.
+- **Visibility.** A post's visibility now also requires the event to be visible to the viewer (drafts, blocked organizers, private-community membership). Losing community membership hides the post everywhere.
+- **Home relevance (no flooding).** Event posts reach Home only for: the organizer; followers of the organizer; people who registered, are interested in, or saved the event; and members of the event's community (existing community gate). Only upcoming or live events; ended and completed ones leave Home. `not_interested` on the post and `hide_author` remove them. Everyone else finds events in the Events tab; broader distribution belongs to Discover (stage 4).
+- Announcement posts cannot be edited as posts (409 `event_post`); edit the event. Other post actions (comment, like, report, hide) work as for any post.
+- **Android:** Home draws event posts with `EventFeedCard` (reusing `EventCard`; RSVP sheet, save, share, open details). Discover, profile and community lists skip event posts for now (no event actions there yet). Home refreshes on resume, so changes made elsewhere appear.
