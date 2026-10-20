@@ -37,6 +37,7 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeIconButton
+import com.univibe.app.ui.components.CommunityCard
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
@@ -51,6 +52,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val openCommunity = com.univibe.app.ui.components.LocalOpenCommunity.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
@@ -59,7 +61,7 @@ fun SearchScreen(
         VibeTextField(
             value = state.query,
             onValueChange = viewModel::onQuery,
-            placeholder = "Search students, posts and events",
+            placeholder = "Search students, communities, posts and events",
             leadingIcon = VibeIcons.Search,
             trailingIcon = if (state.query.isNotEmpty()) ({ VibeIconButton(VibeIcons.Close, "Clear search", viewModel::clear) }) else null,
             modifier = Modifier.padding(horizontal = Spacing.md).focusRequester(focus),
@@ -87,6 +89,12 @@ fun SearchScreen(
                                 lead = { StudentAvatar(s.name, size = 40.dp, accent = s.accent, imagePath = s.avatarUrl) }) {
                                 viewModel.remember(); onOpenStudent(s.id)
                             }
+                        }
+                    }
+                    if (results.communities.isNotEmpty()) {
+                        item(key = "h-communities") { SectionTitle("Communities") }
+                        items(results.communities, key = { "c-" + it.id }) { c ->
+                            CommunityCard(c, onClick = { viewModel.remember(); openCommunity(c.id) })
                         }
                     }
                     if (results.posts.isNotEmpty()) {
@@ -139,7 +147,7 @@ private fun RecentList(recents: List<String>, onPick: (String) -> Unit, onForget
     if (recents.isEmpty()) {
         EmptyState(
             icon = VibeIcons.Search, title = "Search UniVibe",
-            message = "Type at least 2 letters to find students, posts and events on your campus.",
+            message = "Type at least 2 letters to find students, communities, posts and events on your campus.",
         )
         return
     }

@@ -6,6 +6,7 @@ import { HttpError } from '../errors';
 import { decodeCursor, pageSchema, toPage, tsText } from '../http';
 import { visible } from '../posts';
 import { cardColumns, cardJoin, type CardRow, toCard } from './cards';
+import { listCommunities } from './communities';
 import { eventVisible } from './events';
 
 const termSchema = z.object({ q: z.string().trim().min(2, 'Type at least 2 characters.').max(80) });
@@ -89,8 +90,12 @@ export function searchRoutes(ctx: Ctx) {
       const { q } = termSchema.parse(req.query);
       ctx.limit(`search:${me.id}`, 60, 60);
       // The overview shows a few of each kind; use the typed endpoints to page through more.
-      const [u, p, e] = await Promise.all([users(me.id, me.universityId, q, 5, null), posts(me.id, me.universityId, q, 5, null), events(me.id, me.universityId, q, 5, null)]);
-      return { users: u.items, posts: p.items, events: e.items };
+      const [u, p, e, c] = await Promise.all([
+        users(me.id, me.universityId, q, 5, null), posts(me.id, me.universityId, q, 5, null), events(me.id, me.universityId, q, 5, null),
+        // Community profiles only (name, description, counts, my membership): never posts or members of private ones.
+        listCommunities(ctx, me, { term: q, limit: 5 }),
+      ]);
+      return { users: u.items, posts: p.items, events: e.items, communities: c.items };
     });
 
     app.get('/search/users', async (req) => {
@@ -107,6 +112,14 @@ export function searchRoutes(ctx: Ctx) {
       const page = pageSchema.parse(req.query);
       ctx.limit(`search:${me.id}`, 60, 60);
       return posts(me.id, me.universityId, q, page.limit, decodeCursor(page.cursor));
+    });
+
+    app.get('/search/communities', async (req) => {
+      const me = await ctx.auth(req);
+      const { q } = termSchema.parse(req.query);
+      const page = pageSchema.parse(req.query);
+      ctx.limit(`search:${me.id}`, 60, 60);
+      return listCommunities(ctx, me, { term: q, limit: page.limit, cursor: page.cursor });
     });
 
     app.get('/search/events', async (req) => {

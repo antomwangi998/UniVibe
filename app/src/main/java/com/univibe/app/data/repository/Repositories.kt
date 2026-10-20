@@ -218,8 +218,13 @@ interface GroupRepository {
     suspend fun createGroup(name: String, description: String, photoPath: String?, memberIds: List<String>): String
 }
 
+/** A community Discover suggests, with the server's real reason ("interests", "active") or null. Never "trending". */
+data class SuggestedCommunity(val community: Community, val reason: String?)
+
 interface CommunityRepository {
     suspend fun getCommunities(): List<Community>
+    /** Needs the server's ranking; the offline demo has none and returns nothing rather than inventing it. */
+    suspend fun getSuggested(): List<SuggestedCommunity> = emptyList()
     suspend fun getCommunity(id: String): Community?
     suspend fun setMembership(id: String, join: Boolean)
     suspend fun setMuted(id: String, muted: Boolean)

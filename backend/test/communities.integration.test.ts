@@ -314,4 +314,56 @@ describe.skipIf(!url)('communities (needs TEST_DATABASE_URL)', () => {
     await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
     expect((await pool.query('select status from community_invitations where id = $1', [inv.body.id])).rows[0].status).toBe('expired');
   });
+
+  it('per-community level: default hides reactions but not comments; muted hides both; campus posts unaffected', async () => {
+    const owner = await h.student();
+    const c = await create(owner.token);
+    const post = (await call('POST', '/posts', owner.token, { text: 'level test post', communityId: c.id })).body;
+    const fan = await h.student();
+    await call('PUT', `${V1}/communities/${c.id}/membership`, fan.token);
+    // owner is level "all": likes and comments arrive
+    await call('PUT', `/posts/${post.id}/like`, fan.token);
+    await call('POST', `/posts/${post.id}/comments`, fan.token, { text: 'nice' });
+    const ownerNotes = await pool.query("select type from notifications where recipient_id = $1 and type in ('like','comment')", [owner.id]);
+    expect(ownerNotes.rows.map((r) => r.type).sort()).toEqual(['comment', 'like']);
+    // a member at the default level ("mentions") gets comments on their post but not likes
+    const member = await h.student();
+    await call('PUT', `${V1}/communities/${c.id}/membership`, member.token);
+    const mine = (await call('POST', '/posts', member.token, { text: 'member post here', communityId: c.id })).body;
+    await call('PUT', `/posts/${mine.id}/like`, fan.token);
+    await call('POST', `/posts/${mine.id}/comments`, fan.token, { text: 'hello' });
+    let rows = await pool.query("select type from notifications where recipient_id = $1 and type in ('like','comment')", [member.id]);
+    expect(rows.rows.map((r) => r.type)).toEqual(['comment']);
+    // muted: nothing
+    await call('PATCH', `${V1}/communities/${c.id}/membership`, member.token, { notificationLevel: 'muted' });
+    await call('POST', `/posts/${mine.id}/comments`, fan.token, { text: 'second' });
+    rows = await pool.query("select type from notifications where recipient_id = $1 and type = 'comment'", [member.id]);
+    expect(rows.rows).toHaveLength(1);
+    // campus posts are never affected
+    const campus = (await call('POST', '/posts', member.token, { text: 'plain campus post' })).body;
+    await call('PUT', `/posts/${campus.id}/like`, fan.token);
+    expect((await pool.query("select 1 from notifications where recipient_id = $1 and type = 'like'", [member.id])).rowCount).toBe(1);
+  });
+
+  it('search finds community profiles per visibility rules and never their private posts', async () => {
+    const owner = await h.student();
+    const word = `Zephyr${Date.now().toString(36)}`;
+    const pub = await create(owner.token, { name: `${word} Public` });
+    const shown = await create(owner.token, { name: `${word} Shown`, visibility: 'private' });
+    const hidden = await create(owner.token, { name: `${word} Hidden`, visibility: 'private', discoverable: false });
+    await call('POST', '/posts', owner.token, { text: `${word} secret plans`, communityId: shown.id });
+    const v = await h.student();
+    const r = await call('GET', `${V1}/search/communities?q=${word}`, v.token);
+    const ids = r.body.items.map((i: { id: string }) => i.id);
+    expect(ids).toContain(pub.id);
+    expect(ids).toContain(shown.id);
+    expect(ids).not.toContain(hidden.id);
+    const overview = await call('GET', `${V1}/search?q=${word}`, v.token);
+    expect(overview.body.communities.length).toBeGreaterThan(0);
+    expect(overview.body.posts).toHaveLength(0); // the private community's post is not searchable by outsiders
+    expect(overview.body.communities.find((i: { id: string }) => i.id === shown.id).membership).toBe('request');
+    // the owner can find the hidden one
+    const mine = await call('GET', `${V1}/search/communities?q=${word}`, owner.token);
+    expect(mine.body.items.map((i: { id: string }) => i.id)).toContain(hidden.id);
+  });
 });

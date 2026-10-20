@@ -239,6 +239,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 LocalFloatingBarVisible provides barVisible, LocalChromeHidden provides hiddenByScroll.value,
                 // Any post card can open its community without every screen threading a callback through.
                 com.univibe.app.ui.components.LocalOpenCommunity provides { id: String -> open(AppRoutes.community(id)) },
+                com.univibe.app.ui.components.LocalOpenCommunityList provides { open(AppRoutes.COMMUNITIES) },
             ) {
                 NavHost(
                     navController = navController,

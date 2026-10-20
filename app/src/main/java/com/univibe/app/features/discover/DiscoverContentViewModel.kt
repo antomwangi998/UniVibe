@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 
 enum class DiscoverCategory(val label: String) {
-    ForYou("For You"), Trending("Trending"), People("People"), Photos("Photos"), Videos("Videos"), Events("Events"), Topics("Topics"),
+    ForYou("For You"), Trending("Trending"), People("People"), Communities("Communities"), Photos("Photos"), Videos("Videos"), Events("Events"), Topics("Topics"),
 }
 
 /** Which list of posts. Each keeps its own posts, cursor and scroll position, so switching tabs reloads nothing. */
@@ -77,7 +77,7 @@ data class DiscoverContentState(
             DiscoverCategory.Photos -> ListKey.Photos
             DiscoverCategory.Videos -> ListKey.Videos
             DiscoverCategory.Topics -> openTopic?.let { ListKey.Topic(it) }
-            DiscoverCategory.People, DiscoverCategory.Events -> null
+            DiscoverCategory.People, DiscoverCategory.Events, DiscoverCategory.Communities -> null
         }
 }
 

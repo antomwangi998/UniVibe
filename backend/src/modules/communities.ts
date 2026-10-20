@@ -135,6 +135,29 @@ async function present(ctx: Ctx, rows: CommunityRow[], withDetails = false) {
   }));
 }
 
+/**
+ * Browse and search communities the viewer may see. Used by the community list and by campus search, so both
+ * apply the same visibility rules (profile-visible only; private posts are never part of this).
+ */
+export async function listCommunities(
+  ctx: Ctx, me: AuthUser,
+  o: { term?: string; category?: string; scope?: 'all' | 'joined' | 'public'; cursor?: string; limit: number },
+) {
+  const cur = decodeCursor(o.cursor);
+  const { rows } = await ctx.pool.query<CommunityRow & { cursorT: string }>(
+    `${COMMUNITY_SELECT.replace('select c.*,', `select c.*, ${tsText('c.created_at')} as "cursorT",`)}
+      where ${profileVisible()} and c.status in ('active', 'archived')
+        and ($3::text is null or c.name ilike '%' || $3 || '%' escape '\\' or c.description ilike '%' || $3 || '%' escape '\\')
+        and ($4::text is null or c.category = $4)
+        and ($5 <> 'joined' or exists (select 1 from community_members jm where jm.community_id = c.id and jm.user_id = $1 and jm.status = 'active'))
+        and ($5 <> 'public' or c.visibility = 'public')
+        and ($6::timestamptz is null or (c.created_at, c.id) < ($6::timestamptz, $7::uuid))
+      order by c.created_at desc, c.id desc limit $8`,
+    [me.id, me.universityId, o.term ? likePattern(o.term) : null, o.category ?? null, o.scope ?? 'all', cur?.t ?? null, cur?.id ?? null, o.limit + 1]);
+  const page = toPage(rows as unknown as (CommunityRow & { cursorT: string; id: string })[], o.limit);
+  return { items: await present(ctx, page.items as unknown as CommunityRow[]), nextCursor: page.nextCursor };
+}
+
 export function communityRoutes(ctx: Ctx, hub: Hub) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
@@ -243,19 +266,7 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
         category: z.enum(CATEGORIES).optional(),
         scope: z.enum(['all', 'joined', 'public']).default('all'),
       }).parse(req.query);
-      const cur = decodeCursor(q.cursor);
-      const { rows } = await pool.query<CommunityRow & { cursorT: string }>(
-        `${COMMUNITY_SELECT.replace('select c.*,', `select c.*, ${tsText('c.created_at')} as "cursorT",`)}
-          where ${profileVisible()} and c.status in ('active', 'archived')
-            and ($3::text is null or c.name ilike '%' || $3 || '%' escape '\\' or c.description ilike '%' || $3 || '%' escape '\\')
-            and ($4::text is null or c.category = $4)
-            and ($5 <> 'joined' or exists (select 1 from community_members jm where jm.community_id = c.id and jm.user_id = $1 and jm.status = 'active'))
-            and ($5 <> 'public' or c.visibility = 'public')
-            and ($6::timestamptz is null or (c.created_at, c.id) < ($6::timestamptz, $7::uuid))
-          order by c.created_at desc, c.id desc limit $8`,
-        [me.id, me.universityId, q.q ? likePattern(q.q) : null, q.category ?? null, q.scope, cur?.t ?? null, cur?.id ?? null, q.limit + 1]);
-      const page = toPage(rows as unknown as (CommunityRow & { cursorT: string; id: string })[], q.limit);
-      return { items: await present(ctx, page.items as unknown as CommunityRow[]), nextCursor: page.nextCursor };
+      return listCommunities(ctx, me, { term: q.q, category: q.category, scope: q.scope, cursor: q.cursor, limit: q.limit });
     });
 
     app.get('/communities/:id', async (req) => (await present(ctx, [await loadFor(await ctx.auth(req), routeId(req))], true))[0]);

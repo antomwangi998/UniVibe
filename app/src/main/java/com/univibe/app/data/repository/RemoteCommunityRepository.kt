@@ -94,11 +94,11 @@ class RemoteCommunityRepository(
     }
 
     /** Communities worth showing in Discover: real interest match and recent activity, never "trending". */
-    suspend fun getSuggested(): List<Pair<Community, String?>> {
+    override suspend fun getSuggested(): List<SuggestedCommunity> {
         val items = JSONObject(api.send("GET", "$V1/communities/suggested")).getJSONArray("items")
         return (0 until items.length()).map {
             val o = items.getJSONObject(it)
-            parseCommunity(o).also(::report) to o.optString("reason").ifBlank { null }
+            SuggestedCommunity(parseCommunity(o).also(::report), if (o.isNull("reason")) null else o.optString("reason").ifBlank { null })
         }
     }
 

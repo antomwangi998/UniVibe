@@ -40,14 +40,26 @@ export async function notify(client: Pick<PoolClient, 'query'>, n: NewNotificati
   const prefCheck = column
     ? `and coalesce((select np.${column} from notification_preferences np where np.user_id = $1), true)`
     : '';
+  // Community posts: the recipient's per-community level decides whether reactions and comments reach them.
+  // all and highlights: everything. mentions (the default): comments and replies, but not reactions.
+  // announcements and muted: neither. Administrative notices (role, removal) never go through this check.
+  const postId = n.type === 'like' ? n.entityId : n.type === 'comment' || n.type === 'reply' ? (n.metadata?.postId as string | undefined) : undefined;
+  const silencedLevels = n.type === 'like' ? ['mentions', 'announcements', 'muted'] : ['announcements', 'muted'];
+  const extra: unknown[] = [];
+  let communityCheck = '';
+  if (postId && /^[0-9a-f-]{36}$/i.test(postId)) {
+    extra.push(postId, silencedLevels);
+    communityCheck = `and not exists (select 1 from posts cp join community_members cm on cm.community_id = cp.community_id and cm.user_id = $1
+                        where cp.id = $7::uuid and cm.notification_level = any($8::text[]))`;
+  }
   const blockCheck = n.actorId ? `and $1::uuid <> $2::uuid and not ${blockedBetween('$1::uuid', '$2::uuid')}` : '';
   const res = await client.query(
     `insert into notifications (recipient_id, actor_id, type, entity_type, entity_id, metadata)
      select $1, $2, $3, $4, $5, $6::jsonb
-     where true ${blockCheck} ${prefCheck}
+     where true ${blockCheck} ${prefCheck} ${communityCheck}
      on conflict do nothing
      returning id`,
-    [n.recipientId, n.actorId, n.type, n.entityType ?? null, n.entityId ?? null, JSON.stringify(n.metadata ?? {})],
+    [n.recipientId, n.actorId, n.type, n.entityType ?? null, n.entityId ?? null, JSON.stringify(n.metadata ?? {}), ...extra],
   );
   if (!res.rowCount) return false;
   // Same transaction as the notification: the live update and the push are queued if and only if it was stored.

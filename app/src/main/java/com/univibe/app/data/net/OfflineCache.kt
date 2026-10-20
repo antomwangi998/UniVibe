@@ -20,17 +20,26 @@ object OfflineState {
  * account changes or signs out, and is capped in size. Never holds sign-in, session or device data.
  */
 class OfflineCache(private val dir: File, private val maxBytes: Long = 12L * 1024 * 1024) {
+    companion object { const val POLICY_VERSION = "2" }
+
     @Volatile private var account: String? = null
     private var puts = 0
 
     private val marker get() = File(dir, ".account")
+    private val policyMarker get() = File(dir, ".policy")
 
     /** Call when a student is signed in. A different account than last time starts from an empty cache. */
     @Synchronized
     fun useAccount(id: String) {
         if (account == id) return
         val saved = runCatching { marker.takeIf { it.exists() }?.readText() }.getOrNull()
-        if (saved != id) { wipe(); runCatching { dir.mkdirs(); marker.writeText(id) } }
+        val policy = runCatching { policyMarker.takeIf { it.exists() }?.readText() }.getOrNull()
+        // A different account, or copies saved under an older storage policy (before private community content was
+        // excluded), start from an empty cache.
+        if (saved != id || policy != POLICY_VERSION) {
+            wipe()
+            runCatching { dir.mkdirs(); marker.writeText(id); policyMarker.writeText(POLICY_VERSION) }
+        }
         account = id
     }
 
@@ -62,7 +71,7 @@ class OfflineCache(private val dir: File, private val maxBytes: Long = 12L * 102
 
     /** Drops the oldest copies once the folder grows past the cap. */
     private fun trim() {
-        val files = dir.listFiles { f -> f.isFile && f.name != ".account" } ?: return
+        val files = dir.listFiles { f -> f.isFile && f.name != ".account" && f.name != ".policy" } ?: return
         var total = files.sumOf { it.length() }
         for (f in files.sortedBy { it.lastModified() }) {
             if (total <= maxBytes) break
@@ -90,7 +99,10 @@ class CachingTransport(private val inner: HttpTransport, private val cache: Offl
             cache.get(request.url)?.let { OfflineState.set(true); return HttpResponse(200, it) }
         }
         if (response.status < 500) OfflineState.set(false)
-        if (cacheable && response.status == 200 && response.body.length <= MAX_ENTRY_CHARS) cache.put(request.url, response.body)
+        if (cacheable && response.status == 200 && response.body.length <= MAX_ENTRY_CHARS) {
+            // Private community content is never written to disk (see CommunityCachePolicy).
+            CommunityCachePolicy.sanitize(request.url, response.body)?.let { cache.put(request.url, it) }
+        }
         return response
     }
 
