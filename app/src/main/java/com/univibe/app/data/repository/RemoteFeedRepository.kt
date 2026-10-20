@@ -18,6 +18,9 @@ import com.univibe.app.data.net.timeAgo
 import com.univibe.app.domain.auth.AuthUser
 import org.json.JSONArray
 import org.json.JSONObject
+import com.univibe.app.data.net.Outbox
+import com.univibe.app.data.net.OutboxResult
+import java.io.IOException
 
 private val NO_CONTENT = setOf(204)
 
@@ -133,12 +136,35 @@ class RemoteFeedRepository(
     /** Stories are not built yet, so there is nothing to show (and nothing invented). */
     override suspend fun getStories(): List<Student> = emptyList()
 
-    override suspend fun setLiked(postId: String, liked: Boolean) {
-        api.send(if (liked) "PUT" else "DELETE", "/posts/$postId/like", ok = NO_CONTENT)
+    /** Where likes and saves wait when there is no connection (set by the app; unset in tests). */
+    var outbox: Outbox? = null
+
+    override suspend fun setLiked(postId: String, liked: Boolean) = toggleOrQueue("like", postId, liked)
+
+    override suspend fun setSaved(postId: String, saved: Boolean) = toggleOrQueue("save", postId, saved)
+
+    /** A like or save says what the end result should be, so sending it later (or twice) is harmless. */
+    private suspend fun toggleOrQueue(kind: String, postId: String, on: Boolean) {
+        try {
+            api.send(if (on) "PUT" else "DELETE", "/posts/$postId/$kind", ok = NO_CONTENT)
+        } catch (e: IOException) {
+            if (outbox?.add(kind, JSONObject().put("postId", postId).put("on", on), key = "$kind:$postId") != true) throw e
+        }
     }
 
-    override suspend fun setSaved(postId: String, saved: Boolean) {
-        api.send(if (saved) "PUT" else "DELETE", "/posts/$postId/save", ok = NO_CONTENT)
+    /** Sends one queued like or save. */
+    suspend fun deliverQueued(entry: Outbox.Entry): OutboxResult {
+        val postId = entry.data.optString("postId")
+        if (postId.isEmpty() || entry.kind !in setOf("like", "save")) return OutboxResult.Drop
+        return try {
+            api.send(if (entry.data.optBoolean("on")) "PUT" else "DELETE", "/posts/$postId/${entry.kind}", ok = NO_CONTENT)
+            OutboxResult.Done
+        } catch (e: IOException) {
+            OutboxResult.Retry
+        } catch (e: ApiException) {
+            // Busy or expired sign-in: try again later. Anything else (the post is gone, it is hidden) will never work.
+            if (e.status >= 500 || e.status == 429 || e.status == 408 || e.status == 401) OutboxResult.Retry else OutboxResult.Drop
+        }
     }
 
     override suspend fun reportPost(postId: String, reason: String) {
