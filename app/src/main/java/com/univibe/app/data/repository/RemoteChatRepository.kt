@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.map
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -34,6 +35,11 @@ class RemoteChatRepository(
     override fun changes(): Flow<Unit> = live?.events
         ?.filter { it is ChatEvent.MessageNew || it is ChatEvent.MessageChanged || it is ChatEvent.Connected }
         ?.map { }
+        ?: emptyFlow()
+
+    override fun presence(): Flow<PresenceChange> = live?.events
+        ?.filterIsInstance<ChatEvent.Presence>()
+        ?.map { PresenceChange(it.userId, it.online) }
         ?: emptyFlow()
 
     override suspend fun getChats(): List<Chat> = fetchList(archived = false)
@@ -89,6 +95,7 @@ class RemoteChatRepository(
             pinned = json.optBoolean("pinned", false),
             muted = isMuted(json.strOrNull("mutedUntil")),
             studentId = student?.id,
+            lastActiveMs = other?.strOrNull("lastActiveAt")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() },
         )
     }
 
@@ -208,6 +215,10 @@ class RemoteChatRepository(
             lastDelivery = delivery,
             avatarUrl = with?.avatarUrl,
             groupPhotoUrl = o.strOrNull("photoUrl"),
+            // `presence` is null when the other person keeps their activity private: then there is no dot and no time.
+            online = !isGroup && o.optJSONObject("presence")?.optBoolean("online", false) == true,
+            lastActiveMs = if (isGroup) null else o.optJSONObject("presence")?.strOrNull("lastActiveAt")
+                ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() },
         )
     }
 

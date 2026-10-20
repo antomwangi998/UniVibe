@@ -9,7 +9,10 @@ import { idParam, pageSchema } from '../http';
 import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
+import { firstLink } from '../linkpreview';
+import { createHash } from 'node:crypto';
 import { notify } from './notify';
+import { presenceOf } from './presence';
 
 export const EDIT_WINDOW_MINUTES = 15;
 const MAX_GROUP_MEMBERS = 256;
@@ -25,8 +28,10 @@ export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null }[];
   forwarded: boolean;
+  /** Set when this message answers a Story. `available` is false once the Story has expired or been deleted; its content is never copied here. */
+  story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
   myReaction?: string | null;
@@ -63,13 +68,20 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
+  const previews = ids.length
+    ? (await ctx.pool.query<{ message_id: string; url: string; host: string; title: string | null; description: string | null; site_name: string | null; image_key: string | null; image_width: number | null; image_height: number | null }>(
+        'select message_id, url, host, title, description, site_name, image_key, image_width, image_height from message_link_previews where message_id = any($1::uuid[])', [ids])).rows
+    : [];
+  const previewOf = new Map(previews.map((p) => [p.message_id, p] as const));
+  // The picture is private like all media: a short-lived link is made for each viewer-visible card.
+  const previewImage = new Map(await Promise.all(previews.map(async (p) => [p.message_id, await signedUrl(ctx, p.image_key)] as const)));
   const byMessage = new Map<string, MessageView['media']>();
   await Promise.all(media.map(async (m) => {
     const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null });
+    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null, waveform: m.waveform ?? null });
     byMessage.set(m.message_id, list);
   }));
   return rows.map((r) => {
@@ -83,6 +95,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
       forwarded: Boolean(r.forwarded),
+      story: !deleted && r.story_kind ? { id: (r.story_id as string | null) ?? null, kind: r.story_kind as 'photo' | 'video' | 'text', available: Boolean(r.story_live) } : null,
       reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
       ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
@@ -91,8 +104,13 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
 
 const MESSAGE_SELECT = `
   select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded,
-         r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content
-    from messages m left join messages r on r.id = m.reply_to_id`;
+         r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content,
+         m.story_id, m.story_kind, (sr.id is not null) as story_live
+    from messages m left join messages r on r.id = m.reply_to_id
+    left join stories sr on sr.id = m.story_id and sr.expires_at > now()`;
+
+/** A short stable key for an address, so the same link in the same message is only ever read once. */
+const linkKey = (url: string) => createHash('sha1').update(url).digest('hex').slice(0, 16);
 
 export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Promise<MessageView> {
   const { rows } = await ctx.pool.query(`${MESSAGE_SELECT} where m.id = $1`, [id]);
@@ -104,7 +122,7 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
  * It is stored first and announced second, so nobody is told about a message that failed to save.
  * A retry with the same clientId returns the stored message and creates nothing new.
  */
-export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean } = {}) {
+export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean; story?: { id: string; kind: 'photo' | 'video' | 'text' } } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
   if (!input.content && !input.mediaIds.length) throw new HttpError(400, 'validation', 'Write a message, attach a photo or record a voice message.');
@@ -132,9 +150,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       if (!ok.rowCount) throw new HttpError(422, 'validation', 'The message you are replying to is not in this conversation.');
     }
     const inserted = await client.query<{ id: string; seq: string }>(
-      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded) values ($1, $2, $3, $4, $5, $6)
+      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind) values ($1, $2, $3, $4, $5, $6, $7, $8)
        on conflict (conversation_id, sender_id, client_id) where client_id is not null do nothing returning id, seq`,
-      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false],
+      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null],
     );
     if (!inserted.rowCount) {
       const existing = await client.query<{ id: string }>(
@@ -142,6 +160,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       return { id: existing.rows[0].id, created: false };
     }
     const messageId = inserted.rows[0].id;
+    // The preview is read in the background, so sending is never slowed down. The job is written with the message (outbox).
+    const link = firstLink(input.content);
+    if (link) await enqueue(client, 'link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
     if (input.mediaIds.length) {
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
@@ -289,6 +310,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                 coalesce(ps.read_receipts, true) as read_receipts from conversation_members m
            join users u on u.id = m.user_id ${cardJoin('u')} left join privacy_settings ps on ps.user_id = u.id
           where m.conversation_id = $1 order by m.joined_at, u.id`, [id]);
+      const presence = await presenceOf(ctx, hub, me.id, rows.map((r) => r.card_id as string));
       return {
         id: conv.id, kind: conv.kind, title: conv.title, createdAt: conv.created_at, lastMessageAt: conv.last_message_at,
         description: conv.description ?? '', createdBy: conv.created_by, photoUrl: await signedUrl(ctx, conv.photo_key ?? null),
@@ -300,6 +322,8 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           lastReadSeq: r.card_id === me.id || r.read_receipts ? Number(r.last_read_seq) : 0, lastDeliveredSeq: Number(r.last_delivered_seq),
           // Online state is shown only for people who allow it (always to themselves).
           online: r.card_id === me.id ? hub.isOnline(me.id) : r.show_online ? hub.isOnline(r.card_id) : null,
+          // When they were last connected; null for someone who keeps their activity private (or has not connected yet).
+          lastActiveAt: presence.get(r.card_id)?.lastActiveAt ?? null,
         }))),
       };
     }
@@ -348,12 +372,15 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
       const last = page[page.length - 1];
+      // Direct chats: is the other person active, and when were they last? Null when they keep that private.
+      const presence = await presenceOf(ctx, hub, me.id, page.filter((r) => r.card_id).map((r) => r.card_id as string));
       return {
         items: await Promise.all(page.map(async (r) => ({
           id: r.id, kind: r.kind, title: r.title, lastMessageAt: r.last_message_at, unreadCount: Number(r.unread),
           mutedUntil: r.muted_until, archived: r.archived, pinned: r.pinned, markedUnread: r.marked_unread,
           memberCount: Number(r.member_count), members: r.members_preview, photoUrl: await signedUrl(ctx, r.photo_key ?? null),
           with: r.card_id ? await toCard(ctx, r as CardRow) : null,
+          presence: r.card_id ? presence.get(r.card_id) ?? null : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
           mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, senderName: r.lm_sender_name ?? null,
@@ -425,6 +452,14 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         [id, me.id, b.content, EDIT_WINDOW_MINUTES]);
       if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
       const conversationId = res.rows[0].conversation_id;
+      const link = firstLink(b.content);
+      if (link) await enqueue(pool, 'link.preview', { messageId: id, url: link }, { dedupeKey: `${id}:${linkKey(link)}`, maxAttempts: 2 });
+      else {
+        // The link was edited out: its card, picture included, goes too.
+        const card = await pool.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
+        const keys = card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k));
+        if (keys.length && ctx.storage) void ctx.storage.remove(keys).catch(() => undefined);
+      }
       const message = await loadMessage(ctx, id);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
       return message;
@@ -434,13 +469,16 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     app.delete('/messages/:id', async (req, reply) => {
       const me = await ctx.auth(req);
       const id = param(req);
-      const conversationId = await withTx(pool, async (client) => {
+      const { conversationId, previewImages } = await withTx(pool, async (client) => {
         const res = await client.query<{ conversation_id: string }>(
           "update messages set status = 'deleted', content = '', deleted_at = now() where id = $1 and sender_id = $2 and status = 'active' returning conversation_id", [id, me.id]);
         if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
         await client.query('delete from media where message_id = $1', [id]);
-        return res.rows[0].conversation_id;
+        // The link card goes with the message, picture included.
+        const card = await client.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
+        return { conversationId: res.rows[0].conversation_id, previewImages: card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k)) };
       });
+      if (previewImages.length && ctx.storage) void ctx.storage.remove(previewImages).catch(() => undefined);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:deleted', conversationId, messageId: id });
       return reply.status(204).send();
     });

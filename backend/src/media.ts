@@ -18,6 +18,8 @@ export const MEDIA_LIMITS = {
   /** Voice messages: up to five minutes of speech, which is well under this. */
   audio: { maxBytes: 5 * 1024 * 1024, types: ['audio/mp4', 'audio/aac', 'audio/webm', 'audio/ogg'] },
   maxAudioMs: 5 * 60 * 1000,
+  /** A video Story may be at most this long. The app reports the length; the server cannot measure video, so it also caps the size. */
+  maxStoryVideoMs: 30 * 1000,
   /** Photos above this many pixels (width x height) are refused, however small the file is. */
   maxPixels: 30_000_000,
   /** Everything one student has stored (photos, videos, profile pictures), counted after processing. */
@@ -50,7 +52,7 @@ export function looksLike(contentType: string, b: Uint8Array): boolean {
 
 const uploadSchema = z.object({
   kind: z.enum(['image', 'video', 'audio']),
-  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group', 'community']),
+  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group', 'community', 'story']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
   // Pixel size, when the app knows it. Both or neither; used only to lay out the feed.
@@ -58,6 +60,8 @@ const uploadSchema = z.object({
   height: z.number().int().positive().max(20000).optional(),
   /** Length of a voice message, in milliseconds. Required for audio, not allowed for anything else. */
   durationMs: z.number().int().positive().max(5 * 60 * 1000).optional(),
+  /** Voice messages only: up to 64 bar heights from 0 to 100, drawn as the message's waveform. */
+  waveform: z.array(z.number().int().min(0).max(100)).min(1).max(64).optional(),
 }).refine((v) => (v.width === undefined) === (v.height === undefined), { message: 'Send both width and height, or neither.' });
 const photosSchema = z.object({
   avatarMediaId: z.string().uuid().nullable().optional(),
@@ -97,13 +101,20 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (b.size > limit.maxBytes) {
       throw new HttpError(400, 'validation', `That file is too large (the limit is ${limit.maxBytes / (1024 * 1024)} MB).`);
     }
-    if (b.kind === 'video' && b.purpose !== 'post') {
+    if (b.kind === 'video' && b.purpose !== 'post' && b.purpose !== 'story') {
       throw new HttpError(400, 'validation', 'Profile and cover photos must be images.');
+    }
+    if (b.kind === 'video' && b.purpose === 'story') {
+      if (!b.durationMs) throw new HttpError(400, 'validation', 'A video Story needs its length.');
+      if (b.durationMs > MEDIA_LIMITS.maxStoryVideoMs) {
+        throw new HttpError(400, 'validation', `A video Story can be at most ${MEDIA_LIMITS.maxStoryVideoMs / 1000} seconds.`);
+      }
     }
     if (b.kind === 'audio' && (b.purpose !== 'message' || !b.durationMs)) {
       throw new HttpError(400, 'validation', 'Audio can only be a voice message, and needs its length.');
     }
-    if (b.kind !== 'audio' && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages have a length.');
+    if (b.waveform && b.kind !== 'audio') throw new HttpError(400, 'validation', 'Only voice messages have a waveform.');
+    if (b.kind !== 'audio' && !(b.kind === 'video' && b.purpose === 'story') && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages and video Stories have a length.');
     if ((b.purpose === 'group' || b.purpose === 'community') && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
     const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
     if (Number(used.rows[0].total) + b.size > MEDIA_LIMITS.perUserBytes) {
@@ -114,8 +125,8 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     }
     const key = `${user.id}/${randomUUID()}.${EXTENSIONS[b.contentType]}`;
     const created = await pool.query<{ id: string }>(
-      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id',
-      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null],
+      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms, waveform) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id',
+      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null, b.waveform ?? null],
     );
     const uploadUrl = await storage.presignUpload(key, b.contentType, UPLOAD_LINK_SECONDS);
     return reply.status(201).send({

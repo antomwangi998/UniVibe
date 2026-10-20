@@ -109,6 +109,9 @@ interface DiscoverRepository {
     suspend fun recordDecision(studentId: String, liked: Boolean)
 }
 
+/** A person the app may see went online or offline. */
+data class PresenceChange(val userId: String, val online: Boolean)
+
 interface ChatRepository {
     suspend fun getChats(): List<Chat>
     suspend fun getChat(chatId: String): Chat?
@@ -127,6 +130,8 @@ interface ChatRepository {
     fun typingByChat(): Flow<Map<String, Set<String>>> = kotlinx.coroutines.flow.emptyFlow()
     /** Whether the live connection is up. Implementations without one report true (nothing to be offline from). */
     fun connected(): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true)
+    /** Someone went online or offline, only for people who share their activity with this student. */
+    fun presence(): Flow<PresenceChange> = kotlinx.coroutines.flow.emptyFlow()
     /** Fires when the server says something changed in the chat list (new message, read elsewhere, reconnect). */
     fun changes(): Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
 }
@@ -192,7 +197,7 @@ interface MessageRepository {
     /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
     suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
-    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null): Unit =
+    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")
     suspend fun deleteMessage(chatId: String, messageId: String)
     /** One reaction per person per message; null removes yours. */
@@ -274,8 +279,3 @@ interface CommunityRepository {
     /** Posts addressed to this community. Private communities only show them to members. */
     suspend fun getPosts(id: String): List<com.univibe.app.data.model.Post>
 }
-
-}
-
-/** A person the app may see went online or offline. */
-data class PresenceChange(val userId: String, val online: Boolean)
