@@ -4,6 +4,7 @@ import com.univibe.app.data.model.StoryTrayEntry
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.ChatEvent
 import com.univibe.app.data.net.LiveConnection
+import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.send
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -19,16 +20,36 @@ interface StoryRepository {
     suspend fun tray(): List<StoryTrayEntry>
     /** Fires when the server says a Story changed, and after every reconnect (so missed events are reconciled). */
     fun changes(): Flow<Unit> = emptyFlow()
+    /** Publishes a Story (uploading its photo first when it has one). Returns the new Story's id. Safe to retry: [StoryDraft.clientId] makes a repeat return the first Story. */
+    suspend fun publish(draft: StoryDraft): String
+}
+
+const val STORY_TEXT_MAX = 280
+const val STORY_CAPTION_MAX = 140
+val STORY_BACKGROUNDS = listOf("teal", "indigo", "rose", "amber", "slate")
+
+/** What the composer hands over. Photo Story: [photoPath] + optional [caption]. Text Story: [text] + [background]. */
+data class StoryDraft(
+    val photoPath: String? = null,
+    val caption: String = "",
+    val text: String = "",
+    val background: String = "teal",
+    val audience: String = "campus",
+    val clientId: String,
+) {
+    val isPhoto get() = photoPath != null
 }
 
 /** Used only in the offline preview build: no invented Stories. */
 object UnavailableStoryRepository : StoryRepository {
     override suspend fun tray(): List<StoryTrayEntry> = throw IOException("Stories need a connection to the UniVibe server.")
+    override suspend fun publish(draft: StoryDraft): String = throw IOException("Stories need a connection to the UniVibe server.")
 }
 
 class RemoteStoryRepository(
     private val api: AuthedApi,
     private val live: LiveConnection? = null,
+    private val media: MediaUploader? = null,
 ) : StoryRepository {
     override fun changes(): Flow<Unit> = live?.events
         ?.filter { it is ChatEvent.StoryChanged || it is ChatEvent.Connected }
@@ -36,6 +57,18 @@ class RemoteStoryRepository(
         ?: emptyFlow()
 
     override suspend fun tray(): List<StoryTrayEntry> = parseStoryTray(api.send("GET", "/api/v1/stories"))
+
+    override suspend fun publish(draft: StoryDraft): String {
+        val body = JSONObject().put("audience", draft.audience).put("clientId", draft.clientId)
+        if (draft.photoPath != null) {
+            val uploader = media ?: throw IOException("Stories need a connection to the UniVibe server.")
+            body.put("kind", "photo").put("mediaId", uploader.upload(draft.photoPath, "image", "story"))
+            draft.caption.trim().takeIf { it.isNotEmpty() }?.let { body.put("caption", it) }
+        } else {
+            body.put("kind", "text").put("text", draft.text.trim()).put("background", draft.background)
+        }
+        return JSONObject(api.send("POST", "/api/v1/stories", body, setOf(200, 201))).getString("id")
+    }
 }
 
 fun parseStoryTray(body: String): List<StoryTrayEntry> {
