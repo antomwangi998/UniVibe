@@ -291,7 +291,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenSearch = { open(AppRoutes.SEARCH) },
                         )
                     }
-                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }) }
+                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }, onAddStory = { open(AppRoutes.STORY_NEW) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }, onCreateEvent = { open(AppRoutes.EVENT_NEW) }) }
                     tab(TopLevelDestination.Profile.route) {
                         ProfileScreen(
@@ -319,6 +319,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 onOpenStudent = { open(AppRoutes.student(it)) },
                             )
                         }
+                    }
+                    subScreen(AppRoutes.STORY_NEW) {
+                        com.univibe.app.features.chats.stories.CreateStoryScreen(onBack = back, onPublished = back)
                     }
                     subScreen(AppRoutes.GROUP_NEW) {
                         NewGroupScreen(

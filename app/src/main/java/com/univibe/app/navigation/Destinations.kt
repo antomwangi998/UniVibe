@@ -63,6 +63,7 @@ object AppRoutes {
     const val CHAT = "chats/{chatId}"
     const val GROUP_INFO = "chats/{chatId}/info"
     const val GROUP_NEW = "group/new"
+    const val STORY_NEW = "story/new"
     const val COMMENTS = "post/{postId}/comments"
     const val EVENT = "events/{eventId}"
     const val EVENT_NEW = "event/new"
