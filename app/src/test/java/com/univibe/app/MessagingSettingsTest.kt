@@ -138,6 +138,6 @@ class MessagingSettingsTest {
         assertEquals(SettingsRoutes.MESSAGING, SettingsSearch.search("enter key").first().route)
         assertEquals(SettingsRoutes.MESSAGING, SettingsSearch.search("message previews").first().route)
         assertEquals(SettingsRoutes.MUTED_CHATS, SettingsSearch.search("unmute").first().route)
-        assertEquals(SettingsRoutes.PRIVACY, SettingsSearch.search("read receipts").first().route)
+        assertEquals(SettingsRoutes.READ_RECEIPTS, SettingsSearch.search("read receipts").first().route)
     }
 }
