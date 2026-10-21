@@ -111,15 +111,15 @@ export function moderationRoutes(ctx: Ctx) {
 
     app.get('/moderation/reports', async (req) => {
       const me = await requireModerator(req);
-      const q = pageSchema.extend({ status: z.enum(['open', 'under_review', 'action_taken', 'dismissed']).default('open') }).parse(req.query);
+      const q = pageSchema.extend({ status: z.enum(['open', 'under_review', 'action_taken', 'dismissed']).default('open'), targetType: z.enum(TARGETS).optional() }).parse(req.query);
       const cur = decodeCursor(q.cursor);
       const { rows } = await pool.query(
         `select r.id, r.target_type, r.target_id, r.reason, r.details, r.status, r.created_at, ${tsText('r.created_at')} as "cursorT", ${CARD_COLUMNS},
                 (select count(*) from reports x where x.target_type = r.target_type and x.target_id = r.target_id)::int as report_count
            from reports r left join users u on u.id = r.reporter_id ${CARD_JOIN}
-          where r.university_id = $1 and r.status = $2 and ($3::timestamptz is null or (r.created_at, r.id) < ($3::timestamptz, $4::uuid))
+          where r.university_id = $1 and r.status = $2 and ($6::text is null or r.target_type = $6) and ($3::timestamptz is null or (r.created_at, r.id) < ($3::timestamptz, $4::uuid))
           order by r.created_at desc, r.id desc limit $5`,
-        [me.universityId, q.status, cur?.t ?? null, cur?.id ?? null, q.limit + 1],
+        [me.universityId, q.status, cur?.t ?? null, cur?.id ?? null, q.limit + 1, q.targetType ?? null],
       );
       const page = toPage(rows as (CardRow & { cursorT: string; id: string })[], q.limit);
       const items = await Promise.all(page.items.map(async (r) => {
@@ -155,6 +155,41 @@ export function moderationRoutes(ctx: Ctx) {
       });
     });
 
+    /** Hides or restores an event and records who did it. [reportId] is null when a moderator acts from the event itself. */
+    async function setEventHidden(client: Q, me: AuthUser, eventId: string, hide: boolean, note: string, userMessage: string, reportId: string | null) {
+      const res = await client.query(
+        `update events set hidden_at = ${hide ? 'now()' : 'null'}, hidden_by = ${hide ? '$2::uuid' : 'null'}, updated_at = now() where id = $1 and university_id = $3`,
+        [eventId, me.id, me.universityId]);
+      if (!res.rowCount) throw new HttpError(404, 'not_found', 'That event no longer exists.');
+      await client.query(
+        'insert into moderation_actions (report_id, moderator_id, action, target_type, target_id, note, user_message) values ($1, $2, $3, $4, $5, $6, $7)',
+        [reportId, me.id, hide ? 'hide_event' : 'restore_event', 'event', eventId, note, userMessage]);
+      await client.query('insert into event_audit (event_id, actor_id, action) values ($1, $2, $3)', [eventId, me.id, hide ? 'hide' : 'restore']);
+      await audit(client, me.id, hide ? 'hide_event' : 'restore_event', 'event', eventId, reportId ? { reportId } : {});
+      if (hide) {
+        // The reports about a hidden event are settled by the same decision, as with every other action.
+        await client.query(
+          `update reports set status = 'action_taken', reviewed_by = $1, resolution_note = $2, reviewed_at = now(), updated_at = now()
+            where target_type = 'event' and target_id = $3 and university_id = $4 and status in ('open', 'under_review')`,
+          [me.id, note, eventId, me.universityId]);
+      }
+    }
+
+    // Lets the app ask once whether to show moderator tools. 403 for everyone else.
+    app.get('/moderation/access', async (req) => { await requireModerator(req); return { allowed: true }; });
+
+    const eventActionSchema = z.object({ note: z.string().trim().max(500).default(''), userMessage: z.string().trim().max(300).default('') }).strict();
+    for (const hide of [true, false]) {
+      // A moderator can hide an event they came across, without waiting for a report.
+      app.post(`/moderation/events/:eventId/${hide ? 'hide' : 'restore'}`, async (req) => {
+        const me = await requireModerator(req);
+        const eventId = idParam((req.params as { eventId: string }).eventId);
+        const b = eventActionSchema.parse(req.body ?? {});
+        await withTx(pool, (client) => setEventHidden(client, me, eventId, hide, b.note, b.userMessage, null));
+        return { id: eventId, hidden: hide };
+      });
+    }
+
     app.post('/moderation/reports/:id/action', async (req) => {
       const me = await requireModerator(req);
       const id = idParam((req.params as { id: string }).id);
@@ -175,14 +210,7 @@ export function moderationRoutes(ctx: Ctx) {
         } else if (b.action === 'hide_event' || b.action === 'restore_event') {
           // A hidden event vanishes for everyone but its organizer (see eventVisible); its feed post goes with it.
           if (type !== 'event') throw new HttpError(422, 'validation', 'Only events can be hidden or restored this way.');
-          const hide = b.action === 'hide_event';
-          const res = await client.query(
-            `update events set hidden_at = ${hide ? 'now()' : 'null'}, hidden_by = ${hide ? '$2::uuid' : 'null'}, updated_at = now() where id = $1 and university_id = $3`,
-            [targetId, me.id, me.universityId]);
-          if (!res.rowCount) throw new HttpError(404, 'not_found', 'That event no longer exists.');
-          await record('event', targetId);
-          await client.query("insert into event_audit (event_id, actor_id, action) values ($1, $2, $3)", [targetId, me.id, hide ? 'hide' : 'restore']);
-          await audit(client, me.id, b.action, 'event', targetId, { reportId: id });
+          await setEventHidden(client, me, targetId, b.action === 'hide_event', b.note, b.userMessage, id);
         } else {
           const owner = await ownerOf(client, type, targetId);
           if (!owner) throw new HttpError(404, 'not_found', 'That person no longer exists.');

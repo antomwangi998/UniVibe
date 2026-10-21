@@ -84,7 +84,7 @@ import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}, onOpenAttendees: () -> Unit = {}) {
+fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}, onOpenAttendees: () -> Unit = {}, onModerate: () -> Unit = {}) {
     val viewModel = keyedViewModel("event-$eventId") { EventDetailsViewModel(eventId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val details = s.details
@@ -178,6 +178,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
                 SheetRow(VibeIcons.Delete, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
             } else if (viewModel.supportsSharing) {
                 if (event.remindersOn != null && (status == EventStatus.Upcoming)) SheetRow(UpdateIcon, if (event.remindersOn == true) "Turn reminders off" else "Turn reminders on", false) { viewModel.toggleReminders() }
+                if (s.moderator) SheetRow(ReportIcon, "Review as moderator", false) { viewModel.openManage(false); onModerate() }
                 SheetRow(ReportIcon, "Report event", true) { viewModel.reporting(ReportTarget.Event) }
                 if (details.organizerId != null) SheetRow(OrganizerReportIcon, "Report organizer", true) { viewModel.reporting(ReportTarget.Organizer) }
             }

@@ -19,7 +19,10 @@ import com.univibe.app.data.model.Venue
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.parseStudent
+import com.univibe.app.data.model.AttendeePage
 import com.univibe.app.data.model.EventAttendee
+import com.univibe.app.data.model.EventReportItem
+import com.univibe.app.data.model.ModeratorEvent
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.accentFor
 import com.univibe.app.data.net.send
@@ -277,9 +280,51 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         (0 until items.length()).map { toEvent(items.getJSONObject(it)) }.filter { it.draft && it.mine }
     }
 
-    override suspend fun attendees(eventId: String): List<EventAttendee> = explained {
-        val items = JSONObject(api.send("GET", "/api/v1/events/$eventId/attendees?limit=100")).getJSONArray("items")
-        (0 until items.length()).map { val o = items.getJSONObject(it); EventAttendee(parseStudent(o), if (o.has("checkedIn")) o.optBoolean("checkedIn") else null) }
+    override suspend fun attendees(eventId: String, cursor: String?): AttendeePage = explained {
+        val q = "limit=50" + (cursor?.let { "&cursor=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: "")
+        val root = JSONObject(api.send("GET", "/api/v1/events/$eventId/attendees?$q"))
+        val items = root.getJSONArray("items")
+        AttendeePage(
+            (0 until items.length()).map { val o = items.getJSONObject(it); EventAttendee(parseStudent(o), if (o.has("checkedIn")) o.optBoolean("checkedIn") else null) },
+            if (root.isNull("nextCursor")) null else root.optString("nextCursor").ifBlank { null },
+        )
+    }
+
+    // ---- Moderator tools
+    @Volatile private var moderator: Boolean? = null
+
+    /** Asked once per sign-in session; the server answers 403 to everyone who is not a moderator. */
+    override suspend fun isModerator(): Boolean {
+        moderator?.let { return it }
+        return try {
+            api.send("GET", "/api/v1/moderation/access")
+            true.also { moderator = it }
+        } catch (e: ApiException) {
+            false.also { moderator = it } // 403: not a moderator. Remembered, so the question is asked once.
+        } catch (e: java.io.IOException) {
+            false // offline: not remembered, so the next screen asks again
+        }
+    }
+
+    override suspend fun eventReports(): List<EventReportItem> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/moderation/reports?targetType=event&status=open&limit=50")).getJSONArray("items")
+        (0 until items.length()).map {
+            val o = items.getJSONObject(it)
+            EventReportItem(o.getString("id"), o.getString("targetId"), o.optString("preview").ifBlank { "Event" }, o.optString("reason"), o.optString("details"), o.optInt("reportCount", 1), millis(o.getString("createdAt")))
+        }
+    }
+
+    override suspend fun moderatorEvent(id: String): ModeratorEvent? = explained {
+        val o = JSONObject(api.send("GET", "/api/v1/moderation/events/$id"))
+        val org = o.getJSONObject("organizer")
+        ModeratorEvent(
+            o.getString("id"), o.getString("title"), o.optString("description"), o.optString("venueName"), o.optString("status"), o.optBoolean("hidden"),
+            o.optInt("reportCount"), org.optString("name"), org.optString("handle"), org.optBoolean("suspended"),
+        )
+    }
+
+    override suspend fun setEventHidden(id: String, hide: Boolean, note: String, userMessage: String) = explained {
+        api.send("POST", "/api/v1/moderation/events/$id/${if (hide) "hide" else "restore"}", JSONObject().put("note", note).put("userMessage", userMessage)); Unit
     }
 
     override suspend fun completeEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/complete", ok = setOf(204)); Unit }

@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -39,7 +41,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class AttendeesUiState(val loading: Boolean = true, val error: Boolean = false, val forbidden: Boolean = false, val people: List<EventAttendee> = emptyList())
+data class AttendeesUiState(
+    val loading: Boolean = true, val error: Boolean = false, val forbidden: Boolean = false, val people: List<EventAttendee> = emptyList(),
+    val nextCursor: String? = null, val loadingMore: Boolean = false, val moreFailed: Boolean = false,
+)
 
 class EventAttendeesViewModel(private val eventId: String, private val repository: EventRepository = AppContainer.eventRepository) : ViewModel() {
     private val _state = MutableStateFlow(AttendeesUiState())
@@ -47,11 +52,27 @@ class EventAttendeesViewModel(private val eventId: String, private val repositor
 
     init { load() }
 
+    /** Fetches the next 50 guests. A failure keeps what is on screen and shows a retry row instead of an error page. */
+    fun loadMore() {
+        val s = _state.value
+        val cursor = s.nextCursor ?: return
+        if (s.loadingMore) return
+        _state.update { it.copy(loadingMore = true, moreFailed = false) }
+        viewModelScope.launch {
+            try {
+                val page = repository.attendees(eventId, cursor)
+                // A guest can appear on two pages if people join while you scroll, so duplicates are dropped.
+                _state.update { st -> st.copy(loadingMore = false, people = (st.people + page.items).distinctBy { it.student.id }, nextCursor = page.nextCursor) }
+            } catch (e: Exception) { _state.update { it.copy(loadingMore = false, moreFailed = true) } }
+        }
+    }
+
     fun load() {
         _state.update { it.copy(loading = true, error = false) }
         viewModelScope.launch {
             try {
-                _state.update { it.copy(loading = false, people = repository.attendees(eventId)) }
+                val page = repository.attendees(eventId)
+                _state.update { it.copy(loading = false, people = page.items, nextCursor = page.nextCursor) }
             } catch (e: Exception) {
                 // The server says "attendee list is not available" when the organizer keeps it private; show that, not a generic error.
                 val hidden = e.message?.contains("not available", ignoreCase = true) == true
@@ -86,6 +107,11 @@ fun EventAttendeesScreen(eventId: String, onBack: () -> Unit, onOpenStudent: (St
                         }
                         if (p.checkedIn == true) Text("Checked in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     }
+                }
+                if (s.nextCursor != null) item(key = "more") {
+                    // Showing this row asks for the next page, so scrolling to the end keeps loading.
+                    if (s.moreFailed) TextButton(onClick = viewModel::loadMore) { Text("Couldn't load more. Tap to retry") }
+                    else { LaunchedEffect(s.nextCursor) { viewModel.loadMore() }; Text("Loading…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }

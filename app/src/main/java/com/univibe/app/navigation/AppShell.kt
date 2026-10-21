@@ -366,7 +366,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         EventDetailsScreen(
                             eventId = entry.arg("eventId"), onBack = back, onEdit = { open(AppRoutes.eventEdit(entry.arg("eventId"))) },
                             onOpenAttendees = { open(AppRoutes.eventAttendees(entry.arg("eventId"))) },
+                            onModerate = { open(AppRoutes.moderationEvent(entry.arg("eventId"))) },
                         )
+                    }
+                    subScreen(AppRoutes.MODERATION_REPORTS) {
+                        com.univibe.app.features.moderation.EventReportsScreen(onBack = back, onOpenEvent = { open(AppRoutes.moderationEvent(it)) })
+                    }
+                    subScreen(AppRoutes.MODERATION_EVENT, stringArgs("eventId")) { entry ->
+                        com.univibe.app.features.moderation.ModeratorEventScreen(eventId = entry.arg("eventId"), onBack = back)
                     }
                     subScreen(AppRoutes.EVENT_ATTENDEES, stringArgs("eventId")) { entry ->
                         com.univibe.app.features.events.EventAttendeesScreen(eventId = entry.arg("eventId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
