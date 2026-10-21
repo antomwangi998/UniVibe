@@ -64,6 +64,7 @@ object AppRoutes {
     const val GROUP_INFO = "chats/{chatId}/info"
     const val GROUP_NEW = "group/new"
     const val STORY_NEW = "story/new"
+    const val STORY_VIEW = "story/view/{authorId}"
     const val COMMENTS = "post/{postId}/comments"
     const val EVENT = "events/{eventId}"
     const val EVENT_NEW = "event/new"
@@ -86,6 +87,7 @@ object AppRoutes {
     const val FOLLOWING = "profile/following"
 
     fun chat(id: String) = "chats/$id"
+    fun storyView(authorId: String) = "story/view/$authorId"
     fun groupInfo(chatId: String) = "chats/$chatId/info"
     fun comments(postId: String) = "post/$postId/comments"
     fun event(id: String) = "events/$id"
