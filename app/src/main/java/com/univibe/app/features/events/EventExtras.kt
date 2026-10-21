@@ -18,6 +18,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import com.univibe.app.ui.components.PhotoImage
+import com.univibe.app.ui.components.accentGradient
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.semantics.Role
@@ -192,12 +202,44 @@ fun SharedEventCard(eventId: String) {
         when (val st = state) {
             SharedEventState.Loading -> Text("Event…", style = MaterialTheme.typography.bodyMedium)
             SharedEventState.Unavailable -> Text("This event isn't available.", style = MaterialTheme.typography.bodyMedium)
-            is SharedEventState.Ready -> Column(Modifier.clickable(role = Role.Button, onClickLabel = "Open event") { open(eventId) }) {
+            is SharedEventState.Ready -> Column(Modifier.clickable(role = Role.Button, onClickLabel = "Open event") { open(eventId) }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val e = st.details.event
+                CoverStrip(e)
                 Text(e.title, style = MaterialTheme.typography.titleSmall)
                 Text(listOf(e.timeLabel, e.location).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                 if (e.cancelled) Text("Cancelled", style = MaterialTheme.typography.labelSmall)
             }
         }
+    }
+}
+
+/**
+ * The event's cover. Optional: a cover helps people recognise the event in lists, chats and shared cards. Without one every
+ * card shows the event's colour instead, so nothing looks broken.
+ */
+@Composable
+internal fun CoverPicker(shown: String?, accent: Int, onPick: () -> Unit, onRemove: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Text("Cover photo (optional)", style = MaterialTheme.typography.titleSmall)
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp)).background(Brush.linearGradient(accentGradient(accent)))
+                .clickable(role = Role.Button, onClickLabel = "Choose a cover photo", onClick = onPick),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (shown != null) PhotoImage(shown, contentDescription = "Event cover")
+            else Text("Tap to add a photo", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimary)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            TextButton(onClick = onPick) { Text(if (shown == null) "Add photo" else "Change photo") }
+            if (shown != null) TextButton(onClick = onRemove) { Text("Remove") }
+        }
+    }
+}
+
+/** A small cover, or the event's colour when it has none, for cards that show an event inside something else. */
+@Composable
+fun CoverStrip(event: CampusEvent, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().aspectRatio(16f / 7f).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(accentGradient(event.accent)))) {
+        event.coverUrl?.let { PhotoImage(it, contentDescription = null) }
     }
 }

@@ -191,14 +191,22 @@ data class CampusEvent(
     val hidden: Boolean = false,
     /** Whether reminders for this event are on for you. Null unless you are going. */
     val remindersOn: Boolean? = null,
+    /** Only the organizer sees a draft. It has not been announced and nobody can RSVP. */
+    val draft: Boolean = false,
+    /** The server's own view of where the event is in time ("upcoming", "live", "ended"), read when the event was loaded. */
+    val serverPhase: String? = null,
 ) {
     /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
     val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
 
+    /**
+     * The server decides when an event has ended (an organizer can close one early), and its clock is the one that counts, so
+     * its answer wins over this device's clock for "ended" and "live". Otherwise the times decide.
+     */
     fun status(now: Long = System.currentTimeMillis()): EventStatus = when {
         cancelled -> EventStatus.Cancelled
-        now >= endMillis -> EventStatus.Ended
-        now >= startMillis -> EventStatus.Live
+        serverPhase == "ended" || now >= endMillis -> EventStatus.Ended
+        serverPhase == "live" || now >= startMillis -> EventStatus.Live
         else -> EventStatus.Upcoming
     }
 }
@@ -291,9 +299,18 @@ data class NewEvent(
     val externalUrl: String? = null,
     /** The device's time zone id, kept so the event can be shown in the zone it was planned in. */
     val timezone: String? = null,
+    /** A photo picked on this device, to upload with the event. */
+    val coverPath: String? = null,
+    /** Editing: take the existing cover off the event. */
+    val removeCover: Boolean = false,
+    /** Creating: keep it private until published. */
+    val asDraft: Boolean = false,
 )
 
-enum class EventsTab { Upcoming, MyEvents, Past }
+/** Someone going to an event. [checkedIn] is only known to the organizer. */
+data class EventAttendee(val student: Student, val checkedIn: Boolean? = null)
+
+enum class EventsTab { Upcoming, MyEvents, Saved, Drafts, Past }
 
 /** Everything the full student profile shows. Counts and communities come from the server. */
 data class StudentProfile(

@@ -61,6 +61,7 @@ class EventDetailsViewModel(
 
     /** True when the server offers organizer updates, activity, links, sharing and reports. */
     val supportsSharing: Boolean get() = repository.supportsOrganizerTools
+    val supportsSaving: Boolean get() = repository.supportsSaved
 
     init { load() }
 
@@ -104,6 +105,26 @@ class EventDetailsViewModel(
     private fun loadUpdates() {
         if (!repository.supportsOrganizerTools) return
         viewModelScope.launch { runCatching { repository.eventUpdates(eventId) }.onSuccess { list -> _state.update { it.copy(updates = list) } } }
+    }
+
+    /** Bookmarks follow the server and are put back if it refuses. */
+    fun toggleSaved() {
+        val d = _state.value.details ?: return
+        val now = !d.event.saved
+        _state.update { it.copy(details = d.copy(event = d.event.copy(saved = now))) }
+        viewModelScope.launch {
+            try { repository.setSaved(eventId, now) }
+            catch (e: Exception) { _state.update { s -> s.copy(details = s.details?.let { x -> x.copy(event = x.event.copy(saved = !now)) }, notice = "Couldn't save that. Try again.") } }
+        }
+    }
+
+    /** Announces a draft. The server re-checks the time and your limit, and its words reach the screen if it says no. */
+    fun publish() {
+        _state.update { it.copy(manageOpen = false) }
+        viewModelScope.launch {
+            try { repository.publishEvent(eventId); _state.update { it.copy(notice = "Event published") }; load() }
+            catch (e: Exception) { _state.update { it.copy(notice = e.message?.takeIf { m -> m.length < 120 } ?: "Couldn't publish. Try again.") } }
+        }
     }
 
     fun completeEvent() {

@@ -84,6 +84,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     var venueSheet by remember { mutableStateOf(false) }
+    val pickCover = com.univibe.app.ui.components.rememberPhotoPicker("event") { viewModel.setCover(it) }
 
     LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
     LaunchedEffect(s.doneId) { s.doneId?.let(onDone) }
@@ -109,6 +110,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                         s.description, viewModel::setDescription, label = "Description (optional)", singleLine = false, minLines = 3,
                         isError = !s.descriptionOk, supportingText = "${s.description.trim().length}/1000",
                     )
+                    CoverPicker(s.coverShown, s.accent, onPick = pickCover, onRemove = viewModel::removeCover)
                     Text("Category", style = MaterialTheme.typography.titleSmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         // The list comes from the server so new categories appear without an app update.
@@ -191,10 +193,13 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     )
                     Spacer(Modifier.size(Spacing.sm))
                 }
-                VibeButton(
-                    if (s.editing) "Save changes" else "Publish event", viewModel::submit,
-                    Modifier.fillMaxWidth().navigationBarsPadding().padding(Spacing.md), enabled = s.canSubmit, loading = s.submitting,
-                )
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    VibeButton(
+                        if (s.editing) "Save changes" else "Publish event", { viewModel.submit() },
+                        Modifier.fillMaxWidth(), enabled = s.canSubmit, loading = s.submitting,
+                    )
+                    if (!s.editing) TextButton({ viewModel.submit(asDraft = true) }, Modifier.fillMaxWidth(), enabled = s.canSubmit) { Text("Save as draft") }
+                }
             }
         }
     }

@@ -68,6 +68,7 @@ import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.ui.components.ConfirmDialog
+import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.LoadingSkeleton
@@ -83,7 +84,7 @@ import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}) {
+fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}, onOpenAttendees: () -> Unit = {}) {
     val viewModel = keyedViewModel("event-$eventId") { EventDetailsViewModel(eventId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val details = s.details
@@ -111,6 +112,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
                 Hero(details)
                 Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     StatusBanner(event)
+                    if (event.draft) Text("Draft. Only you can see it until you publish.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
                     if (event.hidden) Text("Moderators have hidden this event. Only you can see it.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     Text(event.title, style = MaterialTheme.typography.headlineSmall)
                     HostRow(details)
@@ -133,11 +135,18 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
                         }
                     }
                     UpdatesSection(s.updates)
+                    if (viewModel.supportsSharing && !event.draft && (event.mine || (event.rsvp == RsvpState.Going && event.going > 0))) {
+                        TextButton(onClick = onOpenAttendees) { Text("See who's going (${event.going})") }
+                    }
                     if (details.agenda.isNotEmpty()) Agenda(details)
                     VenueSection(details)
                 }
             }
-            ActionBar(details, onGoing = viewModel::toggleGoing, onInterested = viewModel::toggleInterested)
+            if (event.draft && event.mine) {
+                VibeButton("Publish event", viewModel::publish, Modifier.fillMaxWidth().navigationBarsPadding().padding(Spacing.md))
+            } else if (!event.draft) {
+                ActionBar(details, onGoing = viewModel::toggleGoing, onInterested = viewModel::toggleInterested)
+            }
         }
         // Floating controls over the hero.
         val context = LocalContext.current
@@ -149,7 +158,8 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 if (event.mine && status != EventStatus.Ended) VibeIconButton(VibeIcons.More, "Manage event", { viewModel.openManage(true) })
                 else if (!event.mine) VibeIconButton(VibeIcons.More, "More options", { viewModel.openManage(true) })
-                if (!event.hidden && status != EventStatus.Cancelled) VibeIconButton(VibeIcons.Share, "Share event", {
+                if (viewModel.supportsSaving && !event.draft) VibeIconButton(if (event.saved) VibeIcons.BookmarkFilled else VibeIcons.Bookmark, if (event.saved) "Remove from saved" else "Save event", viewModel::toggleSaved)
+                if (!event.hidden && !event.draft && status != EventStatus.Cancelled) VibeIconButton(VibeIcons.Share, "Share event", {
                     if (viewModel.supportsSharing) viewModel.openShare() else systemShare(context, event, null)
                 })
             }
@@ -160,6 +170,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
         VibeBottomSheet(onDismiss = { viewModel.openManage(false) }) {
             if (event.mine) {
                 SheetRow(VibeIcons.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
+                if (event.draft) SheetRow(VibeIcons.Check, "Publish event", false) { viewModel.publish() }
                 if (viewModel.supportsSharing && !event.hidden && (status == EventStatus.Upcoming || status == EventStatus.Live)) SheetRow(UpdateIcon, "Post an update", false) { viewModel.composeUpdate(true) }
                 if (viewModel.supportsSharing && status == EventStatus.Live) SheetRow(VibeIcons.Check, "Mark as completed", false) { viewModel.completeEvent() }
                 if (viewModel.supportsSharing) SheetRow(ActivityIcon, "Activity", false) { viewModel.openActivity() }
