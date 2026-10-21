@@ -81,6 +81,6 @@ class PrivacyPolicyTest {
 
     @Test fun termsAndPrivacySettingsKeepTheirOwnRoutes() {
         assertEquals(SettingsRoutes.TERMS, SettingsSearch.search("terms of service").first().route)
-        assertEquals(SettingsRoutes.PRIVACY, SettingsSearch.search("who can message you").first().route)
+        assertEquals(SettingsRoutes.MESSAGE_POLICY, SettingsSearch.search("who can message you").first().route)
     }
 }
