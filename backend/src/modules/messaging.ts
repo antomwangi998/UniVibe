@@ -10,6 +10,7 @@ import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
 import { firstLink } from '../linkpreview';
+import { groupInOrder } from '../group';
 import { createHash } from 'node:crypto';
 import { notify } from './notify';
 import { presenceOf } from './presence';
@@ -28,7 +29,7 @@ export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null; fileName: string | null; sizeBytes: number | null }[];
   forwarded: boolean;
   /** Set when this message answers a Story. `available` is false once the Story has expired or been deleted; its content is never copied here. */
   story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
@@ -71,7 +72,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform, file_name, size_bytes from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
   const previews = ids.length
@@ -81,11 +82,10 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
   const previewOf = new Map(previews.map((p) => [p.message_id, p] as const));
   // The picture is private like all media: a short-lived link is made for each viewer-visible card.
   const previewImage = new Map(await Promise.all(previews.map(async (p) => [p.message_id, await signedUrl(ctx, p.image_key)] as const)));
-  const byMessage = new Map<string, MessageView['media']>();
-  await Promise.all(media.map(async (m) => {
-    const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null, waveform: m.waveform ?? null });
-    byMessage.set(m.message_id, list);
+  // Every attachment of a message, in position order (see group.ts for why this is not done inside the async callback).
+  const byMessage = await groupInOrder(media, async (m): Promise<MessageView['media'][number]> => ({
+    id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null,
+    durationMs: m.duration_ms ?? null, waveform: m.waveform ?? null, fileName: m.file_name ?? null, sizeBytes: m.kind === 'document' ? Number(m.size_bytes) : null,
   }));
   return rows.map((r) => {
     const deleted = r.status === 'deleted';
@@ -136,7 +136,7 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
 export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean; story?: { id: string; kind: 'photo' | 'video' | 'text' }; eventId?: string } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
-  if (!input.content && !input.mediaIds.length && !opts.eventId) throw new HttpError(400, 'validation', 'Write a message, attach a photo or record a voice message.');
+  if (!input.content && !input.mediaIds.length && !opts.eventId) throw new HttpError(400, 'validation', 'Write a message, attach a photo or a file, or record a voice message.');
 
   const { id, created } = await withTx(ctx.pool, async (client) => {
     const member = await membership(client, conversationId, me.id);
@@ -178,12 +178,15 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
            from unnest($2::uuid[]) with ordinality as x(id, ord)
-          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio') and m.status = 'ready' and m.message_id is null`,
+          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio', 'document') and m.status = 'ready' and m.message_id is null`,
         [messageId, input.mediaIds, me.id]);
       if (attached.rowCount !== input.mediaIds.length) throw new HttpError(422, 'invalid_media', 'One of the attachments is not available.');
       // A voice message stands alone: no other attachments with it.
       const audio = await client.query("select 1 from media where message_id = $1 and kind = 'audio'", [messageId]);
       if (audio.rowCount && input.mediaIds.length > 1) throw new HttpError(422, 'invalid_media', 'A voice message cannot have other attachments.');
+      // A document is sent on its own too (with a caption if wanted), never mixed with photos or other documents.
+      const doc = await client.query("select 1 from media where message_id = $1 and kind = 'document'", [messageId]);
+      if (doc.rowCount && input.mediaIds.length > 1) throw new HttpError(422, 'invalid_media', 'A document is sent on its own.');
     }
     await client.query('update conversations set last_message_at = now() where id = $1', [conversationId]);
     await client.query(
@@ -357,6 +360,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'image') as lm_media,
                 (lm.event_id is not null) as lm_event,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'audio') as lm_audio,
+                (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'document') as lm_docs,
                 (select su.full_name from users su where su.id = lm.sender_id) as lm_sender_name,
                 (select count(*) from conversation_members mc where mc.conversation_id = c.id) as member_count,
                 -- Up to six other members of a group (names only): used for typing labels, collage avatars and untitled groups.
@@ -395,7 +399,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           presence: r.card_id ? presence.get(r.card_id) ?? null : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
-          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, senderName: r.lm_sender_name ?? null,
+          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, documentCount: r.lm_status === 'active' ? Number(r.lm_docs) : 0, senderName: r.lm_sender_name ?? null,
           delivery: r.lm_delivery ?? null } : null,
         }))),
         nextCursor: more && last ? Buffer.from(JSON.stringify({ t: last.cursor_t, id: last.id })).toString('base64url') : null,
@@ -485,10 +489,11 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         const res = await client.query<{ conversation_id: string }>(
           "update messages set status = 'deleted', content = '', deleted_at = now() where id = $1 and sender_id = $2 and status = 'active' returning conversation_id", [id, me.id]);
         if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
-        await client.query('delete from media where message_id = $1', [id]);
+        const gone = await client.query<{ object_key: string; thumb_key: string | null }>('delete from media where message_id = $1 returning object_key, thumb_key', [id]);
         // The link card goes with the message, picture included.
         const card = await client.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
-        return { conversationId: res.rows[0].conversation_id, previewImages: card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k)) };
+        const files = gone.rows.flatMap((r) => [r.object_key, r.thumb_key]).filter((k): k is string => Boolean(k));
+        return { conversationId: res.rows[0].conversation_id, previewImages: [...files, ...card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k))] };
       });
       if (previewImages.length && ctx.storage) void ctx.storage.remove(previewImages).catch(() => undefined);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:deleted', conversationId, messageId: id });

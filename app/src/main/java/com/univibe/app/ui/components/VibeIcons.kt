@@ -108,6 +108,16 @@ object VibeIcons {
         "M6.5 4.5 H17.5 Q20 4.5 20 7 V17 Q20 19.5 17.5 19.5 H6.5 Q4 19.5 4 17 V7 Q4 4.5 6.5 4.5 Z",
         "M8.6 9.2 H8.61", "M4.4 16.4 L9.4 12 L13 15.2 L15.4 13.2 L19.6 16.8",
     )
+    val Camera = icon(
+        "Camera", 0f, LINE,
+        "M4 8.5 Q4 7 5.5 7 H8 L9.5 5 H14.5 L16 7 H18.5 Q20 7 20 8.5 V17 Q20 18.5 18.5 18.5 H5.5 Q4 18.5 4 17 Z",
+        "M9 12.8 A3 3 0 0 1 15 12.8 A3 3 0 0 1 9 12.8 Z",
+    )
+    val File = icon(
+        "File", 0f, LINE,
+        "M7.5 3.5 H13 L18.5 9 V19 Q18.5 20.5 17 20.5 H7.5 Q6 20.5 6 19 V5 Q6 3.5 7.5 3.5 Z",
+        "M13 3.5 V9 H18.5", "M9 13.5 H15.5", "M9 16.5 H13.5",
+    )
     val Check = icon("Check", 0f, LINE, "M5.5 12.6 L9.8 16.8 L18.5 7.8")
     val DoubleCheck = icon("DoubleCheck", 0f, LINE, "M2.6 12.8 L6.9 17 L15.4 8.4", "M11.2 15.9 L12.1 16.8 L21 7.8")
     val Clock = icon(

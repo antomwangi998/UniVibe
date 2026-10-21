@@ -2,6 +2,19 @@
 
 package com.univibe.app.features.chats
 
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import com.univibe.app.ui.components.rememberFilePicker
+import com.univibe.app.ui.components.rememberCameraPicker
+import com.univibe.app.data.model.FileAttachment
+import com.univibe.app.data.media.PickedFile
+import androidx.compose.runtime.saveable.Saver
 import com.univibe.app.ui.components.PostMediaShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.layout.ColumnScope
@@ -208,6 +221,17 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
             onSend = { caption -> viewModel.sendPhotos(pendingPhotos, caption); pendingPhotos = emptyList() },
         )
     }
+    // The camera adds its picture to the same review sheet; a chosen file gets its own (a file is sent on its own).
+    val takePhoto = rememberCameraPicker("chat") { picked -> pendingPhotos = (pendingPhotos + picked).distinct().take(MAX_MESSAGE_PHOTOS) }
+    var pendingFile by rememberSaveable(stateSaver = PickedFileSaver) { mutableStateOf<PickedFile?>(null) }
+    val pickFile = rememberFilePicker { picked -> pendingFile?.let { runCatching { java.io.File(it.path).delete() } }; pendingFile = picked }
+    pendingFile?.let { f ->
+        FileSendSheet(
+            file = f,
+            onCancel = { runCatching { java.io.File(f.path).delete() }; pendingFile = null },
+            onSend = { caption -> viewModel.sendFile(f, caption); pendingFile = null },
+        )
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -232,6 +256,8 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     var recordingStartedAt by remember { mutableStateOf<Long?>(null) }
     var recordedMs by remember { mutableLongStateOf(0L) }
     var recordLevel by remember { mutableStateOf(0f) }
+    // Holding the mic records until you let go (send), slide left (cancel) or slide up (lock: the bar with Send and Delete).
+    var holdMode by remember { mutableStateOf(false) }
     val showMic = s.input.isBlank() && s.editing == null
     DisposableEffect(Unit) { onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
     LaunchedEffect(VoicePlayer.isPlaying) { while (VoicePlayer.isPlaying) { VoicePlayer.tick(); kotlinx.coroutines.delay(200) } }
@@ -239,6 +265,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     fun finishRecording(send: Boolean) {
         val rec = recorder.stop()
         recordingStartedAt = null
+        holdMode = false
         when {
             rec == null -> if (send) Toast.makeText(voiceContext, "Recording too short.", Toast.LENGTH_SHORT).show()
             send -> viewModel.sendVoice(rec.path, rec.durationMs, rec.waveform)
@@ -251,11 +278,31 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
         else Toast.makeText(voiceContext, "Couldn't start recording.", Toast.LENGTH_SHORT).show()
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // The finger that asked is long gone, so the first recording after allowing the microphone is a locked one.
+        holdMode = false
         if (granted) beginRecording() else Toast.makeText(voiceContext, "Allow the microphone to record voice messages.", Toast.LENGTH_LONG).show()
     }
     fun onMic() {
+        holdMode = false // a tap always gives the locked recording bar
         if (ContextCompat.checkSelfPermission(voiceContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) beginRecording()
         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    fun onMicHold() {
+        if (ContextCompat.checkSelfPermission(voiceContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            holdMode = true
+            beginRecording()
+            if (recordingStartedAt == null) holdMode = false // it could not start
+        }
+        else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    fun onHoldEnd(cancel: Boolean) {
+        if (recordingStartedAt == null) { holdMode = false; return }
+        val tooShort = recordedMs < 600
+        when {
+            cancel -> finishRecording(false)
+            tooShort -> { finishRecording(false); Toast.makeText(voiceContext, "Hold the microphone to record, let go to send.", Toast.LENGTH_SHORT).show() }
+            else -> finishRecording(true)
+        }
     }
     LaunchedEffect(recordingStartedAt) {
         val t = recordingStartedAt ?: return@LaunchedEffect
@@ -265,6 +312,33 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
             if (recordedMs >= VoiceRecorder.MAX_MS) { finishRecording(true); break } // five minutes is the limit
             kotlinx.coroutines.delay(100)
         }
+    }
+
+    // ---- Opening a shared file: download once if needed, PDFs in the app's own viewer, everything else in the app that handles it.
+    var openingFileId by remember { mutableStateOf<String?>(null) }
+    var pdf by remember { mutableStateOf<Pair<java.io.File, FileAttachment>?>(null) }
+    fun openFile(m: Message) {
+        val att = m.file ?: return
+        if (openingFileId != null) return
+        openingFileId = m.id
+        scope.launch {
+            val local = FileOpener.ensureLocal(voiceContext, att, m.id)
+            openingFileId = null
+            when {
+                local == null -> Toast.makeText(voiceContext, "Couldn't get the file. Check your connection and try again.", Toast.LENGTH_LONG).show()
+                att.contentType == "application/pdf" -> pdf = local to att
+                !FileOpener.open(voiceContext, local, att.contentType) -> Toast.makeText(voiceContext, "No app on this phone can open this kind of file.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    pdf?.let { (local, att) ->
+        PdfViewerDialog(
+            file = local, title = att.name, onClose = { pdf = null },
+            onOpenElsewhere = {
+                pdf = null
+                if (!FileOpener.open(voiceContext, local, att.contentType)) Toast.makeText(voiceContext, "No app on this phone can open this file.", Toast.LENGTH_LONG).show()
+            },
+        )
     }
 
     // "At the bottom" = the newest message (index 0 of the reversed list) is in view, give or take a little.
@@ -422,6 +496,8 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                     onReaction = { viewModel.react(m, it) },
                                     onJump = viewModel::jumpTo,
                                     onOpenPhoto = { viewModel.openViewer(it) },
+                                    onOpenFile = { openFile(m) },
+                                    fileBusy = openingFileId == m.id,
                                 )
                             }
                         }
@@ -482,6 +558,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             TextButton(onClick = viewModel::dismissFailedVoice) { Text("Dismiss") }
                         }
                     }
+                    s.failedFile?.let { failed ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Couldn't send ${failed.file.name}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            TextButton(onClick = viewModel::retryFailedFile) { Text("Retry") }
+                            TextButton(onClick = viewModel::dismissFailedFile) { Text("Dismiss") }
+                        }
+                    }
                     s.failedPhotos?.let { batch ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (batch.paths.size == 1) "Couldn't send the photo." else "Couldn't send the photos.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
@@ -523,13 +606,15 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(Spacing.md),
                         )
-                    } else if (recordingStartedAt != null) {
+                    } else if (recordingStartedAt != null && !holdMode) {
                         RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) }, level = recordLevel)
                     } else {
                         MessageComposerCard(
                             s = s, showMic = showMic, focus = composerFocus,
-                            onInput = viewModel::onInput, onPhoto = pickPhoto,
+                            onInput = viewModel::onInput, onPhoto = pickPhoto, onCamera = takePhoto, onFile = pickFile,
                             onAction = { if (showMic) onMic() else viewModel.send() },
+                            holding = recordingStartedAt != null && holdMode, holdMs = recordedMs, holdLevel = recordLevel,
+                            onHoldStart = ::onMicHold, onHoldEnd = ::onHoldEnd, onHoldLock = { holdMode = false },
                             onImeSend = { if (s.canSend) viewModel.send() },
                         )
                     }
@@ -578,6 +663,12 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     }
 }
 
+/** Keeps a chosen-but-unsent file across the app being recreated (rotation); null is simply not saved. */
+private val PickedFileSaver = Saver<PickedFile?, List<String>>(
+    save = { f -> f?.let { listOf(it.path, it.name, it.sizeBytes.toString(), it.contentType) } },
+    restore = { l -> PickedFile(l[0], l[1], l[2].toLong(), l[3]) },
+)
+
 /**
  * The message box: one rounded row with the photo button, the text field and the send/mic button. It is as tall as one
  * line of text needs (never a fixed height, so it follows the person's font and text size) and grows to six lines.
@@ -589,13 +680,28 @@ private fun MessageComposerCard(
     focus: FocusRequester,
     onInput: (String) -> Unit,
     onPhoto: () -> Unit,
+    onCamera: () -> Unit,
+    onFile: () -> Unit,
     onAction: () -> Unit,
     onImeSend: () -> Unit,
+    holding: Boolean = false,
+    holdMs: Long = 0L,
+    holdLevel: Float = 0f,
+    onHoldStart: () -> Unit = {},
+    onHoldEnd: (cancel: Boolean) -> Unit = {},
+    onHoldLock: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val tooLong = s.input.length > MAX_MESSAGE
     val active = s.canSend || showMic
     val hint = when { s.editing != null -> "Edit message"; s.replyTo != null -> "Write a reply"; else -> "Message" }
+    val haptic = LocalHapticFeedback.current
+    val tapAction by rememberUpdatedState(onAction)
+    val holdStart by rememberUpdatedState(onHoldStart)
+    val holdEnd by rememberUpdatedState(onHoldEnd)
+    val holdLock by rememberUpdatedState(onHoldLock)
+    val micScale by animateFloatAsState(if (holding) 1.3f else 1f, label = "micScale")
+    val dotScale by animateFloatAsState(1f + holdLevel.coerceIn(0f, 1f) * 0.9f, label = "holdLevel")
     Surface(
         shape = RoundedCornerShape(28.dp),
         color = colors.surfaceContainerHigh,
@@ -604,10 +710,25 @@ private fun MessageComposerCard(
     ) {
         // Buttons stay at the bottom edge while the field grows upwards.
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(onClick = onPhoto, modifier = Modifier.size(48.dp)) {
-                Icon(VibeIcons.Photo, contentDescription = "Send a photo", tint = colors.primary, modifier = Modifier.size(VibeIconSize.Action))
+            var attachMenu by remember { mutableStateOf(false) }
+            if (holding) Spacer(Modifier.size(48.dp)) else Box {
+                IconButton(onClick = { attachMenu = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(VibeIcons.Add, contentDescription = "Attach a photo, camera picture or file", tint = colors.primary, modifier = Modifier.size(VibeIconSize.Action))
+                }
+                DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
+                    DropdownMenuItem(text = { Text("Photos") }, leadingIcon = { Icon(VibeIcons.Photo, contentDescription = null) }, onClick = { attachMenu = false; onPhoto() })
+                    DropdownMenuItem(text = { Text("Camera") }, leadingIcon = { Icon(VibeIcons.Camera, contentDescription = null) }, onClick = { attachMenu = false; onCamera() })
+                    DropdownMenuItem(text = { Text("File") }, leadingIcon = { Icon(VibeIcons.File, contentDescription = null) }, onClick = { attachMenu = false; onFile() })
+                }
             }
             Box(Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = Spacing.xs, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
+                if (holding) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        Box(Modifier.size(10.dp).graphicsLayer { scaleX = dotScale; scaleY = dotScale }.background(colors.error, CircleShape))
+                        Text(formatDuration(holdMs.toInt()), style = MaterialTheme.typography.bodyLarge)
+                        Text("‹ Slide to cancel   ↑ Lock", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    }
+                } else {
                 if (s.input.isEmpty()) {
                     Text(hint, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -622,25 +743,87 @@ private fun MessageComposerCard(
                     keyboardOptions = if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
                     keyboardActions = KeyboardActions(onSend = { onImeSend() }),
                 )
+                }
             }
             if (tooLong) {
                 Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
                     Text("${s.input.length}/$MAX_MESSAGE", style = MaterialTheme.typography.labelSmall, color = colors.error, modifier = Modifier.padding(horizontal = Spacing.xs))
                 }
             }
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).graphicsLayer { scaleX = micScale; scaleY = micScale }, contentAlignment = Alignment.Center) {
                 Surface(
                     shape = CircleShape,
                     color = if (active) colors.primary else colors.surfaceContainerHighest,
                     contentColor = if (active) colors.onPrimary else colors.onSurfaceVariant,
                 ) {
-                    IconButton(onClick = onAction, enabled = active, modifier = Modifier.size(44.dp)) {
-                        Icon(
-                            if (showMic) VibeIcons.Mic else if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send,
-                            contentDescription = if (showMic) "Record a voice message" else if (s.editing != null) "Save edit" else "Send message",
-                            modifier = Modifier.size(VibeIconSize.Action),
-                        )
+                    if (showMic) {
+                        // Tap: start a recording that stays open (Send / Delete bar). Hold: record until you let go. A plain
+                        // Box rather than a button so the hold is not swallowed; TalkBack still gets a "Start recording" action.
+                        Box(
+                            Modifier.size(44.dp)
+                                .pointerInput(Unit) {
+                                    micGestures(
+                                        onTap = { tapAction() },
+                                        onHoldStart = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); holdStart() },
+                                        onHoldEnd = { cancel -> if (cancel) haptic.performHapticFeedback(HapticFeedbackType.LongPress); holdEnd(cancel) },
+                                        onLock = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); holdLock() },
+                                    )
+                                }
+                                .semantics(mergeDescendants = true) {
+                                    role = Role.Button
+                                    contentDescription = "Record a voice message"
+                                    onClick(label = "Start recording") { tapAction(); true }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(VibeIcons.Mic, contentDescription = null, modifier = Modifier.size(VibeIconSize.Action)) }
+                    } else {
+                        IconButton(onClick = onAction, enabled = active, modifier = Modifier.size(44.dp)) {
+                            Icon(
+                                if (s.canSend) VibeIcons.SendFilled else VibeIcons.Send,
+                                contentDescription = if (s.editing != null) "Save edit" else "Send message",
+                                modifier = Modifier.size(VibeIconSize.Action),
+                            )
+                        }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The microphone button's touch handling. A quick tap calls [onTap]. Holding for the long-press time starts push-to-talk
+ * ([onHoldStart]); then letting go ends it ([onHoldEnd] with cancel = false), sliding left ends it as a cancel, and
+ * sliding up locks the recording open ([onLock]). Moving away before the long-press time does nothing.
+ */
+private suspend fun PointerInputScope.micGestures(onTap: () -> Unit, onHoldStart: () -> Unit, onHoldEnd: (cancel: Boolean) -> Unit, onLock: () -> Unit) {
+    val cancelDistance = 72.dp.toPx()
+    val lockDistance = 72.dp.toPx()
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val tapped = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            var released = false
+            while (true) {
+                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                if (change.changedToUpIgnoreConsumed()) { released = true; break }
+                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop * 3) return@withTimeoutOrNull false
+            }
+            released
+        }
+        when (tapped) {
+            true -> onTap()
+            false -> Unit
+            null -> {
+                onHoldStart()
+                while (true) {
+                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                    if (change == null) { onHoldEnd(true); break }
+                    if (change.changedToUpIgnoreConsumed()) { onHoldEnd(false); break }
+                    change.consume()
+                    val dx = change.position.x - down.position.x
+                    val dy = change.position.y - down.position.y
+                    if (dx < -cancelDistance) { onHoldEnd(true); break }
+                    if (dy < -lockDistance) { onLock(); break }
                 }
             }
         }
@@ -805,6 +988,7 @@ private fun MessageItem(
     m: Message, pos: GroupPosition, uploadProgress: Float?, isGroup: Boolean, showSender: Boolean, showAvatar: Boolean, showReceipts: Boolean, highlighted: Boolean,
     onLongPress: () -> Unit, onDoubleTap: () -> Unit, onReply: () -> Unit, onReaction: (Reaction) -> Unit, onJump: (String) -> Unit,
     onOpenPhoto: (String) -> Unit,
+    onOpenFile: () -> Unit = {}, fileBusy: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val mine = m.isMine
@@ -899,6 +1083,9 @@ private fun MessageItem(
                                 }
                             }
                             if (!mediaFirst) Spacer(Modifier.height(4.dp))
+                        }
+                        m.file?.let { f ->
+                            FileCard(f, sending = m.status == MessageStatus.Sending, progress = uploadProgress, busy = fileBusy, onOpen = onOpenFile, onLongPress = onLongPress, modifier = Modifier.padding(bottom = 6.dp))
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         m.eventId?.let { id -> com.univibe.app.features.events.SharedEventCard(id) }

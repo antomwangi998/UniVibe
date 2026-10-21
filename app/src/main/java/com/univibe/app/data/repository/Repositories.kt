@@ -241,6 +241,9 @@ interface MessageRepository {
         if (imagePaths.size > 1) throw UnsupportedOperationException("Sending several photos isn't available.")
         send(chatId, text, imagePaths.firstOrNull(), replyTo)
     }
+    /** Sends one document (PDF, Word, ...) with an optional caption. */
+    suspend fun sendFile(chatId: String, text: String, file: com.univibe.app.data.media.PickedFile, replyTo: ReplyRef? = null): Unit =
+        throw UnsupportedOperationException("Sharing files isn't available.")
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
     suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")

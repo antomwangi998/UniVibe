@@ -35,6 +35,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Lets another app open a file from a chat (and the camera save a photo) through a temporary link, without sharing app storage. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Receives FCM data messages and token changes. Not exported: only Firebase may call it. -->
         <service
             android:name=".push.UniVibeMessagingService"
