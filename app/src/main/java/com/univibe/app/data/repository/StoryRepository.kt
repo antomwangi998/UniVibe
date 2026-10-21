@@ -1,5 +1,7 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.model.StoryItem
+import com.univibe.app.data.model.StoryKind
 import com.univibe.app.data.model.StoryTrayEntry
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.ChatEvent
@@ -22,6 +24,16 @@ interface StoryRepository {
     fun changes(): Flow<Unit> = emptyFlow()
     /** Publishes a Story (uploading its photo first when it has one). Returns the new Story's id. Safe to retry: [StoryDraft.clientId] makes a repeat return the first Story. */
     suspend fun publish(draft: StoryDraft): String
+
+    /** One person's active Stories, oldest first, with fresh media links. Throws [com.univibe.app.data.net.ApiException] (404) when there is nothing this student may see. */
+    suspend fun stories(authorId: String): List<StoryItem> = throw IOException("Stories need a connection to the UniVibe server.")
+    /** Records that I watched a Story. Safe to repeat; the server counts one view per person. */
+    suspend fun markViewed(storyId: String) {}
+    /** Sets (or with null, removes) my reaction. */
+    suspend fun react(storyId: String, reaction: String?): Unit = throw IOException("Stories need a connection to the UniVibe server.")
+    /** Sends a reply as an ordinary chat message to the author. [clientId] makes a retry safe. */
+    suspend fun reply(storyId: String, text: String, clientId: String): Unit = throw IOException("Stories need a connection to the UniVibe server.")
+    suspend fun delete(storyId: String): Unit = throw IOException("Stories need a connection to the UniVibe server.")
 }
 
 const val STORY_TEXT_MAX = 280
@@ -68,6 +80,42 @@ class RemoteStoryRepository(
             body.put("kind", "text").put("text", draft.text.trim()).put("background", draft.background)
         }
         return JSONObject(api.send("POST", "/api/v1/stories", body, setOf(200, 201))).getString("id")
+    }
+
+    override suspend fun stories(authorId: String): List<StoryItem> =
+        parseStoryItems(api.send("GET", "/api/v1/users/$authorId/stories"))
+
+    override suspend fun markViewed(storyId: String) {
+        api.send("POST", "/api/v1/stories/$storyId/view", ok = setOf(200, 204))
+    }
+
+    override suspend fun react(storyId: String, reaction: String?) {
+        if (reaction == null) api.send("DELETE", "/api/v1/stories/$storyId/reaction", ok = setOf(200, 204))
+        else api.send("PUT", "/api/v1/stories/$storyId/reaction", JSONObject().put("reaction", reaction))
+    }
+
+    override suspend fun reply(storyId: String, text: String, clientId: String) {
+        api.send("POST", "/api/v1/stories/$storyId/reply", JSONObject().put("content", text.trim()).put("clientId", clientId), setOf(200, 201))
+    }
+
+    override suspend fun delete(storyId: String) {
+        api.send("DELETE", "/api/v1/stories/$storyId", ok = setOf(200, 204))
+    }
+}
+
+fun parseStoryItems(body: String): List<StoryItem> {
+    val items = JSONObject(body).getJSONArray("items")
+    return (0 until items.length()).mapNotNull { i ->
+        val o = items.getJSONObject(i)
+        val kind = when (o.optString("kind")) { "photo" -> StoryKind.Photo; "video" -> StoryKind.Video; "text" -> StoryKind.Text; else -> return@mapNotNull null }
+        fun str(k: String) = if (o.isNull(k)) null else o.optString(k).ifEmpty { null }
+        StoryItem(
+            id = o.getString("id"), kind = kind, mediaUrl = str("mediaUrl"),
+            durationMs = if (o.isNull("durationMs")) null else o.optLong("durationMs"),
+            text = str("text"), caption = str("caption"), background = str("background"),
+            createdAtMs = Instant.parse(o.getString("createdAt")).toEpochMilli(),
+            viewedByMe = o.optBoolean("viewedByMe", false), myReaction = str("myReaction"),
+        )
     }
 }
 

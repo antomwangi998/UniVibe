@@ -15,3 +15,19 @@ data class StoryTrayEntry(
     val hasUnviewed: Boolean,
     val isMine: Boolean,
 )
+
+enum class StoryKind { Photo, Video, Text }
+
+/** One Story as the viewer needs it. [mediaUrl] is a short-lived link the server minted for this viewer: never store it. */
+data class StoryItem(
+    val id: String,
+    val kind: StoryKind,
+    val mediaUrl: String?,
+    val durationMs: Long?,
+    val text: String?,
+    val caption: String?,
+    val background: String?,
+    val createdAtMs: Long,
+    val viewedByMe: Boolean,
+    val myReaction: String?,
+)

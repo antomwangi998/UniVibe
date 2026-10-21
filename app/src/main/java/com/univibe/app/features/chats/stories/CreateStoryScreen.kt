@@ -55,7 +55,7 @@ import com.univibe.app.ui.components.rememberPhotoPicker
 import com.univibe.app.ui.theme.Spacing
 import java.io.File
 
-private fun backgroundBrush(name: String): Brush = when (name) {
+internal fun backgroundBrush(name: String): Brush = when (name) {
     "indigo" -> Brush.verticalGradient(listOf(Color(0xFF4F46E5), Color(0xFF312E81)))
     "rose" -> Brush.verticalGradient(listOf(Color(0xFFF43F5E), Color(0xFF9F1239)))
     "amber" -> Brush.verticalGradient(listOf(Color(0xFFF59E0B), Color(0xFFB45309)))
