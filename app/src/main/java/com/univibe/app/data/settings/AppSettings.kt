@@ -53,6 +53,12 @@ data class AppSettings(
     val reduceMotion: Boolean = false,
     val textScale: TextScale = TextScale.Default,
     val font: AppFont = AppFont.UniVibe,
+    /** Heavier text everywhere (one weight step up). */
+    val boldText: Boolean = false,
+    /** Stronger secondary text and borders. */
+    val highContrast: Boolean = false,
+    /** Short vibrations on long-press and swipe-to-reply. Off silences every UniVibe haptic. */
+    val hapticFeedback: Boolean = true,
     // Home feed
     val feedFilter: FeedFilter = FeedFilter.Campus,
 )

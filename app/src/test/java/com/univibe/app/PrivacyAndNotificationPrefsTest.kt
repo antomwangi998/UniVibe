@@ -166,6 +166,36 @@ class PrivacyAndNotificationPrefsTest {
         assertNotNull(s.error)
     }
 
+    @Test fun communityAndStoryReactionSwitchesAreSavedLikeTheOthers() {
+        val repo = FakeNotifPrefs()
+        val vm = NotificationPrefsViewModel(repo)
+        vm.change(NotificationPrefsChange(communities = false, storyReactions = false))
+        val p = (vm.state.value as NotificationPrefsState.Ready).prefs
+        assertFalse(p.communities)
+        assertFalse(p.storyReactions)
+        assertTrue(p.likes)
+        assertFalse(repo.server.communities)
+    }
+
+    @Test fun refreshPicksUpNewServerValuesWithoutALoadingState() {
+        val repo = FakeNotifPrefs()
+        val vm = NotificationPrefsViewModel(repo)
+        repo.server = repo.server.copy(likes = false)
+        vm.refresh()
+        assertFalse((vm.state.value as NotificationPrefsState.Ready).prefs.likes)
+    }
+
+    @Test fun aFailedRefreshKeepsWhatIsShownAndSaysNothing() {
+        val repo = FakeNotifPrefs()
+        val vm = NotificationPrefsViewModel(repo)
+        repo.failWith = IOException("offline")
+        repo.server = repo.server.copy(likes = false)
+        vm.refresh()
+        val s = vm.state.value as NotificationPrefsState.Ready
+        assertTrue(s.prefs.likes)
+        assertEquals(null, s.error)
+    }
+
     @Test fun quietHoursSilenceEverythingExceptSecurity() {
         fun event(c: PushChannel) = PushEvent(c, "t", "b", "tag", "univibe://notifications")
         assertFalse(PushPolicy.shouldShow(event(PushChannel.Social), quietHoursOn = true, hourOfDay = 23))

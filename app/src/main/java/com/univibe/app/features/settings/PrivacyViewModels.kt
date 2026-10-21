@@ -144,6 +144,17 @@ class NotificationPrefsViewModel(
         }
     }
 
+    /** Re-reads the server's values without a loading spinner. Does nothing while loading, failed or saving; a failure keeps what is shown. */
+    fun refresh() {
+        val before = _state.value as? NotificationPrefsState.Ready ?: return
+        if (before.saving) return
+        viewModelScope.launch {
+            val fresh = try { repo.load() } catch (e: IOException) { return@launch } catch (e: ApiException) { return@launch }
+            // Skip it if something else changed the state while the request was out, so a stale read never overwrites a newer value.
+            if (_state.value === before) _state.value = before.copy(prefs = fresh)
+        }
+    }
+
     /** Same rules as privacy: show it at once, save it, restore the old value with a message if the save fails. */
     fun change(c: NotificationPrefsChange) {
         val before = _state.value as? NotificationPrefsState.Ready ?: return
