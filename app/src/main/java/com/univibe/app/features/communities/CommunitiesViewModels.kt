@@ -84,7 +84,7 @@ class CommunitiesViewModel(
 }
 
 // ------------------------------------------------------------------ details + members + moderation
-enum class CommunityTab { Posts, Members, About }
+enum class CommunityTab { Posts, Events, Members, About }
 
 sealed interface CommunityConfirm {
     data object Leave : CommunityConfirm
@@ -100,6 +100,7 @@ data class CommunityDetailUiState(
     val tab: CommunityTab = CommunityTab.Posts,
     val posts: List<Post> = emptyList(),
     val postsLoading: Boolean = true,
+    val events: List<com.univibe.app.data.model.CampusEvent> = emptyList(),
     val members: List<CommunityMember> = emptyList(),
     val membersError: String? = null,
     val requests: List<Student> = emptyList(),
@@ -114,6 +115,7 @@ data class CommunityDetailUiState(
 class CommunityDetailViewModel(
     private val id: String,
     private val repository: CommunityRepository = AppContainer.communityRepository,
+    private val events: com.univibe.app.data.repository.EventRepository = AppContainer.eventRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CommunityDetailUiState())
     val state: StateFlow<CommunityDetailUiState> = _state.asStateFlow()
@@ -129,12 +131,14 @@ class CommunityDetailViewModel(
             if (c == null) { _state.update { if (pull && it.community != null) it.copy(refreshing = false) else it.copy(loading = false, refreshing = false, notFound = true) }; return@launch }
             _state.update { it.copy(loading = false, community = c) }
             val posts = runCatching { repository.getPosts(id) }.getOrDefault(emptyList())
+            // Private communities answer "not found" to outsiders, which simply shows an empty tab.
+            val upcoming = runCatching { events.communityEvents(id) }.getOrDefault(emptyList())
             val members = runCatching { repository.getMembers(id) }
             val requests = if (c.isStaff) runCatching { repository.getJoinRequests(id) }.getOrDefault(emptyList()) else emptyList()
             val reports = if (c.isStaff) runCatching { repository.getReports(id) }.getOrDefault(emptyList()) else emptyList()
             _state.update {
                 it.copy(
-                    posts = posts, postsLoading = false,
+                    posts = posts, postsLoading = false, events = upcoming,
                     members = members.getOrDefault(emptyList()),
                     membersError = members.exceptionOrNull()?.let { e -> (e as? Exception)?.userMessage("Couldn't load members.") },
                     requests = requests, reports = reports, refreshing = false,

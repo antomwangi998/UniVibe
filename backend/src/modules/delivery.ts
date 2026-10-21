@@ -152,9 +152,12 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
     'event.announce': async (job) => {
       const { eventId } = job.payload;
       if (typeof eventId !== 'string') throw new PermanentJobError('eventId missing');
-      const ev = (await ctx.pool.query<{ organizer_id: string; community_id: string | null; title: string; status: string; ends_at: Date }>(
-        'select organizer_id, community_id, title, status, ends_at from events where id = $1', [eventId])).rows[0];
-      if (!ev || !ev.community_id || ev.status !== 'published' || new Date(ev.ends_at) <= new Date()) return; // cancelled or gone before delivery
+      const ev = (await ctx.pool.query<{ organizer_id: string; community_id: string | null; title: string; status: string; ends_at: Date; hidden: boolean }>(
+        `select e.organizer_id, e.community_id, e.title, e.status, e.ends_at,
+                (e.hidden_at is not null or (o.suspended_until is not null and o.suspended_until > now())) as hidden
+           from events e join users o on o.id = e.organizer_id where e.id = $1`, [eventId])).rows[0];
+      // Cancelled, gone, hidden by moderators, or its organizer suspended, before delivery: nobody is told.
+      if (!ev || !ev.community_id || ev.hidden || ev.status !== 'published' || new Date(ev.ends_at) <= new Date()) return;
       const live = (await ctx.pool.query("select 1 from communities where id = $1 and status = 'active'", [ev.community_id])).rowCount;
       if (!live) return;
       let after = '00000000-0000-0000-0000-000000000000';

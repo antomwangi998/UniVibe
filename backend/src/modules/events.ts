@@ -9,6 +9,9 @@ import { decodeCursor, encodeCursor, idParam, pageSchema, toPage, tsText } from 
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { isStaff } from './community_state';
 import { enqueue } from '../jobs';
+import type { Hub } from '../realtime';
+import { assertMayPostInCommunity } from './community_state';
+import { sendMessage } from './messaging';
 import { type EventPreference, type NewNotification, notify } from './notify';
 
 const EVENT_TYPES = ['in_person', 'online', 'hybrid'] as const;
@@ -69,7 +72,9 @@ type Q = Pick<PoolClient, 'query'>;
  * - 'university' events are for the same university; 'public' events for everyone. Blocked organizers are hidden either way.
  */
 export const eventVisible = (viewer = '$1', uni = '$2', e = 'e') =>
-  `(${e}.organizer_id = ${viewer} or (${e}.status <> 'draft' and not ${blockedBetween(viewer, `${e}.organizer_id`)} and (` +
+  `(${e}.organizer_id = ${viewer} or (${e}.status <> 'draft' and ${e}.hidden_at is null ` +
+  `and not exists (select 1 from users evs where evs.id = ${e}.organizer_id and evs.suspended_until is not null and evs.suspended_until > now()) ` +
+  `and not ${blockedBetween(viewer, `${e}.organizer_id`)} and (` +
   `(${e}.visibility = 'community' and exists (select 1 from community_members ecm join communities ec on ec.id = ecm.community_id ` +
   `where ecm.community_id = ${e}.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
   `or (${e}.visibility <> 'community' and (${e}.university_id = ${uni} or ${e}.visibility = 'public')))))`;
@@ -109,7 +114,7 @@ async function assertCategory(client: Q, code: string) {
   if (!ok.rowCount) throw new HttpError(422, 'validation', 'Pick a category from the list.');
 }
 
-async function audit(client: Q, eventId: string, actorId: string, action: 'create' | 'publish' | 'update' | 'cancel' | 'complete', detail: Record<string, unknown> = {}) {
+async function audit(client: Q, eventId: string, actorId: string, action: 'create' | 'publish' | 'update' | 'cancel' | 'complete' | 'announce_update' | 'hide' | 'restore', detail: Record<string, unknown> = {}) {
   await client.query('insert into event_audit (event_id, actor_id, action, detail) values ($1, $2, $3, $4::jsonb)', [eventId, actorId, action, JSON.stringify(detail)]);
 }
 
@@ -168,6 +173,10 @@ export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Re
     // Reminders for this event, for people who registered. They can silence one event without changing their settings.
     remindersOn: joined ? r.my_reminders !== false : null,
     isOrganizer,
+    // Hidden by a moderator: only the organizer can still see the event, and is told so.
+    hidden: r.hidden_at !== null && r.hidden_at !== undefined,
+    // Bumped on every change that matters for a calendar entry; the app compares it with the version it added.
+    revision: Number(r.revision ?? 0),
   };
 }
 
@@ -228,7 +237,7 @@ async function notifyOnce(client: Q, n: NewNotification & { kind: string }, opts
  * The organizer and the editor are never notified about their own action, blocked pairs are skipped, and
  * repeated changes within 15 minutes become one notice.
  */
-async function notifyParticipants(client: Q, eventId: string, kind: 'changed' | 'cancelled', preference: EventPreference, editorId: string) {
+async function notifyParticipants(client: Q, eventId: string, kind: 'changed' | 'cancelled' | 'update', preference: EventPreference, editorId: string, extra: Record<string, unknown> = {}) {
   const ev = (await client.query<{ title: string; organizer_id: string }>('select title, organizer_id from events where id = $1', [eventId])).rows[0];
   if (!ev) return;
   const { rows } = await client.query<{ user_id: string }>(
@@ -237,14 +246,14 @@ async function notifyParticipants(client: Q, eventId: string, kind: 'changed' | 
         union select user_id from event_interest where event_id = $1) p
       where p.user_id <> $2 and p.user_id <> $3 and not ${blockedBetween('p.user_id', '$3::uuid')}`, [eventId, editorId, ev.organizer_id]);
   for (const r of rows) {
-    await notifyOnce(client, { recipientId: r.user_id, actorId: null, type: 'event_update', entityId: eventId, kind, metadata: { title: ev.title }, preference }, { withinMinutes: kind === 'changed' ? 15 : undefined });
+    await notifyOnce(client, { recipientId: r.user_id, actorId: null, type: 'event_update', entityId: eventId, kind, metadata: { title: ev.title, ...extra }, preference }, { withinMinutes: kind === 'changed' ? 15 : undefined, ...(kind === 'update' ? { count: extra.count as number } : {}) });
   }
 }
 
 /** The organizer hears about registrations at milestones and when the event fills up, never once per person. */
 const MILESTONES = new Set([1, 10, 25, 50, 100, 250, 500]);
 
-export function eventRoutes(ctx: Ctx) {
+export function eventRoutes(ctx: Ctx, hub: Hub) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
     const param = (req: Req, name = 'eventId') => idParam((req.params as Record<string, string>)[name]);
@@ -458,10 +467,145 @@ export function eventRoutes(ctx: Ctx) {
           || (b.eventType !== undefined && b.eventType !== row.event_type) || (b.onlineUrl !== undefined && !same(b.onlineUrl, row.online_url));
         // Reminders are relative to the start, so a new start clears the sent ones and they are worked out again.
         if (startMoved) await client.query('delete from event_reminders where event_id = $1', [id]);
+        if (important) await client.query('update events set revision = revision + 1 where id = $1', [id]);
         if (important && row.status === 'published') await notifyParticipants(client, id, 'changed', 'event_changes', me.id);
         if (sets.length) await audit(client, id, me.id, 'update', { fields: Object.keys(b) });
       });
       return toView(me, await getEvent(me, id));
+    });
+
+
+    // ---------- stage 6: organizer updates
+
+    const updateSchema = z.object({ body: z.string().trim().min(1, 'Write the update.').max(500) }).strict();
+
+    // The organizer tells everyone going or interested something short. It is kept on the event page as well as sent.
+    app.post('/events/:eventId/updates', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const b = updateSchema.parse(req.body ?? {});
+      ctx.limit(`event-update:${me.id}`, 20, 3600);
+      const made = await withTx(pool, async (client) => {
+        const row = await manageable(me, id, client);
+        if (row.hidden_at) throw new HttpError(409, 'event_hidden', 'This event is hidden by moderators.');
+        if (row.status !== 'published' || new Date(row.ends_at as string) <= new Date()) throw new HttpError(409, 'event_closed', 'Updates can only be posted for upcoming or live events.');
+        // At most 5 a day per event, so participants are not flooded.
+        const today = Number((await client.query("select count(*) from event_updates where event_id = $1 and created_at > now() - interval '24 hours'", [id])).rows[0].count);
+        if (today >= 5) throw new HttpError(429, 'rate_limited', 'You can post up to 5 updates a day for one event.');
+        const u = (await client.query<{ id: string; created_at: Date }>('insert into event_updates (event_id, author_id, body) values ($1, $2, $3) returning id, created_at', [id, me.id, b.body])).rows[0];
+        await audit(client, id, me.id, 'announce_update', { updateId: u.id });
+        // `count` (the update's number today) makes each notice unique, so two updates are never merged into one. Text is cut for the notification preview.
+        await notifyParticipants(client, id, 'update', 'event_changes', me.id, { updateId: u.id, count: today + 1, preview: b.body.slice(0, 120) });
+        return u;
+      });
+      return reply.status(201).send({ id: made.id, body: b.body, createdAt: made.created_at });
+    });
+
+    // Anyone who can see the event can read its updates.
+    app.get('/events/:eventId/updates', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      await getEvent(me, id);
+      const q = pageSchema.parse(req.query);
+      const cur = decodeCursor(q.cursor);
+      const { rows } = await pool.query(
+        `select u.id, u.body, u.created_at, ${tsText('u.created_at')} as "cursorT" from event_updates u
+          where u.event_id = $1 and ($2::timestamptz is null or (u.created_at, u.id) < ($2::timestamptz, $3::uuid))
+          order by u.created_at desc, u.id desc limit $4`, [id, cur?.t ?? null, cur?.id ?? null, q.limit + 1]);
+      const page = toPage(rows as (Record<string, unknown> & { cursorT: string; id: string })[], q.limit);
+      return { items: page.items.map((r) => ({ id: r.id, body: r.body, createdAt: r.created_at })), nextCursor: page.nextCursor };
+    });
+
+    // ---------- stage 6: audit read (organizer, or an admin of the same university)
+
+    app.get('/events/:eventId/audit', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      await manageable(me, id);
+      const q = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), before: z.coerce.number().int().positive().optional() }).parse(req.query);
+      const { rows } = await pool.query(
+        `select a.id, a.action, a.detail, a.created_at, a.actor_id, u.full_name as actor_name from event_audit a left join users u on u.id = a.actor_id
+          where a.event_id = $1 and ($2::bigint is null or a.id < $2::bigint) order by a.id desc limit $3`, [id, q.before ?? null, q.limit + 1]);
+      const more = rows.length > q.limit;
+      const items = rows.slice(0, q.limit).map((r) => ({
+        id: Number(r.id), action: r.action, at: r.created_at,
+        // Moderator hide/restore is shown as such, without who or why: that belongs to moderators.
+        actor: r.action === 'hide' || r.action === 'restore' ? null : r.actor_id ? { id: r.actor_id, name: r.actor_name } : null,
+        fields: Array.isArray(r.detail?.fields) ? r.detail.fields : undefined,
+      }));
+      return { items, nextBefore: more ? items[items.length - 1].id : null };
+    });
+
+    // ---------- stage 6: sharing
+
+    const baseUrl = ctx.config.PUBLIC_BASE_URL ?? null;
+
+    // The links for an event. `webUrl` is null unless the server knows its public address. The app link only works inside the app.
+    app.get('/events/:eventId/link', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const row = await getEvent(me, id);
+      const sharable = row.status === 'published' && !row.hidden_at;
+      return {
+        appLink: `univibe://events/${id}`,
+        webUrl: sharable && baseUrl ? `${baseUrl}/e/${id}` : null,
+        // The preview a web visitor gets exists only for public events; everyone else sees a generic "open in UniVibe" page.
+        publicPreview: sharable && row.visibility === 'public',
+      };
+    });
+
+    const shareSchema = z.object({
+      target: z.enum(['chat', 'community']), targetId: z.string().uuid(),
+      text: z.string().trim().max(500).default(''),
+    }).strict();
+
+    /**
+     * Shares the event itself (not a copy) into a chat or a community. Nothing private rides along: the message or post stores
+     * only the event's id, and every reader's card is built for that reader, so someone who may not see the event sees
+     * "not available". Events that belong to a community are shared inside that community only.
+     */
+    {
+      app.post('/events/:eventId/share', async (req, reply) => {
+        const me = await ctx.auth(req);
+        const id = param(req);
+        const b = shareSchema.parse(req.body ?? {});
+        ctx.limit(`event-share:${me.id}`, 30, 3600);
+        const ev = await getEvent(me, id);
+        if (ev.status === 'draft') throw new HttpError(409, 'not_published', 'Publish the event before sharing it.');
+        if (ev.status === 'cancelled' || ev.status === 'completed' || new Date(ev.ends_at as string) <= new Date()) throw new HttpError(409, 'event_closed', 'This event is over or cancelled.');
+        if (ev.hidden_at) throw new HttpError(409, 'event_hidden', 'This event is hidden by moderators.');
+        if (b.target === 'chat') {
+          if (ev.visibility === 'community') throw new HttpError(403, 'share_restricted', 'This event is only for community members, so it can only be shared inside that community.');
+          const sent = await sendMessage(ctx, hub, me, b.targetId, { content: b.text }, { eventId: id });
+          return reply.status(201).send({ kind: 'message', messageId: sent.message.id });
+        }
+        if (ev.visibility === 'community' && ev.community_id !== b.targetId) throw new HttpError(403, 'share_restricted', 'This event is only for community members, so it can only be shared inside that community.');
+        const postId = await withTx(pool, async (client) => {
+          await assertMayPostInCommunity(client, me.id, me.universityId, b.targetId);
+          return (await client.query<{ id: string }>(
+            "insert into posts (author_id, text, audience, community_id, shared_event_id) values ($1, $2, 'community', $3, $4) returning id", [me.id, b.text, b.targetId, id])).rows[0].id;
+        });
+        return reply.status(201).send({ kind: 'post', postId });
+      });
+    }
+
+    // ---------- stage 6: moderator view of one event (the report queue only has a title)
+
+    app.get('/moderation/events/:eventId', async (req) => {
+      const me = await ctx.auth(req);
+      if (me.role !== 'moderator' && me.role !== 'admin') throw new HttpError(403, 'forbidden', 'This is only available to moderators.');
+      const id = param(req);
+      const r = (await pool.query(
+        `select e.id, e.title, e.description, e.venue_name, e.venue_address, e.status, e.visibility, e.starts_at, e.ends_at, e.hidden_at, e.community_id,
+                o.id as organizer_id, o.full_name as organizer_name, o.handle as organizer_handle, (o.suspended_until is not null and o.suspended_until > now()) as organizer_suspended,
+                (select count(*) from reports x where x.target_type = 'event' and x.target_id = e.id)::int as report_count
+           from events e join users o on o.id = e.organizer_id where e.id = $1 and e.university_id = $2`, [id, me.universityId])).rows[0];
+      if (!r) throw new HttpError(404, 'not_found', 'Not found.');
+      return {
+        id: r.id, title: r.title, description: r.description, venueName: r.venue_name, venueAddress: r.venue_address, status: r.status, visibility: r.visibility,
+        startsAt: r.starts_at, endsAt: r.ends_at, hidden: r.hidden_at !== null, communityId: r.community_id, reportCount: r.report_count,
+        organizer: { id: r.organizer_id, name: r.organizer_name, handle: r.organizer_handle, suspended: r.organizer_suspended },
+      };
     });
 
     // Cancelling keeps the event (people can see it was cancelled) and tells everyone who was going.
@@ -715,7 +859,8 @@ export async function sendEventReminders(ctx: Ctx): Promise<number> {
            join events e on e.id = r.event_id
            left join notification_preferences np on np.user_id = r.user_id
            cross join lateral unnest(coalesce(np.event_reminder_offsets, array[1440, 60])) as o(offset_minutes)
-          where r.status = 'registered' and r.reminders and e.status = 'published' and e.starts_at > now()
+          where r.status = 'registered' and r.reminders and e.status = 'published' and e.hidden_at is null and e.starts_at > now()
+            and not exists (select 1 from users eo where eo.id = e.organizer_id and eo.suspended_until is not null and eo.suspended_until > now())
             and e.starts_at - make_interval(mins => o.offset_minutes) <= now()
             and e.starts_at - make_interval(mins => o.offset_minutes) > now() - interval '30 minutes')
        insert into event_reminders (event_id, user_id, offset_minutes)

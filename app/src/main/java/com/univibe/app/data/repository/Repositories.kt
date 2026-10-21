@@ -1,6 +1,10 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventActivity
+import com.univibe.app.data.model.EventLink
+import com.univibe.app.data.model.EventUpdate
+import com.univibe.app.data.model.ShareTarget
 import com.univibe.app.data.model.EventCategoryInfo
 import com.univibe.app.data.model.EventNotificationPrefs
 import com.univibe.app.data.model.EventNotificationPrefsChange
@@ -165,6 +169,25 @@ interface EventRepository {
     /** Host only, and only while nobody else has RSVPed (otherwise cancel it so attendees are told). */
     suspend fun deleteEvent(id: String)
     suspend fun getVenues(): List<Venue>
+
+    /** False where the server has no organizer updates, activity log, links or sharing; screens then hide those actions. */
+    val supportsOrganizerTools: Boolean get() = false
+    suspend fun eventUpdates(eventId: String): List<EventUpdate> = emptyList()
+    /** Organizer only. Tells everyone going or interested; the server limits it to a few a day. */
+    suspend fun postEventUpdate(eventId: String, body: String) { throw UnsupportedOperationException("Updates aren't available yet.") }
+    /** Organizer only: who changed what, and when. */
+    suspend fun eventActivity(eventId: String): List<EventActivity> = emptyList()
+    suspend fun eventLink(eventId: String): EventLink? = null
+    /** Organizer only: closes an event that has started. */
+    suspend fun completeEvent(id: String) { throw UnsupportedOperationException("Not available yet.") }
+    /** Turns reminders on or off for one event you are going to. */
+    suspend fun setEventReminders(id: String, enabled: Boolean) { throw UnsupportedOperationException("Not available yet.") }
+    /** Upcoming events a community hosts, as this person may see them. */
+    suspend fun communityEvents(communityId: String): List<CampusEvent> = emptyList()
+    /** Shares the event itself into a chat or community. The server refuses community-only events outside their community. */
+    suspend fun shareEvent(eventId: String, target: ShareTarget, targetId: String, text: String) { throw UnsupportedOperationException("Sharing isn't available yet.") }
+    /** [targetType] is "event" or "user" (to report an organizer). */
+    suspend fun report(targetType: String, targetId: String, reason: String) { throw UnsupportedOperationException("Reporting isn't available yet.") }
 }
 
 interface ProfileRepository {

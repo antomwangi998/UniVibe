@@ -44,6 +44,7 @@ export function accountStatusRoutes(ctx: Ctx) {
           where (a.target_type = 'user' and a.target_id = $1)
              or (a.target_type = 'post' and a.target_id in (select id from posts where author_id = $1))
              or (a.target_type = 'comment' and a.target_id in (select id from comments where author_id = $1))
+             or (a.target_type = 'event' and a.target_id in (select id from events where organizer_id = $1))
           order by a.created_at desc, a.id desc limit 20`, [userId]);
       const removed = (await pool.query<{ posts: string; comments: string }>(
         `select (select count(*) from posts where author_id = $1 and status = 'removed') as posts,

@@ -9,6 +9,10 @@ import com.univibe.app.data.model.EventDiscoverFilter
 import com.univibe.app.data.model.EventDiscoverPage
 import com.univibe.app.data.model.EventSection
 import com.univibe.app.data.model.EventDetails
+import com.univibe.app.data.model.EventActivity
+import com.univibe.app.data.model.EventLink
+import com.univibe.app.data.model.EventUpdate
+import com.univibe.app.data.model.ShareTarget
 import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Venue
@@ -59,6 +63,8 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
         coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifBlank { null },
         saved = o.optBoolean("saved", false),
         reason = if (o.isNull("reason")) null else o.optString("reason").ifBlank { null },
+        revision = o.optInt("revision", 0), hidden = o.optBoolean("hidden", false),
+        remindersOn = if (o.isNull("remindersOn") || !o.has("remindersOn")) null else o.optBoolean("remindersOn", true),
     )
 }
 
@@ -175,6 +181,7 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
             registrationDeadlineMillis = if (o.isNull("registrationDeadline")) null else millis(o.getString("registrationDeadline")),
             externalUrl = if (o.isNull("externalRegistrationUrl")) null else o.optString("externalRegistrationUrl").ifBlank { null },
             categoryCode = o.optString("category"),
+            organizerId = o.getJSONObject("organizer").optString("id").ifBlank { null },
         )
     }
 
@@ -226,6 +233,51 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
     override suspend fun updateEvent(id: String, draft: NewEvent) = explained {
         api.send("PATCH", "/api/v1/events/$id", body(draft, creating = false))
         Unit
+    }
+
+    // ---- Stage 6: updates, activity, links, sharing, reports
+    override val supportsOrganizerTools: Boolean get() = true
+
+    override suspend fun eventUpdates(eventId: String): List<EventUpdate> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events/$eventId/updates?limit=20")).getJSONArray("items")
+        (0 until items.length()).map { val o = items.getJSONObject(it); EventUpdate(o.getString("id"), o.getString("body"), millis(o.getString("createdAt"))) }
+    }
+
+    override suspend fun postEventUpdate(eventId: String, body: String) = explained {
+        api.send("POST", "/api/v1/events/$eventId/updates", JSONObject().put("body", body), ok = setOf(201)); Unit
+    }
+
+    override suspend fun eventActivity(eventId: String): List<EventActivity> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events/$eventId/audit?limit=50")).getJSONArray("items")
+        (0 until items.length()).map {
+            val o = items.getJSONObject(it)
+            val fields = o.optJSONArray("fields")?.let { a -> (0 until a.length()).map { i -> a.getString(i) } } ?: emptyList()
+            EventActivity(o.getLong("id"), o.getString("action"), o.optJSONObject("actor")?.optString("name")?.ifBlank { null }, millis(o.getString("at")), fields)
+        }
+    }
+
+    override suspend fun completeEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/complete", ok = setOf(204)); Unit }
+
+    override suspend fun setEventReminders(id: String, enabled: Boolean) = explained {
+        api.send("PUT", "/api/v1/events/$id/reminders", JSONObject().put("enabled", enabled), ok = setOf(204)); Unit
+    }
+
+    override suspend fun communityEvents(communityId: String): List<CampusEvent> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events?communityId=$communityId&scope=upcoming&limit=$PAGE")).getJSONArray("items")
+        (0 until items.length()).map { toEvent(items.getJSONObject(it)) }
+    }
+
+    override suspend fun eventLink(eventId: String): EventLink? = explained {
+        val o = JSONObject(api.send("GET", "/api/v1/events/$eventId/link"))
+        EventLink(o.getString("appLink"), if (o.isNull("webUrl")) null else o.getString("webUrl"), o.optBoolean("publicPreview", false))
+    }
+
+    override suspend fun shareEvent(eventId: String, target: ShareTarget, targetId: String, text: String) = explained {
+        api.send("POST", "/api/v1/events/$eventId/share", JSONObject().put("target", target.wire).put("targetId", targetId).put("text", text), ok = setOf(201)); Unit
+    }
+
+    override suspend fun report(targetType: String, targetId: String, reason: String) = explained {
+        api.send("POST", "/api/v1/reports", JSONObject().put("targetType", targetType).put("targetId", targetId).put("reason", reason).put("details", ""), ok = setOf(200, 201)); Unit
     }
 
     override suspend fun cancelEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/cancel", ok = setOf(204)); Unit }

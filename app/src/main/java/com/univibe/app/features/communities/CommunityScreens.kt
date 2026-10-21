@@ -178,6 +178,7 @@ fun CommunityDetailScreen(
     onPost: () -> Unit = {},
     onOpenComments: (String) -> Unit = {},
     onOpenStudent: (String) -> Unit = {},
+    onOpenEvent: (String) -> Unit = {},
 ) {
     val viewModel = keyedViewModel("community-$communityId") { CommunityDetailViewModel(communityId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -236,7 +237,8 @@ fun CommunityDetailScreen(
                     }
                 }
                 when (s.tab) {
-                    CommunityTab.Posts -> postsTab(c, s, onPost, onOpenComments, onOpenStudent)
+                    CommunityTab.Posts -> postsTab(c, s, onPost, onOpenComments, onOpenStudent, onOpenEvent)
+                    CommunityTab.Events -> eventsTab(c, s, onOpenEvent)
                     CommunityTab.Members -> membersTab(c, s, viewModel, onOpenStudent)
                     CommunityTab.About -> aboutTab(c, s, viewModel, onEdit)
                 }
@@ -295,7 +297,7 @@ private fun Pill(text: String, icon: androidx.compose.ui.graphics.vector.ImageVe
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.postsTab(
-    c: Community, s: CommunityDetailUiState, onPost: () -> Unit, onOpenComments: (String) -> Unit, onOpenStudent: (String) -> Unit,
+    c: Community, s: CommunityDetailUiState, onPost: () -> Unit, onOpenComments: (String) -> Unit, onOpenStudent: (String) -> Unit, onOpenEvent: (String) -> Unit,
 ) {
     when {
         s.postsLoading -> item { LoadingSkeleton(itemCount = 1) }
@@ -308,12 +310,30 @@ private fun androidx.compose.foundation.lazy.LazyListScope.postsTab(
                 actionLabel = if (c.isMember) "Write a post" else null, onAction = if (c.isMember) onPost else null,
             )
         }
-        else -> items(s.posts.filter { it.event == null }, key = { it.id }) { p -> CommunityPostRow(p, onOpenComments, onOpenStudent) }
+        // The organizer's own announcements live in the Events tab; events a member shared stay here as posts.
+        else -> items(s.posts.filter { it.event == null || it.sharedEvent }, key = { it.id }) { p -> CommunityPostRow(p, onOpenComments, onOpenStudent, onOpenEvent) }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.eventsTab(c: Community, s: CommunityDetailUiState, onOpenEvent: (String) -> Unit) {
+    when {
+        s.postsLoading -> item { LoadingSkeleton(itemCount = 1) }
+        c.privacy == CommunityPrivacy.Private && !c.isMember -> item {
+            EmptyState(VibeIcons.Lock, "This community is private", "Request to join to see its events.")
+        }
+        s.events.isEmpty() -> item { EmptyState(VibeIcons.Events, "No upcoming events", "Events this community hosts will show up here.") }
+        else -> items(s.events, key = { it.id }) { e ->
+            VibeCard(onClick = { onOpenEvent(e.id) }) {
+                Text(e.title, style = MaterialTheme.typography.titleSmall)
+                Text(listOf(e.timeLabel, e.location).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${e.going} going", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
 @Composable
-private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenStudent: (String) -> Unit) {
+private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenStudent: (String) -> Unit, onOpenEvent: (String) -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
     VibeCard(onClick = { onOpenComments(p.id) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -323,7 +343,13 @@ private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenSt
                 Text(p.timeAgo, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
-        Text(p.text, style = MaterialTheme.typography.bodyMedium, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(vertical = Spacing.sm))
+        if (p.text.isNotBlank()) Text(p.text, style = MaterialTheme.typography.bodyMedium, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(vertical = Spacing.sm))
+        p.event?.takeIf { p.sharedEvent }?.let { e ->
+            Column(Modifier.fillMaxWidth().padding(vertical = Spacing.xs).clickable(role = Role.Button, onClickLabel = "Open event") { onOpenEvent(e.id) }) {
+                Text(e.title, style = MaterialTheme.typography.titleSmall)
+                Text(listOf(e.timeLabel, e.location).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(VibeIcons.Heart, contentDescription = "Likes", tint = colors.onSurfaceVariant, modifier = Modifier.size(16.dp))
             Text(" ${p.likeCount}", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)

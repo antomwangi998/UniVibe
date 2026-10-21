@@ -16,15 +16,17 @@ Events tab, EventCard, details, create/edit form, register/cancel with row-lock 
 | 4 Discover | sections, filters, ranking with reasons, not-interested, richer search, server categories | 028 | written |
 | 5 Notifications | confirmations, 24h/1h reminders (per-user offsets, per-event switch), change/cancel notices, organizer milestones, community fan-out job, preferences API + Android settings, notice text; Android create form brought up to server fields | 029 | written |
 
-## Not started: stage 6 (communities and sharing) and stage 7 (polish)
-Stage 6, still to do:
-- Community detail screen: upcoming events list (backend `GET /events?communityId=` exists; Android community screen has none). Community members' Home skips event posts in community lists today (CommunityScreens filters `event == null`).
-- Event sharing: share to a chat or community (message/post attachment of an event), copy link, deep link `univibe://event/{id}` and web fallback, link preview that exposes nothing private. Today only a plain-text system share exists (`shareEvent`).
-- Add to Calendar via the Android calendar insert Intent (no permission, user reviews first); update on event change.
-- Moderation: report organizer, hide event, admin review of reported events, suspended organizers (reports of events exist; the rest is unchecked).
-- Event updates/announcements by organizers (spec phase 4/9 "organizer published an update") and an audit read API.
-- Organizer management screen: view registrations list (`/events/:id/attendees` exists), publish an update, mark completed (route exists, no button), publish a draft (route exists, no button).
-- Per-event reminder switch on the details screen (`PUT /events/:id/reminders`).
+## Stage 6 (communities, sharing, moderation, organizer tools): written, not run
+Migration 032. Backend: organizer updates, audit read, share to chat or community, links, public preview page, moderator hide/restore, suspended-organizer hiding, calendar `revision`. Android: community Events tab and shared-event posts, share sheet (link, chat, community), event card in chat bubbles, Add to calendar remembers the version and says honestly when an event changed (Android cannot edit a calendar entry for us), updates section and "Post an update", Activity sheet, Mark as completed, per-event reminders switch, report event and report organizer, notice text for updates and moderation.
+Tests: `backend/test/events-stage6.integration.test.ts` (needs TEST_DATABASE_URL). No Android tests were added for stage 6.
+Known gaps:
+- Attendee list screen for organizers (`GET /events/:id/attendees` exists, no Android screen).
+- Publish-a-draft button (the Android form never creates drafts yet; belongs with draft saving in stage 7).
+- Android App Links for the https share link (needs a verified domain). The app link `univibe://events/{id}` works.
+- Forwarding a chat message that holds an event answers "Photos can't be forwarded yet" (misleading text, harmless).
+- Moderator UI on Android: the moderation actions `hide_event` and `restore_event` exist on the server; no Android moderator screen was touched.
+- Chat share needs the conversation list; the sheet shows the first 20 chats.
+- Set `PUBLIC_BASE_URL` on the server or share links stay app-only.
 
 Stage 7, still to do:
 - Run and fix all tests and the Android build; add missing tests (cache invalidation, offline/reconnection, notification routing, event card rendering).

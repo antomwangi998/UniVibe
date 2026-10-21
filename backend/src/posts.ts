@@ -59,7 +59,9 @@ const commentSchema = z.object({ text, replyToId: z.string().uuid().optional() }
  * Followers-only posts need a follow. The server is the only place this is enforced.
  */
 export const visible = (p: string, author: string) =>
-  `(${p}.status = 'active' and (${p}.event_id is null or exists (select 1 from events pe where pe.id = ${p}.event_id and ${eventVisible('$1', '$2', 'pe')})) and (` +
+  `(${p}.status = 'active' and (${p}.event_id is null or exists (select 1 from events pe where pe.id = ${p}.event_id and ${eventVisible('$1', '$2', 'pe')})) ` +
+  // A post that shares an event needs the event to be visible to the reader too (hidden, private or deleted events drop the post).
+  `and (${p}.shared_event_id is null or exists (select 1 from events ps where ps.id = ${p}.shared_event_id and ${eventVisible('$1', '$2', 'ps')})) and (` +
   // Personal-feed posts: unchanged rules.
   `(${p}.audience <> 'community' and (${p}.author_id = $1 or (` +
   `((${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
@@ -84,7 +86,7 @@ export const commentShown = (c: string) =>
   `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
 
 export const POST_COLS =
-  'p.id, p.text, p.audience, p.community_id, p.event_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
+  'p.id, p.text, p.audience, p.community_id, p.event_id, p.shared_event_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
   ', pc.name as c_name, pc.slug as c_slug, pc.visibility as c_visibility, pc.membership_policy as c_policy' +
@@ -107,7 +109,7 @@ export const POST_FROM =
   'left join communities pc on pc.id = p.community_id';
 
 export type PostRow = AuthorCols & {
-  id: string; text: string; audience: string; community_id: string | null; event_id: string | null; is_announcement: boolean; share_count: number; poll_options: string[] | null;
+  id: string; text: string; audience: string; community_id: string | null; event_id: string | null; shared_event_id: string | null; is_announcement: boolean; share_count: number; poll_options: string[] | null;
   created_at: Date; edited_at: Date | null; age_seconds: number;
   c_name: string | null; c_slug: string | null; c_visibility: string | null; c_policy: string | null; c_members: number | null;
   c_status: string | null; c_avatar_key: string | null; c_avatar_url?: string | null;
@@ -130,7 +132,9 @@ function postJson(r: PostRow, media: MediaOut[], event: unknown = null) {
     audience: r.audience,
     announcement: r.is_announcement,
     // An event announcement carries the event's CURRENT state, built by the same code as the Events tab. Null for other posts.
-    eventId: r.event_id,
+    eventId: r.event_id ?? r.shared_event_id,
+    // True when someone shared the event into a community, false for the organizer's own announcement.
+    sharedEvent: r.shared_event_id !== null && r.shared_event_id !== undefined,
     event,
     community: r.community_id
       ? {
@@ -158,7 +162,7 @@ function postJson(r: PostRow, media: MediaOut[], event: unknown = null) {
 /** Posts as the API returns them, with short-lived links to their photos and videos. Shared with Discover. */
 export async function presentPosts(pool: Pool, storage: Storage | null | undefined, rows: PostRow[], viewer?: { id: string; universityId: string }) {
   if (rows.length === 0) return [];
-  const events = viewer ? await loadEventViews({ pool, storage: storage ?? null }, viewer, rows.flatMap((r) => (r.event_id ? [r.event_id] : []))) : new Map();
+  const events = viewer ? await loadEventViews({ pool, storage: storage ?? null }, viewer, rows.flatMap((r) => (r.event_id ?? r.shared_event_id ? [(r.event_id ?? r.shared_event_id) as string] : []))) : new Map();
   await signAuthors(storage ?? undefined, rows);
   await Promise.all(rows.map(async (r) => {
     r.c_avatar_url = r.c_avatar_key && storage ? await storage.signedUrl(r.c_avatar_key, 900) : null;
@@ -175,7 +179,7 @@ export async function presentPosts(pool: Pool, storage: Storage | null | undefin
       byPost.set(f.post_id, [...(byPost.get(f.post_id) ?? []), { id: f.id, kind: f.kind, url, thumbUrl, width: f.width, height: f.height }]);
     }
   }
-  return rows.map((r) => postJson(r, byPost.get(r.id) ?? [], r.event_id ? events.get(r.event_id) ?? null : null));
+  return rows.map((r) => postJson(r, byPost.get(r.id) ?? [], (r.event_id ?? r.shared_event_id) ? events.get((r.event_id ?? r.shared_event_id) as string) ?? null : null));
 }
 
 const COMMENT_COLS =

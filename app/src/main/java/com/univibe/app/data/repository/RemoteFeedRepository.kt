@@ -90,6 +90,7 @@ private fun buildPost(
     announcement = o.optBoolean("announcement", false),
     // A malformed event never breaks the whole feed; the post then simply has no event card.
     event = o.optJSONObject("event")?.let { runCatching { parseCampusEvent(it) }.getOrNull() },
+    sharedEvent = o.optBoolean("sharedEvent", false),
     poll = parsePoll(o.optJSONObject("poll")),
     edited = o.optBoolean("edited", false),
     imagePath = images.firstOrNull(),

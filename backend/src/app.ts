@@ -13,6 +13,7 @@ import { READ_LINK_SECONDS, registerMediaRoutes } from './media';
 import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
 import { apiV1 } from './routes';
+import { publicEventRoutes } from './modules/public_events';
 import { releaseOwnedCommunities } from './modules/communities';
 import { Hub } from './realtime';
 import * as sec from './security';
@@ -532,7 +533,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerPeopleRoutes(app, routeContext);
 
   // ---- new modules (blocking, privacy, notifications, Discover, messaging, events), versioned under /api/v1
-  void app.register(apiV1(makeCtx(pool, config, limiter, storage ?? null), deps.hub ?? new Hub()), { prefix: '/api/v1' });
+  const v1ctx = makeCtx(pool, config, limiter, storage ?? null);
+  void app.register(apiV1(v1ctx, deps.hub ?? new Hub()), { prefix: '/api/v1' });
+  // Public, no sign-in: the share-link page (/e/<id>) and its JSON preview. Public events only; see public_events.ts.
+  void app.register(publicEventRoutes(v1ctx));
 
   return app;
 }
