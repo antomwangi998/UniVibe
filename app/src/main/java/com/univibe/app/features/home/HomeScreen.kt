@@ -30,6 +30,9 @@ import androidx.compose.foundation.border
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.media.VideoStore
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
 import com.univibe.app.data.model.PostLimits
 import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.sharePost
@@ -214,7 +217,7 @@ fun HomeScreen(
                         postedCount = state.postedCount,
                         focusRequester = composerFocus,
                         onOpenEvents = onOpenEvents,
-                        onPost = { text, media, imagePath, videoPath, poll -> viewModel.publish(text, media, imagePath, videoPath, poll) },
+                        onPost = { text, media, imagePath, videoPath, poll, hours -> viewModel.publish(text, media, imagePath, videoPath, poll, hours) },
                     )
                 }
             }
@@ -260,6 +263,8 @@ fun HomeScreen(
                             else viewModel.explain("Only campus-wide posts can be shared outside UniVibe.")
                         },
                         onVote = { index -> viewModel.vote(post.id, index) },
+                        onRepost = { viewModel.toggleRepost(post.id) },
+                        onSeen = { viewModel.noteSeen(post.id) },
                     )
                 }
             }
@@ -428,7 +433,7 @@ private fun Composer(
     postedCount: Int,
     focusRequester: FocusRequester,
     onOpenEvents: () -> Unit,
-    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>) -> Unit,
+    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>, pollHours: Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -439,6 +444,7 @@ private fun Composer(
     var attachedPath by rememberSaveable { mutableStateOf<String?>(null) }
     // Poll options are kept as one newline-joined string so the draft survives rotation.
     var pollDraft by rememberSaveable { mutableStateOf("") }
+    var pollHours by rememberSaveable { mutableStateOf(PostLimits.DEFAULT_POLL_HOURS) }
     var buildingPoll by remember { mutableStateOf(false) }
     var seenPosts by rememberSaveable { mutableStateOf(postedCount) }
     val pollOptions = if (pollDraft.isEmpty()) emptyList() else pollDraft.split("\n")
@@ -456,6 +462,7 @@ private fun Composer(
             attached = null
             attachedPath = null
             pollDraft = ""
+            pollHours = PostLimits.DEFAULT_POLL_HOURS
             seenPosts = postedCount
         }
     }
@@ -531,7 +538,7 @@ private fun Composer(
                 VibeButton(
                     text = "Post",
                     onClick = {
-                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions)
+                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions, pollHours)
                     },
                     enabled = !tooLong && !needsQuestion,
                     loading = publishing,
@@ -560,18 +567,22 @@ private fun Composer(
     if (buildingPoll) {
         PollBuilderSheet(
             initial = pollOptions,
+            initialHours = pollHours,
             onDismiss = { buildingPoll = false },
-            onDone = { options ->
+            onDone = { options, hours ->
                 if (attached != null) discardAttachment()
                 pollDraft = options.joinToString("\n")
+                pollHours = hours
                 buildingPoll = false
             },
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun PollBuilderSheet(initial: List<String>, onDismiss: () -> Unit, onDone: (List<String>) -> Unit) {
+private fun PollBuilderSheet(initial: List<String>, initialHours: Int, onDismiss: () -> Unit, onDone: (List<String>, Int) -> Unit) {
+    var hours by remember { mutableStateOf(initialHours) }
     val options = remember { mutableStateListOf<String>().apply { addAll(if (initial.size >= PostLimits.MIN_POLL_OPTIONS) initial else listOf("", "")) } }
     val trimmed = options.map { it.trim() }
     val duplicate = trimmed.map { it.lowercase() }.toSet().size != trimmed.size
@@ -600,8 +611,15 @@ private fun PollBuilderSheet(initial: List<String>, onDismiss: () -> Unit, onDon
         if (options.size < PostLimits.MAX_POLL_OPTIONS) {
             ComposerAction(VibeIcons.Add, "Add option") { options.add("") }
         }
+        Text("Poll length", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = Spacing.md, bottom = Spacing.xs))
+        // Longest first; a poll never runs past 3 days.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            PostLimits.POLL_DURATIONS.forEach { (h, label) ->
+                FilterChip(selected = hours == h, onClick = { hours = h }, label = { Text(label) })
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(top = Spacing.md, bottom = Spacing.md), horizontalArrangement = Arrangement.End) {
-            VibeButton(text = "Add poll", onClick = { onDone(trimmed) }, enabled = valid)
+            VibeButton(text = "Add poll", onClick = { onDone(trimmed, hours) }, enabled = valid)
         }
     }
 }

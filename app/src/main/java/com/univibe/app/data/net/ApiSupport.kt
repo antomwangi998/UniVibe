@@ -88,5 +88,7 @@ fun parsePoll(o: JSONObject?): Poll? {
             PollOption(option.getString("text"), option.optInt("votes", 0))
         },
         myVote = if (o.isNull("myVote")) null else o.getInt("myVote"),
+        // The server says how many seconds are left (0 once it has ended); a poll without the field never ends.
+        endsAtMillis = if (o.has("secondsLeft")) System.currentTimeMillis() + o.optLong("secondsLeft", 0L).coerceAtLeast(0L) * 1000L else null,
     )
 }
