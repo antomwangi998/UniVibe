@@ -200,6 +200,7 @@ fun SavedPostsScreen(
                 items(s.posts, key = { it.id }) { post ->
                     CampusPostCard(
                         post, onLike = { viewModel.toggleLike(post.id) }, onComment = { onOpenComments(post.id) },
+                        onRepost = { viewModel.toggleRepost(post.id) },
                         onSave = { viewModel.unsave(post.id) }, onAuthorClick = { onOpenStudent(post.author.id) },
                         onShare = {
                             if (sharePost(shareContext, post)) viewModel.noteShared(post.id)

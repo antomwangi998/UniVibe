@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -36,6 +38,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.univibe.app.data.model.Post
@@ -58,6 +63,9 @@ fun CampusPostCard(
     onMore: () -> Unit = {},
     onAuthorClick: () -> Unit = {},
     onShare: () -> Unit = {},
+    onRepost: () -> Unit = {},
+    /** Called once when the post first appears on screen, so the server can count the view. */
+    onSeen: () -> Unit = {},
     /** Null makes any poll read-only (results shown, no voting). */
     onVote: ((Int) -> Unit)? = null,
 ) {
@@ -77,6 +85,12 @@ fun CampusPostCard(
         if (!post.likedByMe) onLike()
         burst++
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    val seen = rememberUpdatedState(onSeen)
+    LaunchedEffect(post.id) {
+        // A short pause, so a post that only flies past during a fast scroll is not counted as read.
+        delay(700)
+        seen.value()
     }
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs, top = Spacing.sm + 4.dp)) {
@@ -112,30 +126,52 @@ fun CampusPostCard(
         DoubleTapHeart(burst, Modifier.align(Alignment.Center))
         }
         // The action bar always sits below the content, in its own row, so nothing can clip or overlap it.
+        // Four equal slots (reply, repost, like, views) spread across the width, then save and share pinned to the end.
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+            Modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            AnimatedLikeButton(post.likedByMe, post.likeCount, onLike)
-            SocialActionButton(
-                icon = VibeIcons.Comment,
-                contentDescription = "Comments, ${post.commentCount}",
-                onClick = onComment,
-                count = post.commentCount,
-            )
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                SocialActionButton(
+                    icon = VibeIcons.Comment,
+                    contentDescription = "Comments, ${post.commentCount}",
+                    onClick = onComment,
+                    count = post.commentCount,
+                )
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                AnimatedRepostButton(post.repostedByMe, post.repostCount, onRepost)
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                AnimatedLikeButton(post.likedByMe, post.likeCount, onLike)
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                ViewsStat(post.viewCount)
+            }
+            AnimatedBookmarkButton(post.savedByMe, onSave)
             SocialActionButton(
                 icon = VibeIcons.Share,
                 contentDescription = "Share, ${post.shareCount}",
                 onClick = onShare,
-                count = post.shareCount,
             )
-            Spacer(Modifier.weight(1f))
-            AnimatedBookmarkButton(post.savedByMe, onSave)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
     }
     viewerIndex?.let { PhotoGalleryViewerDialog(photos, it, onDismiss = { viewerIndex = null }) }
+}
+
+/** How many students have looked at the post. A plain stat, not a button. */
+@Composable
+private fun ViewsStat(count: Int) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier.heightIn(min = 48.dp).padding(horizontal = Spacing.sm).semantics(mergeDescendants = true) { contentDescription = "$count views" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(VibeIcons.Views, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(compactCount(count), style = MaterialTheme.typography.labelLarge, color = color)
+    }
 }
 
 @Composable

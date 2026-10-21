@@ -48,6 +48,10 @@ data class Post(
     val shareCount: Int = 0,
     val likedByMe: Boolean = false,
     val savedByMe: Boolean = false,
+    val repostCount: Int = 0,
+    val repostedByMe: Boolean = false,
+    /** Students who have looked at the post (the server counts each student once; the author's own looks don't count). */
+    val viewCount: Int = 0,
     val mediaAccent: Int? = null,
     val mediaPortrait: Boolean = false,
     /** Local file of an attached photo (app storage). */
@@ -90,6 +94,15 @@ object PostLimits {
     const val MIN_POLL_OPTIONS = 2
     const val MAX_POLL_OPTIONS = 4
     const val MAX_POLL_OPTION_LENGTH = 40
+
+    /** A poll stays open for at most 3 days. The server enforces the same limit. */
+    const val MAX_POLL_HOURS = 72
+    const val DEFAULT_POLL_HOURS = 24
+
+    /** What the composer offers, longest first: hours to the label shown. */
+    val POLL_DURATIONS: List<Pair<Int, String>> = listOf(
+        72 to "3 days", 48 to "2 days", 24 to "1 day", 12 to "12 hours", 6 to "6 hours", 1 to "1 hour",
+    )
     const val MAX_VIDEO_BYTES = 50L * 1024 * 1024
 
     /** Largest photo file the server accepts. The server also re-encodes photos, so what is stored is much smaller. */
@@ -99,8 +112,15 @@ object PostLimits {
 data class PollOption(val text: String, val votes: Int = 0)
 
 /** [myVote] is the index the signed-in student chose, or null if they have not voted. One vote per student. */
-data class Poll(val options: List<PollOption>, val myVote: Int? = null) {
+data class Poll(
+    val options: List<PollOption>,
+    val myVote: Int? = null,
+    /** When voting closes, on this phone's clock (the server sends seconds left, so the clock can't be gamed). Null = never. */
+    val endsAtMillis: Long? = null,
+) {
     val totalVotes: Int get() = options.sumOf { it.votes }
+
+    fun hasEnded(nowMillis: Long = System.currentTimeMillis()): Boolean = endsAtMillis != null && nowMillis >= endsAtMillis
 }
 
 data class Chat(

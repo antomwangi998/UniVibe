@@ -165,6 +165,32 @@ class HomeViewModel(
         viewModelScope.launch { runCatching { repository.setSaved(postId, nowSaved) } }
     }
 
+    fun toggleRepost(postId: String) {
+        val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
+        val now = !target.repostedByMe
+        updatePost(postId) { it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) }
+        viewModelScope.launch { runCatching { repository.setReposted(postId, now) } }
+    }
+
+    // Posts the student has looked at are reported in small batches; each id is sent once per session.
+    private val seenIds = mutableSetOf<String>()
+    private val unsentViews = mutableListOf<String>()
+    private var viewFlush: Job? = null
+
+    fun noteSeen(postId: String) {
+        if (!seenIds.add(postId)) return
+        unsentViews += postId
+        if (viewFlush?.isActive == true) return
+        viewFlush = viewModelScope.launch {
+            while (unsentViews.isNotEmpty()) {
+                delay(2_000)
+                val batch = unsentViews.take(50)
+                unsentViews.subList(0, batch.size).clear()
+                runCatching { repository.recordViews(batch) }
+            }
+        }
+    }
+
     // ---- event announcements: every change goes to the event itself, so the Events tab and details agree with Home.
     fun openRsvp(post: Post) = _state.update { it.copy(rsvpPost = post) }
     fun closeRsvp() = _state.update { it.copy(rsvpPost = null) }
@@ -308,6 +334,7 @@ class HomeViewModel(
     fun vote(postId: String, optionIndex: Int) {
         val before = _state.value.posts.firstOrNull { it.id == postId }?.poll ?: return
         if (before.myVote != null || optionIndex !in before.options.indices) return
+        if (before.hasEnded()) { _state.update { it.copy(notice = "This poll has ended.") }; return }
         updatePost(postId) { post ->
             val poll = post.poll ?: return@updatePost post
             val options = poll.options.mapIndexed { i, o -> if (i == optionIndex) o.copy(votes = o.votes + 1) else o }
@@ -315,8 +342,9 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             try { repository.vote(postId, optionIndex) } catch (e: Exception) {
-                updatePost(postId) { it.copy(poll = before) }
-                _state.update { it.copy(notice = "Couldn't record your vote. Please try again.") }
+                val closed = e is ApiException && e.code == "poll_ended"
+                updatePost(postId) { it.copy(poll = if (closed) before.copy(endsAtMillis = System.currentTimeMillis()) else before) }
+                _state.update { it.copy(notice = if (closed) "This poll has ended." else "Couldn't record your vote. Please try again.") }
             }
         }
     }
@@ -335,6 +363,7 @@ class HomeViewModel(
         imagePath: String?,
         videoPath: String? = null,
         pollOptions: List<String> = emptyList(),
+        pollHours: Int = PostLimits.DEFAULT_POLL_HOURS,
     ) {
         val clean = text.trim()
         val options = pollOptions.map { it.trim() }
@@ -344,7 +373,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _state.update { it.copy(publishing = true, publishError = null) }
             try {
-                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options)
+                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options, pollHours)
                 _state.update { it.copy(publishing = false, posts = listOf(post) + it.posts, postedCount = it.postedCount + 1) }
             } catch (e: Exception) {
                 val message = when {

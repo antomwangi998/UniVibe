@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +51,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,21 +60,55 @@ import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.PostAudience
 import com.univibe.app.ui.theme.Spacing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+/** "2d 4h left", "5h 10m left", "12m left", "Less than a minute left". */
+fun pollTimeLeft(millis: Long): String {
+    val minutes = (millis / 60_000L).coerceAtLeast(0)
+    val days = minutes / 1440
+    val hours = (minutes % 1440) / 60
+    val mins = minutes % 60
+    return when {
+        days > 0 -> if (hours > 0) "${days}d ${hours}h left" else "${days}d left"
+        hours > 0 -> if (mins > 0) "${hours}h ${mins}m left" else "${hours}h left"
+        minutes > 0 -> "${minutes}m left"
+        else -> "Less than a minute left"
+    }
+}
+
 /**
- * A poll inside a post card. With [onVote] the options are tappable until the student has voted; without it
- * (read-only lists such as Saved) results are always shown.
+ * A poll inside a post card. With [onVote] the options are tappable until the student has voted or the poll has ended;
+ * without it (read-only lists such as Saved) results are always shown. Each option is a bar filled with teal in
+ * proportion to its share of the votes. Once the poll ends, everyone sees the results and "Poll ended".
  */
 @Composable
 fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
-    val showResults = poll.myVote != null || onVote == null
+    // Re-checks the clock so a poll flips to "ended" on screen without needing a refresh.
+    val now by produceState(System.currentTimeMillis(), poll.endsAtMillis) {
+        while (poll.endsAtMillis != null && value < poll.endsAtMillis) {
+            val left = poll.endsAtMillis - value
+            delay(if (left < 90_000L) 1_000L else 30_000L)
+            value = System.currentTimeMillis()
+        }
+    }
+    val ended = poll.hasEnded(now)
+    val showResults = poll.myVote != null || onVote == null || ended
+    val canVote = !showResults
+    val topVotes = poll.options.maxOfOrNull { it.votes } ?: 0
+    val colors = MaterialTheme.colorScheme
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         poll.options.forEachIndexed { index, option ->
             val chosen = poll.myVote == index
             val share = if (poll.totalVotes == 0) 0f else option.votes.toFloat() / poll.totalVotes
-            val colors = MaterialTheme.colorScheme
+            val percent = (share * 100).roundToInt()
+            val leading = showResults && option.votes > 0 && option.votes == topVotes
+            val fill by animateFloatAsState(
+                targetValue = if (showResults) share.coerceIn(0f, 1f) else 0f,
+                animationSpec = tween(durationMillis = 600),
+                label = "pollFill",
+            )
             val shape = RoundedCornerShape(14.dp)
             Box(
                 Modifier
@@ -79,36 +116,51 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
                     .heightIn(min = 48.dp)
                     .clip(shape)
                     .border(1.dp, if (chosen) colors.primary else colors.outlineVariant, shape)
-                    .then(
-                        if (!showResults && onVote != null) Modifier.clickable(role = Role.Button) { onVote(index) } else Modifier,
-                    )
+                    .then(if (canVote && onVote != null) Modifier.clickable(role = Role.Button) { onVote(index) } else Modifier)
                     .semantics {
                         contentDescription = if (showResults) {
-                            "${option.text}, ${(share * 100).roundToInt()} percent${if (chosen) ", your vote" else ""}"
+                            "${option.text}, $percent percent${if (chosen) ", your vote" else ""}"
                         } else "Vote for ${option.text}"
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (showResults) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(share.coerceIn(0f, 1f)).background(colors.primaryContainer.copy(alpha = 0.6f)))
+                if (fill > 0f) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fill)
+                            .background(colors.primary.copy(alpha = if (leading) 0.55f else 0.28f)),
+                    )
                 }
                 Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(option.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        option.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (leading || chosen) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f),
+                    )
                     if (showResults) {
                         if (chosen) {
                             Icon(VibeIcons.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                         }
-                        Text("${(share * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
+                        Text("$percent%", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
         }
         val total = poll.totalVotes
+        val votes = if (total == 1) "1 vote" else "$total votes"
+        val status = when {
+            ended -> "Poll ended"
+            poll.endsAtMillis != null -> pollTimeLeft(poll.endsAtMillis - now)
+            else -> null
+        }
         Text(
-            if (total == 1) "1 vote" else "$total votes",
+            if (status != null) "$votes · $status" else votes,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (ended) colors.primary else colors.onSurfaceVariant,
+            fontWeight = if (ended) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }

@@ -13,6 +13,7 @@ import type { Storage } from './storage';
 import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId, signAuthors } from './shared';
 
 const TEXT_MAX = 280;
+const POLL_MAX_HOURS = 72;
 const text = z.string().trim().min(1, 'Write something first.').max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
 
 const pollSchema = z.object({
@@ -21,6 +22,8 @@ const pollSchema = z.object({
     .min(2, 'A poll needs at least 2 options.')
     .max(4, 'A poll can have at most 4 options.')
     .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, 'Poll options must be different.'),
+  /** How long voting stays open. Never more than 3 days. */
+  durationHours: z.number().int().min(1, 'A poll must run for at least an hour.').max(POLL_MAX_HOURS, 'A poll can run for 3 days at most.').default(24),
 });
 // A post may have no text when it carries photos or a video.
 const maybeText = z.string().trim().max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
@@ -36,6 +39,7 @@ const createSchema = z.object({
 });
 const editSchema = z.object({ text: maybeText });
 const voteSchema = z.object({ optionIndex: z.number().int().min(0).max(3) });
+const viewsSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(50) });
 const reportSchema = z.object({ reason: z.string().trim().min(1).max(200) });
 const feedQuery = z.object({
   filter: z.enum(['campus', 'following']).default('campus'),
@@ -87,6 +91,7 @@ export const commentShown = (c: string) =>
 
 export const POST_COLS =
   'p.id, p.text, p.audience, p.community_id, p.event_id, p.shared_event_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +
+  "case when p.poll_options is null then null else greatest(0, floor(extract(epoch from (p.poll_ends_at - now()))))::int end as poll_seconds_left, " +
   'floor(extract(epoch from (now() - p.created_at)))::int as age_seconds, ' +
   AUTHOR_COLS +
   ', pc.name as c_name, pc.slug as c_slug, pc.visibility as c_visibility, pc.membership_policy as c_policy' +
@@ -100,6 +105,9 @@ export const POST_COLS =
   `, (select count(*) from comments c where c.post_id = p.id and ${commentShown('c')})::int as comment_count` +
   ', exists (select 1 from post_likes l where l.post_id = p.id and l.user_id = $1) as liked' +
   ', exists (select 1 from post_saves s where s.post_id = p.id and s.user_id = $1) as saved' +
+  ', (select count(*) from post_reposts rp where rp.post_id = p.id)::int as repost_count' +
+  ', exists (select 1 from post_reposts rp where rp.post_id = p.id and rp.user_id = $1) as reposted' +
+  ', (select count(*) from post_views pv where pv.post_id = p.id)::int as view_count' +
   ', (select v.option_index from poll_votes v where v.post_id = p.id and v.user_id = $1) as my_vote' +
   ", (select coalesce(json_object_agg(t.option_index, t.n), '{}'::json) from " +
   '(select option_index, count(*)::int as n from poll_votes where post_id = p.id group by option_index) t) as vote_counts';
@@ -115,6 +123,7 @@ export type PostRow = AuthorCols & {
   c_status: string | null; c_avatar_key: string | null; c_avatar_url?: string | null;
   c_my_role: string | null; c_suspended: boolean; c_pending: boolean; c_invited: boolean;
   like_count: number; comment_count: number; liked: boolean; saved: boolean;
+  repost_count: number; reposted: boolean; view_count: number; poll_seconds_left: number | null;
   my_vote: number | null; vote_counts: Record<string, number> | null;
 };
 
@@ -152,9 +161,18 @@ function postJson(r: PostRow, media: MediaOut[], event: unknown = null) {
     shareCount: r.share_count,
     likedByMe: r.liked,
     savedByMe: r.saved,
+    repostCount: r.repost_count,
+    repostedByMe: r.reposted,
+    viewCount: r.view_count,
     edited: r.edited_at !== null,
     poll: r.poll_options
-      ? { options: r.poll_options.map((t, i) => ({ text: t, votes: counts[String(i)] ?? 0 })), myVote: r.my_vote }
+      ? {
+          options: r.poll_options.map((t, i) => ({ text: t, votes: counts[String(i)] ?? 0 })),
+          myVote: r.my_vote,
+          // Seconds left, not a date, so a wrong clock on the phone cannot keep a poll open or end it early.
+          secondsLeft: r.poll_seconds_left ?? 0,
+          ended: (r.poll_seconds_left ?? 0) <= 0,
+        }
       : null,
   };
 }
@@ -237,8 +255,8 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
 
   /** The post, if this student may see it. Everything else is "not found", so private posts are not revealed. */
   async function visiblePost(user: SignedInUser, id: string) {
-    const { rows } = await pool.query<{ author_id: string; audience: string; poll_options: string[] | null; event_id: string | null }>(
-      `select p.author_id, p.audience, p.poll_options, p.event_id from posts p join users a on a.id = p.author_id ` +
+    const { rows } = await pool.query<{ author_id: string; audience: string; poll_options: string[] | null; poll_open: boolean; event_id: string | null }>(
+      `select p.author_id, p.audience, p.poll_options, (p.poll_ends_at is not null and p.poll_ends_at > now()) as poll_open, p.event_id from posts p join users a on a.id = p.author_id ` +
         `where p.id = $3 and ${visible('p', 'a')}`,
       [user.id, user.university_id, id],
     );
@@ -354,8 +372,8 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       }
       if (b.announcement) ctx.tooMany(`announce:${b.communityId}`, 3, 86400);
       const created = await client.query<{ id: string }>(
-        'insert into posts (author_id, text, audience, community_id, poll_options, is_announcement) values ($1, $2, $3, $4, $5, $6) returning id',
-        [user.id, b.text, b.communityId ? 'community' : b.audience, b.communityId ?? null, b.poll ? b.poll.options : null, b.announcement === true],
+        "insert into posts (author_id, text, audience, community_id, poll_options, poll_ends_at, is_announcement) values ($1, $2, $3, $4, $5, case when $5::text[] is null then null else now() + make_interval(hours => $6::int) end, $7) returning id",
+        [user.id, b.text, b.communityId ? 'community' : b.audience, b.communityId ?? null, b.poll ? b.poll.options : null, b.poll ? b.poll.durationHours : 0, b.announcement === true],
       );
       const id = created.rows[0].id;
       // Fan-out happens in a background job (queued in this transaction), never inside the request.
@@ -415,6 +433,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   const toggles = [
     { segment: 'like', table: 'post_likes' },
     { segment: 'save', table: 'post_saves' },
+    { segment: 'repost', table: 'post_reposts' },
   ] as const;
   for (const { segment, table } of toggles) {
     app.put(`/posts/:id/${segment}`, async (req, reply) => {
@@ -454,6 +473,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const post = await visiblePost(user, id);
     if (!post.poll_options) throw new HttpError(400, 'validation', 'This post has no poll.');
     if (b.optionIndex >= post.poll_options.length) throw new HttpError(400, 'validation', 'Unknown option.');
+    if (!post.poll_open) throw new HttpError(409, 'poll_ended', 'This poll has ended.');
     try {
       await pool.query('insert into poll_votes (post_id, user_id, option_index) values ($1, $2, $3)', [id, user.id, b.optionIndex]);
     } catch (e) {
@@ -461,6 +481,20 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       throw e;
     }
     return presentOne(user, id);
+  });
+
+  // The app reports the posts a student has actually looked at, in small batches. Each student counts once per post,
+  // posts they cannot see are ignored, and an author looking at their own post is not a view.
+  app.post('/posts/views', async (req, reply) => {
+    const user = await ctx.requireUser(req);
+    const b = viewsSchema.parse(req.body ?? {});
+    ctx.tooMany(`views:${user.id}`, 120, 3600);
+    await pool.query(
+      `insert into post_views (post_id, user_id) select p.id, $1 from posts p join users a on a.id = p.author_id ` +
+        `where p.id = any($3::uuid[]) and p.author_id <> $1 and ${visible('p', 'a')} on conflict do nothing`,
+      [user.id, user.university_id, b.ids],
+    );
+    return reply.status(204).send();
   });
 
   app.post('/posts/:id/share', async (req, reply) => {

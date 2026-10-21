@@ -222,6 +222,13 @@ class DiscoverContentViewModel(
         viewModelScope.launch { runCatching { feed.setSaved(postId, nowSaved) } }
     }
 
+    fun toggleRepost(postId: String) {
+        val target = findPost(postId) ?: return
+        val now = !target.repostedByMe
+        updatePost(postId) { it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) }
+        viewModelScope.launch { runCatching { feed.setReposted(postId, now) } }
+    }
+
     fun vote(postId: String, optionIndex: Int) {
         val before = findPost(postId)?.poll ?: return
         if (before.myVote != null || optionIndex !in before.options.indices) return
