@@ -105,8 +105,7 @@ object MockData {
     val posts = listOf(
         Post("p1", tech, "2h", "Great session today on AI & innovation! The future is exciting.", 128, 26, 12, mediaAccent = 1, fromFollowing = true),
         Post("p2", grace, "4h", "Sunset at the lake is always a vibe.", 342, 41, 5, mediaAccent = 2, mediaPortrait = true),
-        Post("p3", brian, "6h", "Anyone up for a 5-a-side game on Saturday morning? We need two more players.", 54, 18, 2, fromFollowing = true,
-            poll = Poll(listOf(PollOption("Saturday 8am", 9), PollOption("Saturday 10am", 14), PollOption("Sunday afternoon", 4)))),
+        Post("p3", brian, "6h", "Anyone up for a 5-a-side game on Saturday morning? We need two more players.", 54, 18, 2, fromFollowing = true),
         Post("p4", amina, "1d", "Debate club trials open next week. No experience needed, just bring opinions.", 89, 12, 7),
         Post("p5", kevin, "1d", "Our robotics team just placed second at the regional showcase. Proud of everyone.", 210, 33, 9, mediaAccent = 4),
     )
@@ -197,6 +196,7 @@ class MockStore(val demo: Boolean = true) {
     )).let { if (demo) it else emptyList() }.toMutableList() // a real account sees only real posts
     val liked = mutableSetOf<String>()
     val saved = mutableSetOf<String>()
+    val reposted = mutableSetOf<String>()
     val following: MutableSet<String> = if (demo) mutableSetOf("s2", "s3", "s6") else mutableSetOf()
 
     /** Events with real times, seeded relative to now so the Past tab and auto-expiry can be seen. */
@@ -298,7 +298,7 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
     override suspend fun getPosts(filter: FeedFilter): List<Post> {
         delay(450)
         val base = if (filter == FeedFilter.Following) store.posts.filter { it.fromFollowing } else store.posts.toList()
-        return base.map { it.copy(likedByMe = it.id in store.liked, savedByMe = it.id in store.saved) }
+        return base.map { it.copy(likedByMe = it.id in store.liked, savedByMe = it.id in store.saved, repostedByMe = it.id in store.reposted) }
     }
 
     override suspend fun getStories(): List<Student> =
@@ -311,6 +311,12 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
     override suspend fun setSaved(postId: String, saved: Boolean) {
         if (saved) store.saved += postId else store.saved -= postId
     }
+
+    override suspend fun setReposted(postId: String, reposted: Boolean) {
+        if (reposted) store.reposted += postId else store.reposted -= postId
+    }
+
+    override suspend fun recordViews(postIds: List<String>) = Unit // mock: nothing is counted
 
     override suspend fun getSavedPosts(): List<Post> =
         store.posts.filter { it.id in store.saved }.map { it.copy(likedByMe = it.id in store.liked, savedByMe = true) }
@@ -338,12 +344,17 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         imagePath: String?,
         videoPath: String?,
         pollOptions: List<String>,
+        pollHours: Int,
     ): Post {
         delay(250)
         val clean = text.trim()
         val poll = if (pollOptions.isEmpty()) null else {
             require(!hasMedia && imagePath == null && videoPath == null) { "A poll can't have media" }
-            Poll(validPollOptions(pollOptions).map { PollOption(it) })
+            require(pollHours in 1..PostLimits.MAX_POLL_HOURS) { "A poll can run for 1 hour to 3 days" }
+            Poll(
+                validPollOptions(pollOptions).map { PollOption(it) },
+                endsAtMillis = System.currentTimeMillis() + pollHours * 3_600_000L,
+            )
         }
         require(clean.length <= PostLimits.MAX_TEXT) { "Post too long" }
         val post = Post(
@@ -377,6 +388,7 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         delay(150)
         return change(postId) { post ->
             val poll = requireNotNull(post.poll) { "This post has no poll" }
+            require(!poll.hasEnded()) { "This poll has ended" }
             require(poll.myVote == null) { "You already voted" }
             require(optionIndex in poll.options.indices) { "Unknown option" }
             val options = poll.options.mapIndexed { i, o -> if (i == optionIndex) o.copy(votes = o.votes + 1) else o }

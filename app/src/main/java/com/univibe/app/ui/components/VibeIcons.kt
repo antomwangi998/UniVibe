@@ -93,6 +93,18 @@ object VibeIcons {
         "Share", 0f, LINE,
         SHARE_NODE_TOP, SHARE_NODE_MID, SHARE_NODE_BOT, "M8.1 10.8 L15.9 7", "M8.1 13.2 L15.9 17",
     )
+    /** Two arrows chasing each other around a loop. */
+    val Repost = icon(
+        "Repost", 0f, LINE,
+        "M17 3.5 L20.5 7 L17 10.5", "M3.5 11 V10 Q3.5 7 6.5 7 H20.5",
+        "M7 20.5 L3.5 17 L7 13.5", "M20.5 13 V14 Q20.5 17 17.5 17 H3.5",
+    )
+    /** An eye: how many students have looked at a post. */
+    val Views = icon(
+        "Views", 0f, LINE,
+        "M2.5 12 Q7 5.5 12 5.5 Q17 5.5 21.5 12 Q17 18.5 12 18.5 Q7 18.5 2.5 12 Z",
+        "M9.5 12 A2.5 2.5 0 1 0 14.5 12 A2.5 2.5 0 1 0 9.5 12 Z",
+    )
     val Bookmark = icon("Bookmark", 0f, LINE, BOOKMARK)
     val BookmarkFilled = icon("BookmarkFilled", SOLID, LINE, BOOKMARK)
     /** Three dots, drawn as zero-length round-capped strokes so they stay optically even. */

@@ -139,6 +139,7 @@ internal fun DiscoverPostList(
                             else actions.onExplain("Only campus-wide posts can be shared outside UniVibe.")
                         },
                         onVote = { index -> actions.onVote(post.id, index) },
+                        onRepost = { actions.onRepost(post.id) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
                 }
@@ -175,6 +176,7 @@ internal class PostActions(
     val onShared: (String) -> Unit,
     val onExplain: (String) -> Unit,
     val onVote: (String, Int) -> Unit,
+    val onRepost: (String) -> Unit = {},
 )
 
 @Composable

@@ -109,7 +109,7 @@ fun DiscoverScreen(
         PostActions(
             onLike = viewModel::toggleLike, onSave = viewModel::toggleSave, onComment = onOpenComments,
             onAuthor = onOpenStudent, onMore = viewModel::openMenu, onShared = viewModel::noteShared,
-            onExplain = viewModel::explain, onVote = viewModel::vote,
+            onExplain = viewModel::explain, onVote = viewModel::vote, onRepost = viewModel::toggleRepost,
         )
     }
     LaunchedEffect(state.notice) {
