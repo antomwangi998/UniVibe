@@ -108,6 +108,13 @@ object MockData {
         Post("p3", brian, "6h", "Anyone up for a 5-a-side game on Saturday morning? We need two more players.", 54, 18, 2, fromFollowing = true),
         Post("p4", amina, "1d", "Debate club trials open next week. No experience needed, just bring opinions.", 89, 12, 7),
         Post("p5", kevin, "1d", "Our robotics team just placed second at the regional showcase. Proud of everyone.", 210, 33, 9, mediaAccent = 4),
+        Post(
+            "p6", brian, "3d", "Where should we hold the end-of-semester social?", 36, 14, 1,
+            poll = Poll(
+                options = listOf(PollOption("Student Center", 18), PollOption("Main Field", 11), PollOption("Rooftop lounge", 7)),
+                endsAtMillis = System.currentTimeMillis() + 48 * 3_600_000L,
+            ),
+        ),
     )
 
 
