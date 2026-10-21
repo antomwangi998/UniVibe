@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -55,6 +56,10 @@ fun ChatPhoto(
     sending: Boolean = false,
     /** 0..1 while the photo uploads; null when unknown (a plain spinner is shown). */
     progress: Float? = null,
+    /** The photo's corners. A photo that fills its bubble edge to edge passes rounder corners that match the bubble. */
+    shape: Shape = PostMediaShape,
+    /** Feed-style hairline around the photo; off when the photo sits right against the bubble's edge. */
+    bordered: Boolean = true,
 ) {
     val colors = MaterialTheme.colorScheme
     var ratio by remember(path) { mutableStateOf(PhotoAspects.get(path) ?: knownRatio) }
@@ -68,9 +73,9 @@ fun ChatPhoto(
         modifier
             .width(width)
             .aspectRatio(shown)
-            .clip(PostMediaShape)
+            .clip(shape)
             .background(colors.surfaceContainerHighest)
-            .border(0.75.dp, colors.outlineVariant.copy(alpha = 0.6f), PostMediaShape)
+            .then(if (bordered) Modifier.border(0.75.dp, colors.outlineVariant.copy(alpha = 0.6f), shape) else Modifier)
             .clickable(role = Role.Button, onClickLabel = if (failed) "Retry loading photo" else "View photo") {
                 if (failed) { failed = false; attempt++ } else onOpen()
             },
