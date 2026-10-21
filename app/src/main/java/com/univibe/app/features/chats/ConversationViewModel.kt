@@ -35,6 +35,9 @@ const val MAX_MESSAGE = 1000
 
 /** Photos waiting to go out together, with their caption. */
 class PhotoBatch(val paths: List<String>, val caption: String)
+
+/** A file waiting to go out, with its caption. */
+class FileToSend(val file: com.univibe.app.data.media.PickedFile, val caption: String)
 const val MAX_FORWARD_TARGETS = 5
 
 data class ConversationUiState(
@@ -78,6 +81,8 @@ data class ConversationUiState(
     val failedVoice: Recording? = null,
     /** Photos (with their caption) that could not be sent; the screen offers Retry. */
     val failedPhotos: PhotoBatch? = null,
+    /** A file (with its caption) that could not be sent; the screen offers Retry. */
+    val failedFile: FileToSend? = null,
 ) {
     val canSend get() = input.isNotBlank() && input.length <= MAX_MESSAGE
     /** False in admins-only groups for non-admins. The server enforces this as well. */
@@ -111,7 +116,7 @@ data class ConversationUiState(
 }
 
 fun replyPreview(m: Message): String =
-    if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else m.text.take(120)
+    if (m.text.isBlank() && m.file != null) "File: ${m.file.name}" else if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else m.text.take(120)
 
 fun canEditMessage(m: Message, now: Long = System.currentTimeMillis()): Boolean =
     m.isMine && m.text.isNotBlank() && now - m.timeMillis <= EDIT_WINDOW_MILLIS
@@ -249,6 +254,29 @@ class ConversationViewModel(
             try { messages.sendPhotos(chatId, batch.caption, batch.paths, reply) }
             catch (e: Exception) { _state.update { it.copy(failedPhotos = batch) }; fail(e, if (batch.paths.size == 1) "Couldn't send the photo." else "Couldn't send the photos.") }
         }
+    }
+
+    /** Sends the chosen file as one message, with the caption the person wrote (may be empty). */
+    fun sendFile(file: com.univibe.app.data.media.PickedFile, caption: String) {
+        if (!_state.value.canPost) { runCatching { java.io.File(file.path).delete() }; return }
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { messages.sendFile(chatId, caption, file, reply) }
+            catch (e: Exception) { _state.update { it.copy(failedFile = FileToSend(file, caption)) }; fail(e, "Couldn't send the file.") }
+        }
+    }
+
+    fun retryFailedFile() {
+        val f = _state.value.failedFile ?: return
+        _state.update { it.copy(failedFile = null) }
+        sendFile(f.file, f.caption)
+    }
+
+    fun dismissFailedFile() {
+        _state.value.failedFile?.let { runCatching { java.io.File(it.file.path).delete() } }
+        _state.update { it.copy(failedFile = null) }
     }
 
     fun retryFailedPhotos() {

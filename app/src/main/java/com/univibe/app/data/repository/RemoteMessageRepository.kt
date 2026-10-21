@@ -1,5 +1,7 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.model.FileAttachment
+import com.univibe.app.data.media.PickedFile
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.LinkPreview
@@ -57,6 +59,8 @@ class RemoteMessageRepository(
         val pinned = MutableStateFlow<String?>(null)
         /** Photos this phone sent: shown from the local file (instant, works offline) instead of a temporary download link. */
         val localPhotos = HashMap<String, String>()
+        /** Files this phone sent: opened from the local copy instead of downloading them again. */
+        val localFiles = HashMap<String, String>()
         val hasOlder = MutableStateFlow(false)
         @Volatile var windowSeen = false
         /** Lowest seq seen so far, unsent messages included, so paging back always makes progress. */
@@ -310,6 +314,29 @@ class RemoteMessageRepository(
         }
     }
 
+    override suspend fun sendFile(chatId: String, text: String, file: PickedFile, replyTo: ReplyRef?) {
+        val clean = text.trim()
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sending, replyTo = replyTo,
+            file = FileAttachment(file.name, file.sizeBytes, file.contentType, file.path))
+        s.messages.update { it + local }
+        try {
+            val mediaId = (uploader ?: throw IllegalStateException("Sharing files isn't available right now."))
+                .upload(file.path, "document", "message", tag = local.id, explicitType = file.contentType, fileName = file.name)
+            val body = JSONObject().put("content", clean).put("clientId", clientId).put("mediaIds", JSONArray().put(mediaId))
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            synchronized(s) { s.localFiles[sent.getString("id")] = file.path }
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
     private fun queueText(chatId: String, clientId: String, content: String, replyTo: ReplyRef?): Boolean {
         val data = JSONObject().put("chatId", chatId).put("clientId", clientId).put("content", content)
         replyTo?.let { data.put("reply", JSONObject().put("messageId", it.messageId).put("senderName", it.senderName).put("preview", it.preview)) }
@@ -436,6 +463,11 @@ class RemoteMessageRepository(
         }
         val firstMedia = firstOfKind(media, "image")
         val voice = firstOfKind(media, "audio")?.let { a -> a.strOrNull("url")?.let { VoiceNote(it, a.optInt("durationMs", 0), a.optJSONArray("waveform")?.let { w -> List(w.length()) { i -> w.optInt(i) } } ?: emptyList()) } }
+        val file = firstOfKind(media, "document")?.let { d ->
+            val url = d.strOrNull("url") ?: return@let null
+            val local = synchronized(st) { st.localFiles[id] }?.takeIf { File(it).isFile }
+            FileAttachment(d.strOrNull("fileName") ?: "document", d.optLong("sizeBytes", 0L), d.optString("contentType", "application/octet-stream"), local ?: url)
+        }
         val ratio = firstMedia?.let { m -> val w = m.optInt("width", 0); val h = m.optInt("height", 0); if (w > 0 && h > 0) w.toFloat() / h else null }
         val reply = o.optJSONObject("replyTo")?.let { r ->
             val author = r.strOrNull("senderId")
@@ -465,6 +497,7 @@ class RemoteMessageRepository(
             forwarded = o.optBoolean("forwarded", false),
             edited = !o.isNull("editedAt"),
             eventId = o.strOrNull("eventId"),
+            file = file,
             linkPreview = o.optJSONObject("linkPreview")?.let { l ->
                 l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
                     ?.let { u ->

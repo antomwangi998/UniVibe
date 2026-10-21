@@ -12,7 +12,7 @@ import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
 import { purgeExpiredEvents, sendEventReminders } from './modules/events';
 import { createSharpProcessor } from './imaging';
-import { MEDIA_LIMITS, cleanupPendingMedia } from './media';
+import { MEDIA_LIMITS, cleanupPendingMedia, cleanupStorageGarbage } from './media';
 import { createR2Storage } from './storage';
 import { createGoogleVerifier, googleClientIds } from './google';
 
@@ -36,6 +36,10 @@ async function main() {
     const sweep = () => cleanupPendingMedia(pool, storage).catch((e) => app.log.error({ err: e }, 'media cleanup failed'));
     void sweep();
     setInterval(sweep, 6 * 3600 * 1000).unref();
+    // Files whose message, card or account is gone (hourly; each run takes up to 200).
+    const tidy = () => cleanupStorageGarbage(pool, storage).catch((e) => app.log.error({ err: e }, 'storage garbage cleanup failed'));
+    void tidy();
+    setInterval(tidy, 3600 * 1000).unref();
   }
 
   // Background jobs. Each is safe to run twice (reminders are guarded by a unique row; the purge just finds nothing).

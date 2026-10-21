@@ -82,26 +82,29 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
     suspend fun upload(
         path: String, kind: String, purpose: String, durationMs: Int? = null,
         tag: String? = null, onProgress: ((Float) -> Unit)? = null, waveform: List<Int>? = null,
+        /** Documents: the exact type (the extension decides it) and the name people will see. */
+        explicitType: String? = null, fileName: String? = null,
     ): String {
         val id = UploadTracker.begin(kind, tag)
         try {
-            return transfer(path, kind, purpose, durationMs, waveform) { f -> UploadTracker.progress(id, f); onProgress?.invoke(f) }
+            return transfer(path, kind, purpose, durationMs, waveform, explicitType, fileName) { f -> UploadTracker.progress(id, f); onProgress?.invoke(f) }
         } finally {
             UploadTracker.end(id)
         }
     }
 
-    private suspend fun transfer(path: String, kind: String, purpose: String, durationMs: Int?, waveform: List<Int>?, report: (Float) -> Unit): String {
+    private suspend fun transfer(path: String, kind: String, purpose: String, durationMs: Int?, waveform: List<Int>?, explicitType: String?, fileName: String?, report: (Float) -> Unit): String {
         val file = File(path)
         if (!file.isFile || file.length() == 0L) throw IOException("The file is missing")
         // Fail at once, before using any data, when the server would refuse the file anyway.
-        val limit = when (kind) { "video" -> PostLimits.MAX_VIDEO_BYTES; "audio" -> MAX_AUDIO_BYTES; else -> PostLimits.MAX_IMAGE_UPLOAD_BYTES }
+        val limit = when (kind) { "video" -> PostLimits.MAX_VIDEO_BYTES; "audio" -> MAX_AUDIO_BYTES; "document" -> com.univibe.app.data.media.FileStore.MAX_BYTES; else -> PostLimits.MAX_IMAGE_UPLOAD_BYTES }
         if (file.length() > limit) throw IOException("That file is too large (the limit is ${limit / (1024 * 1024)} MB).")
-        val contentType = contentTypeOf(file, kind)
+        val contentType = explicitType ?: contentTypeOf(file, kind)
         val request = JSONObject()
             .put("kind", kind).put("purpose", purpose).put("contentType", contentType).put("size", file.length())
         // Pixel size lets the feed reserve the right space before the file loads. Best effort: skipped if unreadable.
-        if (kind != "audio") MediaDimensions.read(file, kind)?.let { (w, h) -> request.put("width", w).put("height", h) }
+        if (kind == "document") request.put("fileName", fileName ?: file.name)
+        if (kind != "audio" && kind != "document") MediaDimensions.read(file, kind)?.let { (w, h) -> request.put("width", w).put("height", h) }
         if (kind == "audio") request.put("durationMs", durationMs ?: throw IOException("The recording has no length"))
         // Bar heights for the voice message's waveform; optional, the server accepts up to 64 values of 0..100.
         if (kind == "audio" && !waveform.isNullOrEmpty()) request.put("waveform", JSONArray(waveform.take(64).map { it.coerceIn(0, 100) }))
