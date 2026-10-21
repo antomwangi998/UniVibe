@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.MarkChatRead
 import androidx.compose.material.icons.outlined.MarkChatUnread
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,11 +37,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -92,6 +96,8 @@ fun ChatsScreen(
     onAddStory: () -> Unit = {},
     /** Opens the Story viewer for a person. While this is null Stories are not shown at all (no rings, no Story-only people). */
     onOpenStory: ((authorId: String) -> Unit)? = null,
+    /** Opens the screen where I review and manage my own active Stories. */
+    onManageStories: () -> Unit = {},
     viewModel: ChatsViewModel = viewModel(),
     notesViewModel: NotesViewModel = viewModel(
         factory = viewModelFactory {
@@ -108,6 +114,7 @@ fun ChatsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes by notesViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var myMenuOpen by remember { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh(); notesViewModel.refresh() }
     LaunchedEffect(state.notice) { state.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
     LaunchedEffect(notes.notice) { notes.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); notesViewModel.consumeNotice() } }
@@ -136,12 +143,25 @@ fun ChatsScreen(
         // Notes sit between the search field and the filters. The row is compact and never replaces the conversation list.
         NotesRow(
             state = notes,
-            onAddNote = notesViewModel::onAddNoteClick,
+            // With a Story running, my avatar offers a short choice; without one it goes straight to the Note, as before.
+            onAddNote = { if (onOpenStory != null && notes.myStory != null) myMenuOpen = true else notesViewModel.onAddNoteClick() },
             onOpenMyNote = notesViewModel::onMyNoteClick,
             onOpenAvatar = notesViewModel::onAvatarClick,
             showStories = onOpenStory != null,
             onOpenStories = { id -> onOpenStory?.invoke(id) },
             onOpenNote = notesViewModel::onNoteClick,
+        )
+        if (myMenuOpen) AlertDialog(
+            onDismissRequest = { myMenuOpen = false },
+            title = { Text("Your story") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    TextButton(onClick = { myMenuOpen = false; notes.myStory?.let { onOpenStory?.invoke(it.authorId) } }) { Text("View your story") }
+                    TextButton(onClick = { myMenuOpen = false; onManageStories() }) { Text("Manage your stories") }
+                    TextButton(onClick = { myMenuOpen = false; notesViewModel.onAddNoteClick() }) { Text("Add or edit your note") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { myMenuOpen = false }) { Text("Cancel") } },
         )
         AnimatedVisibility(visible = state.showFilters) {
             Row(

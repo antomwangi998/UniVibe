@@ -63,7 +63,7 @@ class StoryViewerViewModel(
         viewModelScope.launch {
             try {
                 val tray = stories.tray()
-                val start = tray.indexOfFirst { it.authorId == startAuthorId }
+                val start = tray.indexOfFirst { it.authorId == startAuthorId || (startAuthorId == "me" && it.isMine) }
                 if (start < 0) { close(); return@launch }
                 // Start with the tapped person, then everyone after them in tray order.
                 _state.update { it.copy(authors = tray, loading = false) }
