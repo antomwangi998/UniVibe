@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.univibe.app.BuildConfig
 import com.univibe.app.data.prefs.ThemeMode
 import com.univibe.app.navigation.SettingsRoutes
 import com.univibe.app.ui.components.ConfirmDialog
@@ -130,6 +131,8 @@ fun SettingsScreen(
                     RowDivider()
                     SettingsNavRow(VibeIcons.Chats, "Messages", { onNavigate(SettingsRoutes.MESSAGING) })
                     RowDivider()
+                    SettingsNavRow(VibeIcons.Groups, "Campus & community", { onNavigate(SettingsRoutes.CAMPUS) })
+                    RowDivider()
                     SettingsNavRow(VibeIcons.Palette, "Appearance", { onNavigate(SettingsRoutes.APPEARANCE) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Accessibility, "Accessibility", { onNavigate(SettingsRoutes.ACCESSIBILITY) })
@@ -144,6 +147,8 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Document, "Account status", { onNavigate(SettingsRoutes.STATUS) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Help, "Help & support", { onNavigate(SettingsRoutes.HELP) })
+                    RowDivider()
+                    SettingsNavRow(VibeIcons.Info, "Legal & About", { onNavigate(SettingsRoutes.LEGAL) })
                 }
             }
             item {
@@ -151,7 +156,7 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Logout, "Log out", { confirmLogOut = true }, destructive = true, showChevron = false)
                 }
             }
-            item { SettingsNote("UniVibe 0.1.0") }
+            item { SettingsNote("UniVibe ${BuildConfig.VERSION_NAME}") }
         }
     }
 
@@ -178,5 +183,7 @@ private fun iconFor(category: String): ImageVector = when (category) {
     SettingsCategories.PERMISSIONS -> VibeIcons.Shield
     SettingsCategories.DATA -> VibeIcons.Archive
     SettingsCategories.STATUS -> VibeIcons.Document
+    SettingsCategories.CAMPUS -> VibeIcons.Groups
+    SettingsCategories.LEGAL -> VibeIcons.Info
     else -> VibeIcons.Help
 }

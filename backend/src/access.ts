@@ -5,7 +5,7 @@
  * Rules:
  *  - Students only see people from their own university (profiles, follows, discovery, messaging, events).
  *  - A block in either direction makes both sides invisible to each other everywhere, and looks like "not found".
- *  - Suspended accounts disappear from other students' views.
+ *  - Suspended and deactivated accounts disappear from other students' views.
  */
 
 export const blockedBetween = (a: string, b: string) =>
@@ -15,8 +15,9 @@ export const blockedBetween = (a: string, b: string) =>
 export const acceptedFollow = (follower: string, following: string) =>
   `exists (select 1 from follows fl where fl.follower_id = ${follower} and fl.followee_id = ${following})`;
 
+/** Not suspended by a moderator and not deactivated by the person. (The name predates deactivation.) */
 export const notSuspended = (userAlias: string) =>
-  `(${userAlias}.suspended_until is null or ${userAlias}.suspended_until <= now())`;
+  `((${userAlias}.suspended_until is null or ${userAlias}.suspended_until <= now()) and ${userAlias}.deactivated_at is null)`;
 
 /** A user row (alias `alias`) the viewer may see: same university, verified, not blocked, not suspended. */
 export function userVisible(alias: string, viewer: string, viewerUni: string): string {

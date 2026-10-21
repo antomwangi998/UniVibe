@@ -154,7 +154,7 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
       if (typeof eventId !== 'string') throw new PermanentJobError('eventId missing');
       const ev = (await ctx.pool.query<{ organizer_id: string; community_id: string | null; title: string; status: string; ends_at: Date; hidden: boolean }>(
         `select e.organizer_id, e.community_id, e.title, e.status, e.ends_at,
-                (e.hidden_at is not null or (o.suspended_until is not null and o.suspended_until > now())) as hidden
+                (e.hidden_at is not null or (o.suspended_until is not null and o.suspended_until > now()) or o.deactivated_at is not null) as hidden
            from events e join users o on o.id = e.organizer_id where e.id = $1`, [eventId])).rows[0];
       // Cancelled, gone, hidden by moderators, or its organizer suspended, before delivery: nobody is told.
       if (!ev || !ev.community_id || ev.hidden || ev.status !== 'published' || new Date(ev.ends_at) <= new Date()) return;

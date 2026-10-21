@@ -405,8 +405,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
     // Only said after the password is right, so it does not reveal which emails have accounts.
     if (!user.email_verified_at) throw new HttpError(403, 'email_not_verified', 'Please verify your email to continue.');
+    // Logging in is how a deactivated account comes back. Only reached after the password and email are confirmed.
+    const reactivated = ((await pool.query('update users set deactivated_at = null where id = $1 and deactivated_at is not null', [user.id])).rowCount ?? 0) > 0;
     const session = await createSession((t, p) => pool.query(t, p), user.id, undefined, b.deviceName ?? '');
-    return { ...session, user: await toUser(user) };
+    return { ...session, user: await toUser(user), reactivated };
   });
 
   app.post('/auth/refresh', async (req) => {
@@ -520,6 +522,76 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
     if (storage && files.rowCount) await storage.remove(files.rows.flatMap((r) => (r.thumb_key ? [r.object_key, r.thumb_key] : [r.object_key]))).catch(() => undefined);
     return reply.status(204).send();
+  });
+
+  // Hides the account without deleting anything. Posts, comments, the profile and Discover presence disappear from other
+  // students (see access.ts); every login is ended; logging in again brings it all back.
+  app.post('/me/deactivate', async (req, reply) => {
+    const user = await requireUser(req);
+    const b = parse(deleteSchema, req.body);
+    tooMany(`deactivate:${user.id}`, 5, 900);
+    if (!user.password_hash) throw new HttpError(400, 'password_not_set', 'This account signs in with Google and has no password yet. Use "Forgot password" on the log-in screen to set one.');
+    if (!(await sec.verifyPassword(user.password_hash, b.password))) {
+      throw new HttpError(401, 'invalid_credentials', 'Your password is incorrect.');
+    }
+    await withTx(pool, async (client) => {
+      await client.query('update users set deactivated_at = now(), updated_at = now() where id = $1', [user.id]);
+      await client.query('update refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null', [user.id]);
+      // No more push notifications to this person's phones while the account is hidden.
+      await client.query("update device_tokens set revoked_at = now(), revoked_reason = 'deactivated' where user_id = $1 and revoked_at is null", [user.id]);
+    });
+    return reply.status(204).send();
+  });
+
+  // A copy of the person's own data as JSON. Built on the spot, so there is no "pending" state: it either comes back or fails.
+  // Each list is capped; a list that hit its cap is named in `truncated` so the file never pretends to be complete.
+  app.post('/me/export', async (req, reply) => {
+    const user = await requireUser(req);
+    tooMany(`export:${user.id}`, 3, 3600);
+    const CAP = { posts: 5000, comments: 5000, messages: 20000 };
+    const take = async <T>(sql: string, params: unknown[], cap?: number) => {
+      const { rows } = await pool.query(sql + (cap ? ` limit ${cap + 1}` : ''), params);
+      const truncated = cap !== undefined && rows.length > cap;
+      return { rows: (truncated ? rows.slice(0, cap) : rows) as T[], truncated };
+    };
+    const me = [user.id];
+    const [profile, privacy, prefs, posts, comments, following, followers, blocks, communities, events, messages] = await Promise.all([
+      pool.query(
+        `select email, full_name as "fullName", handle, university_id as "universityId", admission_number as "admissionNumber", course,
+                year_of_study as "yearOfStudy", faculty, graduation_year as "graduationYear", bio, interests,
+                student_verified as "studentVerified", email_verified_at as "emailVerifiedAt", accepted_terms_at as "acceptedTermsAt",
+                accepted_terms_version as "acceptedTermsVersion", created_at as "createdAt"
+           from users where id = $1`, me),
+      pool.query('select discoverable, show_online as "showOnline", message_permission as "messagePermission", read_receipts as "readReceipts", typing_indicators as "typingIndicators" from privacy_settings where user_id = $1', me),
+      pool.query('select * from notification_preferences where user_id = $1', me),
+      take(`select id, text, audience, community_id as "communityId", status, created_at as "createdAt", edited_at as "editedAt" from posts where author_id = $1 order by created_at desc`, me, CAP.posts),
+      take(`select id, post_id as "postId", text, status, created_at as "createdAt" from comments where author_id = $1 order by created_at desc`, me, CAP.comments),
+      pool.query('select u.handle, f.created_at as "since" from follows f join users u on u.id = f.followee_id where f.follower_id = $1 order by f.created_at desc', me),
+      pool.query('select u.handle, f.created_at as "since" from follows f join users u on u.id = f.follower_id where f.followee_id = $1 order by f.created_at desc', me),
+      pool.query('select u.handle, b.created_at as "since" from blocks b join users u on u.id = b.blocked_id where b.blocker_id = $1 order by b.created_at desc', me),
+      pool.query('select c.id, c.name, m.role, m.joined_at as "joinedAt" from community_members m join communities c on c.id = m.community_id where m.user_id = $1 order by m.joined_at desc', me),
+      pool.query('select e.id, e.title, r.status, r.registered_at as "registeredAt" from event_registrations r join events e on e.id = r.event_id where r.user_id = $1 order by r.registered_at desc', me),
+      take(`select id, conversation_id as "conversationId", content, created_at as "createdAt", edited_at as "editedAt" from messages where sender_id = $1 and status = 'active' order by created_at desc`, me, CAP.messages),
+    ]);
+    const { user_id: _omit, ...notificationPreferences } = prefs.rows[0] ?? {};
+    reply.header('cache-control', 'no-store');
+    return {
+      format: 1,
+      generatedAt: new Date().toISOString(),
+      note: 'Your own data. Passwords, login tokens and other people\'s messages are never included.',
+      profile: profile.rows[0] ?? null,
+      privacy: privacy.rows[0] ?? null,
+      notificationPreferences,
+      posts: posts.rows,
+      comments: comments.rows,
+      following: following.rows,
+      followers: followers.rows,
+      blocked: blocks.rows,
+      communities: communities.rows,
+      eventRegistrations: events.rows,
+      messagesSent: messages.rows,
+      truncated: { posts: posts.truncated, comments: comments.truncated, messagesSent: messages.truncated },
+    };
   });
 
   // ---- Sign in with Google (token check, registration, account linking)

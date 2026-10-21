@@ -81,9 +81,9 @@ export const communityReadable = (p: string) =>
   `and rc.university_id = $2 and (rc.visibility = 'public' or exists ` +
   `(select 1 from community_members rm where rm.community_id = rc.id and rm.user_id = $1 and rm.status = 'active')))`;
 
-/** Comments the viewer may see: not removed, and not written by someone blocked in either direction. */
+/** Comments the viewer may see: not removed, not written by someone blocked in either direction, and not by a deactivated account. */
 export const commentShown = (c: string) =>
-  `(${c}.status = 'active' and (${c}.author_id = $1 or not ${blockedBetween('$1', `${c}.author_id`)}))`;
+  `(${c}.status = 'active' and (${c}.author_id = $1 or (not ${blockedBetween('$1', `${c}.author_id`)} and not exists (select 1 from users cdu where cdu.id = ${c}.author_id and cdu.deactivated_at is not null))))`;
 
 export const POST_COLS =
   'p.id, p.text, p.audience, p.community_id, p.event_id, p.shared_event_id, p.is_announcement, p.share_count, p.poll_options, p.created_at, p.edited_at, ' +

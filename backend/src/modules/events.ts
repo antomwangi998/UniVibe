@@ -73,7 +73,7 @@ type Q = Pick<PoolClient, 'query'>;
  */
 export const eventVisible = (viewer = '$1', uni = '$2', e = 'e') =>
   `(${e}.organizer_id = ${viewer} or (${e}.status <> 'draft' and ${e}.hidden_at is null ` +
-  `and not exists (select 1 from users evs where evs.id = ${e}.organizer_id and evs.suspended_until is not null and evs.suspended_until > now()) ` +
+  `and not exists (select 1 from users evs where evs.id = ${e}.organizer_id and ((evs.suspended_until is not null and evs.suspended_until > now()) or evs.deactivated_at is not null)) ` +
   `and not ${blockedBetween(viewer, `${e}.organizer_id`)} and (` +
   `(${e}.visibility = 'community' and exists (select 1 from community_members ecm join communities ec on ec.id = ecm.community_id ` +
   `where ecm.community_id = ${e}.community_id and ecm.user_id = ${viewer} and ecm.status = 'active' and ec.status = 'active')) ` +
@@ -860,7 +860,7 @@ export async function sendEventReminders(ctx: Ctx): Promise<number> {
            left join notification_preferences np on np.user_id = r.user_id
            cross join lateral unnest(coalesce(np.event_reminder_offsets, array[1440, 60])) as o(offset_minutes)
           where r.status = 'registered' and r.reminders and e.status = 'published' and e.hidden_at is null and e.starts_at > now()
-            and not exists (select 1 from users eo where eo.id = e.organizer_id and eo.suspended_until is not null and eo.suspended_until > now())
+            and not exists (select 1 from users eo where eo.id = e.organizer_id and ((eo.suspended_until is not null and eo.suspended_until > now()) or eo.deactivated_at is not null))
             and e.starts_at - make_interval(mins => o.offset_minutes) <= now()
             and e.starts_at - make_interval(mins => o.offset_minutes) > now() - interval '30 minutes')
        insert into event_reminders (event_id, user_id, offset_minutes)
