@@ -19,11 +19,9 @@ Events tab, EventCard, details, create/edit form, register/cancel with row-lock 
 ## Stage 6 (communities, sharing, moderation, organizer tools): written, not run
 Migration 032. Backend: organizer updates, audit read, share to chat or community, links, public preview page, moderator hide/restore, suspended-organizer hiding, calendar `revision`. Android: community Events tab and shared-event posts, share sheet (link, chat, community), event card in chat bubbles, Add to calendar remembers the version and says honestly when an event changed (Android cannot edit a calendar entry for us), updates section and "Post an update", Activity sheet, Mark as completed, per-event reminders switch, report event and report organizer, notice text for updates and moderation.
 Tests: `backend/test/events-stage6.integration.test.ts` (needs TEST_DATABASE_URL). No Android tests were added for stage 6.
+Gaps from stage 6 that stage 7 closed: attendee list screen, drafts with a Publish button, the forward message text.
 Known gaps:
-- Attendee list screen for organizers (`GET /events/:id/attendees` exists, no Android screen).
-- Publish-a-draft button (the Android form never creates drafts yet; belongs with draft saving in stage 7).
 - Android App Links for the https share link (needs a verified domain). The app link `univibe://events/{id}` works.
-- Forwarding a chat message that holds an event answers "Photos can't be forwarded yet" (misleading text, harmless).
 - Moderator UI on Android: the moderation actions `hide_event` and `restore_event` exist on the server; no Android moderator screen was touched.
 - Chat share needs the conversation list; the sheet shows the first 20 chats.
 - Set `PUBLIC_BASE_URL` on the server or share links stay app-only.
@@ -40,3 +38,13 @@ Stage 7, still to do:
 
 ## Decisions to keep
 No waitlist, no invitations, no payments or free/paid filter, no location-based "near you". Interested never takes a seat. One feed announcement per event. Community notices are in-app only. Private-community events are forced to `community` visibility and re-checked on every read. All time-dependent state comes from the server clock.
+
+
+## Stage 7 (polish): written, not run
+Migration 033 (two indexes). Android: cover photo picker in the event form (optional; every card shows the event's colour when there is no cover), cover strip on events shared in chats, community posts and the community Events tab, drafts (Save as draft, a Drafts tab, Publish from the event page), Saved tab and bookmarks on cards and the event page, attendee list screen ("See who's going"; organizers also see who checked in), status now trusts the server's `phase` for "ended" and "live" (an event closed early shows as ended), forwarding an event message answers "Share events from the event page". Tests: `EventStage67Test.kt` (Android), `events-stage7.integration.test.ts` (backend, needs TEST_DATABASE_URL).
+Still open:
+- Nothing from stages 1 to 7 has been compiled or run. First: `npm run typecheck`, `TEST_DATABASE_URL=... npm test` in `backend/`, then `./gradlew testDebugUnitTest assembleDebug`.
+- The public web preview shows no cover photo: cover links are signed and expire, and link-preview robots cache them, so a stale image would show. Needs a stable public image address first.
+- Android moderator screen for hide and restore, and Android App Links for the https share link (needs a verified domain).
+- Attendee list loads the first 100 people only.
+- Uploading a cover uses the existing image rules (size limit, `purpose: event`); no cropping tool.

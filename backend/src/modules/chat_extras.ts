@@ -247,8 +247,8 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
       const id = param(req);
       const b = z.object({ conversationIds: z.array(z.string().uuid()).min(1).max(5) }).strict().parse(req.body ?? {});
       ctx.limit(`fwd:${me.id}`, 20, 60);
-      const src = (await pool.query<{ content: string; sender_id: string | null }>(
-        `select m.content, m.sender_id from messages m
+      const src = (await pool.query<{ content: string; sender_id: string | null; event_id: string | null }>(
+        `select m.content, m.sender_id, m.event_id from messages m
            join conversation_members cm on cm.conversation_id = m.conversation_id and cm.user_id = $2
           where m.id = $1 and m.status = 'active' and m.seq > cm.cleared_seq`, [id, me.id])).rows[0];
       if (!src) throw new HttpError(404, 'not_found', 'Not found.');
@@ -256,6 +256,8 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
         && (await pool.query(`select ${blockedBetween('$1::uuid', '$2::uuid')} as b`, [me.id, src.sender_id])).rows[0].b) {
         throw new HttpError(404, 'not_found', 'Not found.');
       }
+      // An event is shared from its own page, where the sharing rules (community-only events) are checked.
+      if (src.event_id) throw new HttpError(422, 'validation', 'Share events from the event page.');
       if (!src.content) throw new HttpError(422, 'validation', "Photos can't be forwarded yet.");
       const targets = [...new Set(b.conversationIds)];
       for (const t of targets) await membership(pool, t, me.id);

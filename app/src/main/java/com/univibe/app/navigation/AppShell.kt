@@ -363,7 +363,13 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
                     subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
                     subScreen(AppRoutes.EVENT, stringArgs("eventId")) { entry ->
-                        EventDetailsScreen(eventId = entry.arg("eventId"), onBack = back, onEdit = { open(AppRoutes.eventEdit(entry.arg("eventId"))) })
+                        EventDetailsScreen(
+                            eventId = entry.arg("eventId"), onBack = back, onEdit = { open(AppRoutes.eventEdit(entry.arg("eventId"))) },
+                            onOpenAttendees = { open(AppRoutes.eventAttendees(entry.arg("eventId"))) },
+                        )
+                    }
+                    subScreen(AppRoutes.EVENT_ATTENDEES, stringArgs("eventId")) { entry ->
+                        com.univibe.app.features.events.EventAttendeesScreen(eventId = entry.arg("eventId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
                     }
                     subScreen(AppRoutes.EVENT_NEW) {
                         EventFormScreen(

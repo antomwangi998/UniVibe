@@ -324,7 +324,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.eventsTab(c: Communit
         s.events.isEmpty() -> item { EmptyState(VibeIcons.Events, "No upcoming events", "Events this community hosts will show up here.") }
         else -> items(s.events, key = { it.id }) { e ->
             VibeCard(onClick = { onOpenEvent(e.id) }) {
-                Text(e.title, style = MaterialTheme.typography.titleSmall)
+                com.univibe.app.features.events.CoverStrip(e)
+                Text(e.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = Spacing.xs))
                 Text(listOf(e.timeLabel, e.location).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("${e.going} going", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -346,6 +347,7 @@ private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenSt
         if (p.text.isNotBlank()) Text(p.text, style = MaterialTheme.typography.bodyMedium, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(vertical = Spacing.sm))
         p.event?.takeIf { p.sharedEvent }?.let { e ->
             Column(Modifier.fillMaxWidth().padding(vertical = Spacing.xs).clickable(role = Role.Button, onClickLabel = "Open event") { onOpenEvent(e.id) }) {
+                com.univibe.app.features.events.CoverStrip(e)
                 Text(e.title, style = MaterialTheme.typography.titleSmall)
                 Text(listOf(e.timeLabel, e.location).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }

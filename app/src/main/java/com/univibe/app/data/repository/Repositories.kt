@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventActivity
+import com.univibe.app.data.model.EventAttendee
 import com.univibe.app.data.model.EventLink
 import com.univibe.app.data.model.EventUpdate
 import com.univibe.app.data.model.ShareTarget
@@ -178,6 +179,12 @@ interface EventRepository {
     /** Organizer only: who changed what, and when. */
     suspend fun eventActivity(eventId: String): List<EventActivity> = emptyList()
     suspend fun eventLink(eventId: String): EventLink? = null
+    /** Organizer only: announces a draft. The server re-checks the time and limits. */
+    suspend fun publishEvent(id: String) { throw UnsupportedOperationException("Not available yet.") }
+    /** The organizer's own unpublished events. */
+    suspend fun myDrafts(): List<CampusEvent> = emptyList()
+    /** Who is going. The organizer always sees it; others only when the organizer allows it and they are going. */
+    suspend fun attendees(eventId: String): List<EventAttendee> = emptyList()
     /** Organizer only: closes an event that has started. */
     suspend fun completeEvent(id: String) { throw UnsupportedOperationException("Not available yet.") }
     /** Turns reminders on or off for one event you are going to. */

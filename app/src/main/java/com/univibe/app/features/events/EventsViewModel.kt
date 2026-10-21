@@ -24,6 +24,8 @@ data class EventsUiState(
     val query: String = "",
     val category: String = "All",
     val events: List<CampusEvent> = emptyList(),
+    /** The organizer's own unpublished events. */
+    val drafts: List<CampusEvent> = emptyList(),
     /** Event whose RSVP sheet is open. */
     val rsvpFor: CampusEvent? = null,
     /** Event awaiting "cancel RSVP" confirmation. */
@@ -31,11 +33,13 @@ data class EventsUiState(
     val notice: String? = null,
 ) {
     val visible: List<CampusEvent>
-        get() = events.asSequence()
+        get() = (if (tab == EventsTab.Drafts) drafts else events).asSequence()
             .filter {
                 when (tab) {
                     EventsTab.Upcoming -> !it.isPast
                     EventsTab.MyEvents -> it.rsvp != RsvpState.None
+                    EventsTab.Saved -> it.saved
+                    EventsTab.Drafts -> true
                     EventsTab.Past -> it.isPast
                 }
             }
@@ -51,6 +55,9 @@ class EventsViewModel(
     private val _state = MutableStateFlow(EventsUiState())
     val state: StateFlow<EventsUiState> = _state.asStateFlow()
 
+    /** Bookmarks need the server; the offline demo hides them. */
+    val supportsSaving: Boolean get() = repository.supportsSaved
+
     init { load() }
 
     fun load() {
@@ -58,7 +65,8 @@ class EventsViewModel(
             _state.update { it.copy(loading = true, error = null) }
             try {
                 val events = repository.getEvents()
-                _state.update { it.copy(loading = false, events = events) }
+                val drafts = runCatching { repository.myDrafts() }.getOrDefault(emptyList())
+                _state.update { it.copy(loading = false, events = events, drafts = drafts) }
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = "We couldn't load events right now.") }
             }
@@ -70,6 +78,7 @@ class EventsViewModel(
         if (_state.value.loading) return
         viewModelScope.launch {
             runCatching { repository.getEvents() }.onSuccess { events -> _state.update { it.copy(events = events, error = null) } }
+            runCatching { repository.myDrafts() }.onSuccess { d -> _state.update { it.copy(drafts = d) } }
         }
     }
 
@@ -83,6 +92,17 @@ class EventsViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(refreshing = false, notice = "Couldn't refresh events.") }
             }
+        }
+    }
+
+    /** Bookmarks apply at once and are put back if the server says no. */
+    fun toggleSaved(event: CampusEvent) {
+        val now = !event.saved
+        fun mark(on: Boolean) = _state.update { s -> s.copy(events = s.events.map { if (it.id == event.id) it.copy(saved = on) else it }) }
+        mark(now)
+        viewModelScope.launch {
+            try { repository.setSaved(event.id, now) }
+            catch (e: Exception) { mark(!now); _state.update { it.copy(notice = "Couldn't save that. Try again.") } }
         }
     }
 

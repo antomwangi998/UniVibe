@@ -238,7 +238,7 @@ object AppContainer {
     val searchRepository: SearchRepository by lazy { api?.let { RemoteSearchRepository(it) } ?: UnavailableSearchRepository }
     val recentSearches: RecentSearches by lazy { PrefsRecentSearches(app) }
     val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it, chatSocket) } ?: MockNotificationRepository() }
-    val eventRepository: EventRepository by lazy { api?.let { RemoteEventRepository(it) } ?: MockEventRepository(mockStore) }
+    val eventRepository: EventRepository by lazy { api?.let { RemoteEventRepository(it, MediaUploader(it, UrlConnectionFileUploader())) } ?: MockEventRepository(mockStore) }
     val profileRepository: ProfileRepository by lazy {
         MockProfileRepository(
             mockStore, DataStoreProfileLocalStore(app),

@@ -46,6 +46,8 @@ fun EventCard(
     onRsvpClick: () -> Unit,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    /** Shows a bookmark on the cover when set. Null hides it (screens where saving isn't offered). */
+    onSaveClick: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     VibeCard(modifier = modifier.animateContentSize(), onClick = onClick, contentPadding = PaddingValues(0.dp), elevation = 2.dp) {
@@ -58,6 +60,9 @@ fun EventCard(
         ) {
             // The gradient stays underneath as the placeholder while the cover loads or if it fails.
             event.coverUrl?.let { PhotoImage(it, contentDescription = null) }
+            if (onSaveClick != null) Surface(Modifier.align(Alignment.BottomEnd).padding(Spacing.sm), shape = androidx.compose.foundation.shape.CircleShape, color = colors.surface) {
+                VibeIconButton(if (event.saved) VibeIcons.BookmarkFilled else VibeIcons.Bookmark, if (event.saved) "Remove from saved" else "Save event", onSaveClick)
+            }
             Surface(
                 modifier = Modifier.align(Alignment.TopStart).padding(Spacing.md),
                 shape = RoundedCornerShape(14.dp),

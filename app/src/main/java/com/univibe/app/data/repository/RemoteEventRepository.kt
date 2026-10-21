@@ -17,6 +17,9 @@ import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Venue
 import com.univibe.app.data.net.ApiException
+import com.univibe.app.data.net.MediaUploader
+import com.univibe.app.data.net.parseStudent
+import com.univibe.app.data.model.EventAttendee
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.accentFor
 import com.univibe.app.data.net.send
@@ -57,13 +60,14 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
             "interested" -> RsvpState.Interested
             else -> if (o.isNull("myRegistration")) RsvpState.None else RsvpState.Going
         },
-        isPast = System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
+        isPast = o.optString("phase") == "ended" || System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
         hostName = organizer.optString("fullName"), hostCommunityId = null,
         cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
         coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifBlank { null },
         saved = o.optBoolean("saved", false),
         reason = if (o.isNull("reason")) null else o.optString("reason").ifBlank { null },
         revision = o.optInt("revision", 0), hidden = o.optBoolean("hidden", false),
+        draft = o.optString("status") == "draft", serverPhase = o.optString("phase").ifBlank { null },
         remindersOn = if (o.isNull("remindersOn") || !o.has("remindersOn")) null else o.optBoolean("remindersOn", true),
     )
 }
@@ -75,7 +79,7 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
  *  - A venue directory and map positions: venues are plain text, so [getVenues] is empty and no map is shown.
  *  - Hosting for a community: communities are not on the server yet, so a draft that asks for it is refused.
  */
-class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
+class RemoteEventRepository(private val api: AuthedApi, private val uploader: MediaUploader? = null) : EventRepository {
     override val supportsInterested: Boolean get() = true
     override val supportsSaved: Boolean get() = true
 
@@ -221,17 +225,27 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
             .put("registrationDeadline", d.registrationDeadlineMillis?.let { Instant.ofEpochMilli(it).toString() } ?: JSONObject.NULL)
             .put("timezone", d.timezone ?: JSONObject.NULL)
         if (d.eventType != "online" || d.venue.isNotBlank()) o.put("venueName", d.venue)
-        if (creating) o.put("communityId", d.hostCommunityId ?: JSONObject.NULL)
+        if (creating) {
+            o.put("communityId", d.hostCommunityId ?: JSONObject.NULL)
+            o.put("status", if (d.asDraft) "draft" else "published")
+        }
         return o
     }
 
+    /** Uploads a picked cover first; the event only refers to it by id. Without an uploader (the demo) a cover is simply skipped. */
+    private suspend fun uploadCover(path: String?): String? = if (path == null || uploader == null) null else uploader.upload(path, "image", "event")
+
     override suspend fun createEvent(draft: NewEvent): String = explained {
-        JSONObject(api.send("POST", "/api/v1/events", body(draft, creating = true).put("attendeesVisible", true), ok = setOf(201)))
+        val cover = uploadCover(draft.coverPath)
+        JSONObject(api.send("POST", "/api/v1/events", body(draft, creating = true).put("attendeesVisible", true).apply { if (cover != null) put("coverMediaId", cover) }, ok = setOf(201)))
             .getString("id")
     }
 
     override suspend fun updateEvent(id: String, draft: NewEvent) = explained {
-        api.send("PATCH", "/api/v1/events/$id", body(draft, creating = false))
+        val cover = uploadCover(draft.coverPath)
+        val patch = body(draft, creating = false)
+        if (cover != null) patch.put("coverMediaId", cover) else if (draft.removeCover) patch.put("coverMediaId", JSONObject.NULL)
+        api.send("PATCH", "/api/v1/events/$id", patch)
         Unit
     }
 
@@ -254,6 +268,18 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
             val fields = o.optJSONArray("fields")?.let { a -> (0 until a.length()).map { i -> a.getString(i) } } ?: emptyList()
             EventActivity(o.getLong("id"), o.getString("action"), o.optJSONObject("actor")?.optString("name")?.ifBlank { null }, millis(o.getString("at")), fields)
         }
+    }
+
+    override suspend fun publishEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/publish"); Unit }
+
+    override suspend fun myDrafts(): List<CampusEvent> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/me/events?scope=upcoming&limit=$PAGE")).getJSONArray("items")
+        (0 until items.length()).map { toEvent(items.getJSONObject(it)) }.filter { it.draft && it.mine }
+    }
+
+    override suspend fun attendees(eventId: String): List<EventAttendee> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events/$eventId/attendees?limit=100")).getJSONArray("items")
+        (0 until items.length()).map { val o = items.getJSONObject(it); EventAttendee(parseStudent(o), if (o.has("checkedIn")) o.optBoolean("checkedIn") else null) }
     }
 
     override suspend fun completeEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/complete", ok = setOf(204)); Unit }

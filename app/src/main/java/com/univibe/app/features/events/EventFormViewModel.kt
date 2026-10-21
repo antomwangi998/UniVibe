@@ -54,7 +54,15 @@ data class EventFormUiState(
     val submitting: Boolean = false,
     val notice: String? = null,
     val doneId: String? = null,
+    /** The cover the event has now (a signed link), and a new photo picked on this device that will replace it. */
+    val coverUrl: String? = null,
+    val coverPath: String? = null,
+    val removeCover: Boolean = false,
+    /** You are editing a draft, so it can be saved as a draft again. */
+    val isDraft: Boolean = false,
 ) {
+    /** What the cover preview shows: the new photo, else the current one unless it was removed. */
+    val coverShown: String? get() = coverPath ?: coverUrl.takeUnless { removeCover }
     private val now get() = System.currentTimeMillis()
     val titleOk get() = title.trim().length in 3..80
     val descriptionOk get() = description.trim().length <= 1000
@@ -103,6 +111,7 @@ class EventFormViewModel(
                         hostCommunityId = e.hostCommunityId, startMillis = e.startMillis, endMillis = e.endMillis, originalStart = e.startMillis,
                         venueName = e.location, venueLat = d.latitude, venueLng = d.longitude, customVenue = known == null && d.latitude == null,
                         limitPlaces = d.capacity != null, capacityText = d.capacity?.toString().orEmpty(),
+                        coverUrl = e.coverUrl, isDraft = e.draft,
                     )
                 }
             }
@@ -121,6 +130,8 @@ class EventFormViewModel(
     fun setAccent(v: Int) = _state.update { it.copy(accent = v) }
     fun setHost(id: String?) = _state.update { it.copy(hostCommunityId = id) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
+    fun setCover(path: String) = _state.update { it.copy(coverPath = path, removeCover = false) }
+    fun removeCover() = _state.update { it.copy(coverPath = null, removeCover = true) }
 
     /** Moving the start keeps the length of the event. */
     fun setStart(millis: Long) = _state.update { s ->
@@ -137,7 +148,8 @@ class EventFormViewModel(
     fun setLimit(on: Boolean) = _state.update { it.copy(limitPlaces = on) }
     fun setCapacityText(v: String) = _state.update { it.copy(capacityText = v.filter { c -> c.isDigit() }.take(4)) }
 
-    fun submit() {
+    /** [asDraft] keeps a new event private until it is published from its page. */
+    fun submit(asDraft: Boolean = false) {
         val s = _state.value
         if (!s.canSubmit) return
         viewModelScope.launch {
@@ -149,6 +161,7 @@ class EventFormViewModel(
                     categoryCode = s.categoryCode.ifBlank { null }, eventType = s.eventType,
                     onlineUrl = s.onlineUrl.takeIf { s.needsLink && it.isNotBlank() }, externalUrl = s.externalUrl.ifBlank { null },
                     registrationDeadlineMillis = s.deadlineMillis.takeIf { s.hasDeadline }, timezone = ZoneId.systemDefault().id,
+                    coverPath = s.coverPath, removeCover = s.removeCover, asDraft = asDraft,
                 )
                 val id = if (editId != null) { repository.updateEvent(editId, draft); editId } else repository.createEvent(draft)
                 _state.update { it.copy(submitting = false, doneId = id) }
