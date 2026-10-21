@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.data.repository.MAX_MESSAGE_PHOTOS
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -31,6 +32,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 const val MAX_MESSAGE = 1000
+
+/** Photos waiting to go out together, with their caption. */
+class PhotoBatch(val paths: List<String>, val caption: String)
 const val MAX_FORWARD_TARGETS = 5
 
 data class ConversationUiState(
@@ -72,6 +76,8 @@ data class ConversationUiState(
     val failedPhoto: String? = null,
     /** A voice message that could not be sent; the recording is kept so Retry can send it again. */
     val failedVoice: Recording? = null,
+    /** Photos (with their caption) that could not be sent; the screen offers Retry. */
+    val failedPhotos: PhotoBatch? = null,
 ) {
     val canSend get() = input.isNotBlank() && input.length <= MAX_MESSAGE
     /** False in admins-only groups for non-admins. The server enforces this as well. */
@@ -229,6 +235,31 @@ class ConversationViewModel(
             try { messages.send(chatId, "", path, reply) }
             catch (e: Exception) { _state.update { it.copy(failedPhoto = path) }; fail(e, "Couldn't send the photo.") }
         }
+    }
+
+    /** Sends the chosen photos together as one message, with the caption the person wrote (may be empty). */
+    fun sendPhotos(paths: List<String>, caption: String) {
+        if (paths.isEmpty()) return
+        if (!_state.value.canPost) { paths.forEach { runCatching { java.io.File(it).delete() } }; return }
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        val batch = PhotoBatch(paths.take(MAX_MESSAGE_PHOTOS), caption)
+        viewModelScope.launch {
+            try { messages.sendPhotos(chatId, batch.caption, batch.paths, reply) }
+            catch (e: Exception) { _state.update { it.copy(failedPhotos = batch) }; fail(e, if (batch.paths.size == 1) "Couldn't send the photo." else "Couldn't send the photos.") }
+        }
+    }
+
+    fun retryFailedPhotos() {
+        val b = _state.value.failedPhotos ?: return
+        _state.update { it.copy(failedPhotos = null) }
+        sendPhotos(b.paths, b.caption)
+    }
+
+    fun dismissFailedPhotos() {
+        _state.value.failedPhotos?.paths?.forEach { runCatching { java.io.File(it).delete() } }
+        _state.update { it.copy(failedPhotos = null) }
     }
 
     fun sendVoice(path: String, durationMs: Int, waveform: List<Int> = emptyList()) {

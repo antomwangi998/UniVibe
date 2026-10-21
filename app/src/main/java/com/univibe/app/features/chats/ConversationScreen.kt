@@ -2,6 +2,9 @@
 
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.PostMediaShape
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.semantics.contentDescription
 import android.Manifest
 import android.content.pm.PackageManager
@@ -161,7 +164,10 @@ import com.univibe.app.ui.components.VibeIconSize
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
-import com.univibe.app.ui.components.rememberPhotoPicker
+import com.univibe.app.ui.components.rememberMultiPhotoPicker
+import com.univibe.app.data.repository.MAX_MESSAGE_PHOTOS
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.univibe.app.ui.components.rememberReducedMotion
 import com.univibe.app.ui.theme.Spacing
 import kotlin.math.roundToInt
@@ -191,7 +197,17 @@ private fun buildRows(messages: List<Message>): List<ChatRow> {
 fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}) {
     val viewModel = keyedViewModel("chat-$chatId") { ConversationViewModel(chatId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
-    val pickPhoto = rememberPhotoPicker("chat") { viewModel.sendImage(it) }
+    // Photos are chosen first, then looked over (and captioned) in a sheet; nothing is sent until the person taps Send.
+    var pendingPhotos by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
+    val pickPhoto = rememberMultiPhotoPicker("chat", MAX_MESSAGE_PHOTOS) { picked -> pendingPhotos = (pendingPhotos + picked).distinct().take(MAX_MESSAGE_PHOTOS) }
+    if (pendingPhotos.isNotEmpty()) {
+        PhotoSendSheet(
+            photos = pendingPhotos, canAddMore = pendingPhotos.size < MAX_MESSAGE_PHOTOS, onAdd = pickPhoto,
+            onRemove = { p -> runCatching { java.io.File(p).delete() }; pendingPhotos = pendingPhotos - p },
+            onCancel = { pendingPhotos.forEach { runCatching { java.io.File(it).delete() } }; pendingPhotos = emptyList() },
+            onSend = { caption -> viewModel.sendPhotos(pendingPhotos, caption); pendingPhotos = emptyList() },
+        )
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -464,6 +480,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             Text("Couldn't send the voice message.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
                             TextButton(onClick = viewModel::retryFailedVoice) { Text("Retry") }
                             TextButton(onClick = viewModel::dismissFailedVoice) { Text("Dismiss") }
+                        }
+                    }
+                    s.failedPhotos?.let { batch ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (batch.paths.size == 1) "Couldn't send the photo." else "Couldn't send the photos.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                            TextButton(onClick = viewModel::retryFailedPhotos) { Text("Retry") }
+                            TextButton(onClick = viewModel::dismissFailedPhotos) { Text("Dismiss") }
                         }
                     }
                     s.failedPhoto?.let {
@@ -805,6 +828,12 @@ private fun MessageItem(
                 val big = 20.dp; val small = 6.dp
                 val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (pos.joinsOlder) small else big, bottomEnd = small, bottomStart = big)
                 else RoundedCornerShape(topStart = if (pos.joinsOlder) small else big, topEnd = big, bottomEnd = big, bottomStart = small)
+                // A message that starts with photos lets them fill the bubble edge to edge. With no caption the time and ticks
+                // sit on the photo itself (like a photo gallery), otherwise they stay under the text.
+                val photosList = m.photos
+                val mediaFirst = photosList.isNotEmpty() && m.voice == null && m.replyTo == null && !m.forwarded
+                val mediaOnly = mediaFirst && m.text.isBlank() && m.linkPreview == null
+                val showTick = mine && (pos.isLast || m.status == MessageStatus.Sending)
                 Surface(
                     shape = shape,
                     color = if (mine) colors.primary else colors.surfaceContainerHigh,
@@ -821,7 +850,11 @@ private fun MessageItem(
                             )
                         },
                 ) {
-                    Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Column(
+                        // Edge-to-edge: the bubble is as wide as its photos, and a caption or time below lines up with that width.
+                        Modifier.then(if (mediaFirst) Modifier.width(IntrinsicSize.Max) else Modifier)
+                            .padding(if (mediaFirst) PaddingValues(3.dp) else PaddingValues(horizontal = 14.dp, vertical = 8.dp)),
+                    ) {
                         m.replyTo?.let { r ->
                             val barColor = if (mine) colors.onPrimary else colors.primary
                             Row(
@@ -838,41 +871,45 @@ private fun MessageItem(
                             }
                         }
                         if (m.forwarded) Text("Forwarded", style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f).padding(bottom = 2.dp))
-                        val photos = m.photos
+                        val photos = photosList
                         val uploading = m.status == MessageStatus.Sending
-                        if (photos.size == 1) {
-                            ChatPhoto(photos[0], onOpen = { onOpenPhoto(photos[0]) }, knownRatio = m.imageRatio, sending = uploading, progress = uploadProgress)
-                            Spacer(Modifier.height(4.dp))
-                        } else if (photos.size > 1) {
-                            // Several photos: a tidy grid of equal tiles, two to a row.
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                photos.chunked(2).forEach { pair ->
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        pair.forEach { p -> ChatPhoto(p, onOpen = { onOpenPhoto(p) }, square = true, sending = uploading) }
+                        if (photos.isNotEmpty()) {
+                            Box {
+                                if (photos.size == 1) {
+                                    ChatPhoto(
+                                        photos[0], onOpen = { onOpenPhoto(photos[0]) }, knownRatio = m.imageRatio, sending = uploading, progress = uploadProgress,
+                                        shape = if (mediaFirst) RoundedCornerShape(17.dp) else PostMediaShape, bordered = !mediaFirst,
+                                    )
+                                } else {
+                                    // Several photos (at most four): a tidy grid of equal tiles, two to a row.
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        photos.chunked(2).forEach { pair ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                pair.forEach { p -> ChatPhoto(p, onOpen = { onOpenPhoto(p) }, square = true, sending = uploading, shape = if (mediaFirst) RoundedCornerShape(12.dp) else PostMediaShape, bordered = !mediaFirst) }
+                                            }
+                                        }
                                     }
                                 }
+                                if (mediaOnly) {
+                                    MessageMeta(
+                                        m, showTick, showReceipts, tint = Color.White, strength = 1f,
+                                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
+                                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 7.dp, vertical = 3.dp),
+                                    )
+                                }
                             }
-                            Spacer(Modifier.height(4.dp))
+                            if (!mediaFirst) Spacer(Modifier.height(4.dp))
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         m.eventId?.let { id -> com.univibe.app.features.events.SharedEventCard(id) }
-                        if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
-                        m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }
-                        Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f))
-                            // One status tick per run of messages (on the last), unless a message is still sending.
-                            if (mine && (pos.isLast || m.status == MessageStatus.Sending)) {
-                                Spacer(Modifier.width(4.dp))
-                                val seen = showReceipts && m.status == MessageStatus.Seen
-                                // Sent: one tick. Delivered or seen: two. Seen is also full strength, and TalkBack says which.
-                                val delivered = m.status == MessageStatus.Delivered || m.status == MessageStatus.Seen
-                                Icon(
-                                    imageVector = when { m.status == MessageStatus.Sending -> VibeIcons.Clock; delivered -> VibeIcons.DoubleCheck; else -> VibeIcons.Check },
-                                    contentDescription = when { m.status == MessageStatus.Sending -> "Sending"; seen -> "Seen"; delivered -> "Delivered"; else -> "Sent" },
-                                    modifier = Modifier.size(14.dp).alpha(if (seen) 1f else 0.8f),
-                                )
-                            }
+                        val tail: @Composable ColumnScope.() -> Unit = {
+                            if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
+                            m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }
+                            MessageMeta(m, showTick, showReceipts, Modifier.align(Alignment.End))
                         }
+                        if (mediaOnly) Unit
+                        else if (mediaFirst) Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 4.dp)) { tail() }
+                        else tail()
                     }
                 }
                 if (m.reactions.isNotEmpty()) {
@@ -896,6 +933,27 @@ private fun MessageItem(
                     }
                 }
             }
+        }
+    }
+}
+
+/** The time (and "edited"), plus the delivery tick on your own last message. [tint] and [strength] let it sit on a photo in white. */
+@Composable
+private fun MessageMeta(m: Message, showTick: Boolean, showReceipts: Boolean, modifier: Modifier = Modifier, tint: Color = LocalContentColor.current, strength: Float = 0.8f) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, color = tint, modifier = Modifier.alpha(strength))
+        // One status tick per run of messages (on the last), unless a message is still sending.
+        if (showTick) {
+            Spacer(Modifier.width(4.dp))
+            val seen = showReceipts && m.status == MessageStatus.Seen
+            // Sent: one tick. Delivered or seen: two. Seen is also full strength, and TalkBack says which.
+            val delivered = m.status == MessageStatus.Delivered || m.status == MessageStatus.Seen
+            Icon(
+                imageVector = when { m.status == MessageStatus.Sending -> VibeIcons.Clock; delivered -> VibeIcons.DoubleCheck; else -> VibeIcons.Check },
+                contentDescription = when { m.status == MessageStatus.Sending -> "Sending"; seen -> "Seen"; delivered -> "Delivered"; else -> "Sent" },
+                tint = tint,
+                modifier = Modifier.size(14.dp).alpha(if (seen) 1f else strength),
+            )
         }
     }
 }

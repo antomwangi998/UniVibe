@@ -219,6 +219,11 @@ interface MessageRepository {
     fun typing(chatId: String): Flow<Boolean>
     /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
     suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
+    /** Sends up to [MAX_MESSAGE_PHOTOS] photos in one message, with an optional caption. */
+    suspend fun sendPhotos(chatId: String, text: String, imagePaths: List<String>, replyTo: ReplyRef? = null) {
+        if (imagePaths.size > 1) throw UnsupportedOperationException("Sending several photos isn't available.")
+        send(chatId, text, imagePaths.firstOrNull(), replyTo)
+    }
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
     suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")
@@ -302,3 +307,6 @@ interface CommunityRepository {
     /** Posts addressed to this community. Private communities only show them to members. */
     suspend fun getPosts(id: String): List<com.univibe.app.data.model.Post>
 }
+
+/** The server accepts at most this many photos in one message. */
+const val MAX_MESSAGE_PHOTOS = 4

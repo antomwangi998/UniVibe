@@ -285,6 +285,31 @@ class RemoteMessageRepository(
         }
     }
 
+    override suspend fun sendPhotos(chatId: String, text: String, imagePaths: List<String>, replyTo: ReplyRef?) {
+        if (imagePaths.size <= 1) return send(chatId, text, imagePaths.firstOrNull(), replyTo)
+        val paths = imagePaths.take(MAX_MESSAGE_PHOTOS)
+        val clean = text.trim()
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sending, imagePath = paths[0], imagePaths = paths, replyTo = replyTo)
+        s.messages.update { it + local }
+        try {
+            val up = uploader ?: throw IllegalStateException("Photos aren't available right now.")
+            val mediaIds = JSONArray()
+            for (p in paths) mediaIds.put(up.upload(p, "image", "message", tag = local.id)) // one after another, in the order picked
+            val body = JSONObject().put("content", clean).put("clientId", clientId).put("mediaIds", mediaIds)
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            synchronized(s) { s.localPhotos[sent.getString("id")] = paths[0] } // the first one shows instantly from the phone
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
     private fun queueText(chatId: String, clientId: String, content: String, replyTo: ReplyRef?): Boolean {
         val data = JSONObject().put("chatId", chatId).put("clientId", clientId).put("content", content)
         replyTo?.let { data.put("reply", JSONObject().put("messageId", it.messageId).put("senderName", it.senderName).put("preview", it.preview)) }

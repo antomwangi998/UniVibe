@@ -34,6 +34,7 @@ export interface MessageView {
   story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
   /** A shared event. Only the id travels in the message; each reader's app asks for the event itself, so people who may not see it get "not available". */
   eventId: string | null;
+  linkPreview: { url: string; host: string; title: string | null; description: string | null; siteName: string | null; imageUrl: string | null; imageWidth: number | null; imageHeight: number | null } | null;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
   myReaction?: string | null;
@@ -99,6 +100,13 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       forwarded: Boolean(r.forwarded),
       story: !deleted && r.story_kind ? { id: (r.story_id as string | null) ?? null, kind: r.story_kind as 'photo' | 'video' | 'text', available: Boolean(r.story_live) } : null,
       eventId: deleted ? null : (r.event_id as string | null) ?? null,
+      // Shown only while the stored address is still the first one in the text (an edit can change it).
+      linkPreview: (() => {
+        const p = deleted ? undefined : previewOf.get(r.id as string);
+        return p && firstLink(r.content as string) === p.url
+          ? { url: p.url, host: p.host, title: p.title, description: p.description, siteName: p.site_name, imageUrl: previewImage.get(p.message_id) ?? null, imageWidth: p.image_width, imageHeight: p.image_height }
+          : null;
+      })(),
       reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
       ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
