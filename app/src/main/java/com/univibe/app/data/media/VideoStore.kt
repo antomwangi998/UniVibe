@@ -1,6 +1,7 @@
 package com.univibe.app.data.media
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import com.univibe.app.data.model.PostLimits
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,19 @@ object VideoStore {
             } ?: false
         }.getOrDefault(false)
         if (ok) file.absolutePath else { file.delete(); null }
+    }
+
+    /** Length of a stored video in milliseconds, or null when it cannot be read. */
+    suspend fun durationMs(path: String): Int? = withContext(Dispatchers.IO) {
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(path)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+            } finally {
+                retriever.release()
+            }
+        }.getOrNull()
     }
 
     fun delete(path: String?) {
