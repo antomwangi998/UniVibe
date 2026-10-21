@@ -88,6 +88,8 @@ private val AvatarSize = 52.dp
 fun ChatsScreen(
     onOpenChat: (String) -> Unit = {},
     onNewGroup: () -> Unit = {},
+    /** Opens the Story composer (camera button next to "New group"). */
+    onAddStory: () -> Unit = {},
     /** Opens the Story viewer for a person. While this is null Stories are not shown at all (no rings, no Story-only people). */
     onOpenStory: ((authorId: String) -> Unit)? = null,
     viewModel: ChatsViewModel = viewModel(),
@@ -111,7 +113,10 @@ fun ChatsScreen(
     LaunchedEffect(notes.notice) { notes.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); notesViewModel.consumeNotice() } }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Chats", actions = { VibeIconButton(VibeIcons.PersonAdd, "New group", onNewGroup) })
+        VibeTopBar("Chats", actions = {
+            VibeIconButton(VibeIcons.Camera, "Add to your story", onAddStory)
+            VibeIconButton(VibeIcons.PersonAdd, "New group", onNewGroup)
+        })
         VibeTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,

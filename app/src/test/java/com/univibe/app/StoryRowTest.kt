@@ -61,6 +61,7 @@ class StoryRowViewModelTest {
     }
 
     private class FakeStories(var tray: List<StoryTrayEntry> = emptyList()) : StoryRepository {
+        override suspend fun publish(draft: com.univibe.app.data.repository.StoryDraft): String = "story-1"
         var fail = false
         var loads = 0
         val events = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
