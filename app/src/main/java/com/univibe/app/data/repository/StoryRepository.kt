@@ -28,6 +28,13 @@ interface StoryRepository {
     /** Publishes a Story (uploading its photo first when it has one). Returns the new Story's id. Safe to retry: [StoryDraft.clientId] makes a repeat return the first Story. */
     suspend fun publish(draft: StoryDraft): String
 
+    /**
+     * Sends a Story's photo or video to storage and returns its media id. [onProgress] gets 0..1. Kept apart from
+     * [publish] so a failed publish can be retried without sending the file again.
+     */
+    suspend fun uploadStoryMedia(path: String, video: Boolean, durationMs: Int?, onProgress: (Float) -> Unit = {}): String =
+        throw IOException("Stories need a connection to the UniVibe server.")
+
     /** One person's active Stories, oldest first, with fresh media links. Throws [com.univibe.app.data.net.ApiException] (404) when there is nothing this student may see. */
     suspend fun stories(authorId: String): List<StoryItem> = throw IOException("Stories need a connection to the UniVibe server.")
     /** Records that I watched a Story. Safe to repeat; the server counts one view per person. */
@@ -48,18 +55,24 @@ interface StoryRepository {
 
 const val STORY_TEXT_MAX = 280
 const val STORY_CAPTION_MAX = 140
+/** The server refuses longer video Stories. */
+const val STORY_VIDEO_MAX_MS = 30_000
 val STORY_BACKGROUNDS = listOf("teal", "indigo", "rose", "amber", "slate")
 
-/** What the composer hands over. Photo Story: [photoPath] + optional [caption]. Text Story: [text] + [background]. */
+/** What the composer hands over. Photo or video Story: [photoPath] or [videoPath] + optional [caption]. Text Story: [text] + [background]. */
 data class StoryDraft(
     val photoPath: String? = null,
+    val videoPath: String? = null,
+    val videoDurationMs: Int? = null,
+    /** The file's media id when an earlier attempt already uploaded it, so a retry does not send it again. */
+    val mediaId: String? = null,
     val caption: String = "",
     val text: String = "",
     val background: String = "teal",
     val audience: String = "campus",
     val clientId: String,
 ) {
-    val isPhoto get() = photoPath != null
+    val kind get() = when { videoPath != null -> "video"; photoPath != null -> "photo"; else -> "text" }
 }
 
 /** Used only in the offline preview build: no invented Stories. */
@@ -82,14 +95,19 @@ class RemoteStoryRepository(
 
     override suspend fun publish(draft: StoryDraft): String {
         val body = JSONObject().put("audience", draft.audience).put("clientId", draft.clientId)
-        if (draft.photoPath != null) {
-            val uploader = media ?: throw IOException("Stories need a connection to the UniVibe server.")
-            body.put("kind", "photo").put("mediaId", uploader.upload(draft.photoPath, "image", "story"))
+        if (draft.kind != "text") {
+            val mediaId = draft.mediaId ?: uploadStoryMedia(draft.videoPath ?: draft.photoPath!!, draft.kind == "video", draft.videoDurationMs)
+            body.put("kind", draft.kind).put("mediaId", mediaId)
             draft.caption.trim().takeIf { it.isNotEmpty() }?.let { body.put("caption", it) }
         } else {
             body.put("kind", "text").put("text", draft.text.trim()).put("background", draft.background)
         }
         return JSONObject(api.send("POST", "/api/v1/stories", body, setOf(200, 201))).getString("id")
+    }
+
+    override suspend fun uploadStoryMedia(path: String, video: Boolean, durationMs: Int?, onProgress: (Float) -> Unit): String {
+        val uploader = media ?: throw IOException("Stories need a connection to the UniVibe server.")
+        return uploader.upload(path, if (video) "video" else "image", "story", durationMs = durationMs, onProgress = onProgress)
     }
 
     override suspend fun stories(authorId: String): List<StoryItem> =

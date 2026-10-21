@@ -106,6 +106,7 @@ class MediaUploader(private val api: AuthedApi, private val files: FileUploader)
         if (kind == "document") request.put("fileName", fileName ?: file.name)
         if (kind != "audio" && kind != "document") MediaDimensions.read(file, kind)?.let { (w, h) -> request.put("width", w).put("height", h) }
         if (kind == "audio") request.put("durationMs", durationMs ?: throw IOException("The recording has no length"))
+        if (kind == "video" && purpose == "story") request.put("durationMs", durationMs ?: throw IOException("The video has no length"))
         // Bar heights for the voice message's waveform; optional, the server accepts up to 64 values of 0..100.
         if (kind == "audio" && !waveform.isNullOrEmpty()) request.put("waveform", JSONArray(waveform.take(64).map { it.coerceIn(0, 100) }))
         val created = JSONObject(api.send("POST", "/media/uploads", request, setOf(201)))
