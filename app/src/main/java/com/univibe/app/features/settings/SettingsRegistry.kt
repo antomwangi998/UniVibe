@@ -31,6 +31,8 @@ object SettingsCategories {
     const val DATA = "Data & storage"
     const val STATUS = "Account status"
     const val HELP = "Help & support"
+    const val CAMPUS = "Campus & community"
+    const val LEGAL = "Legal & About"
 }
 
 object SettingsRegistry {
@@ -43,6 +45,8 @@ object SettingsRegistry {
         e("edit-profile", "Edit profile", "Photo, bio, course and interests", AppRoutes.EDIT_PROFILE, SettingsCategories.ACCOUNT, "Edit profile", keywords = listOf("bio", "photo", "avatar", "interests", "course")),
         e("password", "Change password", "Choose a new password; other devices are logged out", SettingsRoutes.PASSWORD, SettingsCategories.ACCOUNT, "Change password", keywords = listOf("passcode", "credentials")),
         e("delete", "Delete account", "Permanently delete your account and content", SettingsRoutes.DELETE, SettingsCategories.ACCOUNT, "Delete account", keywords = listOf("remove account", "close account", "erase")),
+        e("deactivate", "Deactivate account", "Hide your account without deleting it; log in again to bring it back", SettingsRoutes.DEACTIVATE, SettingsCategories.ACCOUNT, "Deactivate account", keywords = listOf("hide account", "pause account", "take a break", "temporarily", "disable")),
+        e("data-export", "Download your data", "Get a copy of your own data as a file", SettingsRoutes.DATA_EXPORT, SettingsCategories.ACCOUNT, "Download your data", keywords = listOf("export", "download my information", "copy of my data", "my data", "archive", "gdpr")),
         // Security
         e("security", "Security", "Password and where you are logged in", SettingsRoutes.SECURITY, SettingsCategories.SECURITY, keywords = listOf("protect")),
         e("login-activity", "Login activity", "See your logged-in devices and log out the others", SettingsRoutes.LOGIN_ACTIVITY, SettingsCategories.SECURITY, "Login activity",
@@ -83,6 +87,14 @@ object SettingsRegistry {
         e("high-contrast", "High contrast", "Stronger secondary text and borders", SettingsRoutes.ACCESSIBILITY_DISPLAY, SettingsCategories.ACCESSIBILITY, "Text and display", "High contrast", keywords = listOf("contrast", "low vision", "readability")),
         e("reduce-motion", "Reduce motion", "Fewer animations", SettingsRoutes.ACCESSIBILITY_MOTION, SettingsCategories.ACCESSIBILITY, "Motion", "Reduce motion", keywords = listOf("animations", "transitions")),
         e("haptics", "Haptic feedback", "Vibration on long-press and swipe to reply", SettingsRoutes.ACCESSIBILITY_INTERACTION, SettingsCategories.ACCESSIBILITY, "Touch and haptics", "Haptic feedback", keywords = listOf("vibration", "vibrate", "touch feedback")),
+        // Campus & community
+        e("campus", "Campus & community", "Your campus, default feed and communities", SettingsRoutes.CAMPUS, SettingsCategories.CAMPUS, keywords = listOf("university", "college", "students")),
+        e("campus-identity", "Campus identity", "Your university and verified student status", SettingsRoutes.CAMPUS_IDENTITY, SettingsCategories.CAMPUS, "Campus identity", keywords = listOf("university", "verified student", "verification", "change campus")),
+        e("default-feed", "Default feed", "Choose whether Home opens on Campus or Following", SettingsRoutes.DEFAULT_FEED, SettingsCategories.CAMPUS, "Default feed", keywords = listOf("home feed", "following feed", "campus feed", "timeline")),
+        e("course-year", "Course and year", "Set your course and year of study", AppRoutes.EDIT_PROFILE, SettingsCategories.CAMPUS, "Course and year", keywords = listOf("academic", "study", "major")),
+        e("communities", "Communities", "Find, join and manage your communities", AppRoutes.COMMUNITIES, SettingsCategories.CAMPUS, "Communities", keywords = listOf("clubs", "societies", "groups")),
+        // Legal & About
+        e("legal", "Legal & About", "Terms, privacy policy and app version", SettingsRoutes.LEGAL, SettingsCategories.LEGAL, keywords = listOf("version", "build", "licenses", "licences")),
         // Permissions
         e("permissions", "Permissions", "What UniVibe is allowed to do on your phone", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, keywords = listOf("allow", "access", "android settings")),
         e("perm-notifications", "Notification permission", "Allow or block alerts from UniVibe", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Notifications", keywords = listOf("notifications blocked", "turn on notifications")),
@@ -98,9 +110,9 @@ object SettingsRegistry {
         e("faq", "Frequently asked questions", "Quick answers", SettingsRoutes.FAQ, SettingsCategories.HELP, "FAQ", keywords = listOf("questions", "how do i")),
         e("report", "Report a problem", "Tell us about a bug or a problem", SettingsRoutes.REPORT, SettingsCategories.HELP, "Report a problem", keywords = listOf("bug", "feedback", "issue")),
         e("guidelines", "Community guidelines", "What's okay on UniVibe", SettingsRoutes.GUIDELINES, SettingsCategories.HELP, "Community guidelines", keywords = listOf("rules")),
-        e("terms", "Terms of Service", "Read the rules for using UniVibe", SettingsRoutes.TERMS, SettingsCategories.HELP, "Terms of Service", keywords = listOf("terms", "terms and conditions", "legal", "agreement", "tos", "policy")),
-        e("privacy-policy", "Privacy Policy", "How UniVibe uses and protects your data", SettingsRoutes.PRIVACY_POLICY, SettingsCategories.HELP, "Privacy Policy", keywords = listOf("privacy policy", "data protection", "personal data", "legal", "my data")),
-        e("about", "About UniVibe", "Version and information", SettingsRoutes.ABOUT, SettingsCategories.HELP, "About UniVibe", keywords = listOf("version", "build", "legal")),
+        e("terms", "Terms of Service", "Read the rules for using UniVibe", SettingsRoutes.TERMS, SettingsCategories.LEGAL, "Terms of Service", keywords = listOf("terms", "terms and conditions", "legal", "agreement", "tos", "policy")),
+        e("privacy-policy", "Privacy Policy", "How UniVibe uses and protects your data", SettingsRoutes.PRIVACY_POLICY, SettingsCategories.LEGAL, "Privacy Policy", keywords = listOf("privacy policy", "data protection", "personal data", "legal", "my data")),
+        e("about", "About UniVibe", "Version and information", SettingsRoutes.ABOUT, SettingsCategories.LEGAL, "About UniVibe", keywords = listOf("version", "build", "legal")),
     )
 
     /** Entries whose [SettingsEntry.path] starts with [category], in registry order. */

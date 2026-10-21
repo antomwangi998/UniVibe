@@ -95,6 +95,8 @@ export function registerGoogleAuthRoutes(app: FastifyInstance, ctx: GoogleAuthCo
   }
 
   async function authenticated(user: UserRow, label: string) {
+    // Logging in again brings a deactivated account back.
+    await run('update users set deactivated_at = null where id = $1 and deactivated_at is not null', [user.id]);
     const session = await ctx.createSession(run, user.id, undefined, label);
     return { status: 'authenticated', ...session, user: await ctx.toUser(user) };
   }

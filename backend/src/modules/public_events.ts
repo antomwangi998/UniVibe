@@ -24,7 +24,7 @@ async function previewRow(ctx: Pick<Ctx, 'pool'>, rawId: string, withCoverKey: b
     `select e.title, left(e.description, 160) as description, e.starts_at, e.ends_at, e.event_type, e.venue_name, cv.object_key as cover_key
        from events e join users o on o.id = e.organizer_id left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
       where e.id = $1 and e.visibility = 'public' and e.status = 'published' and e.hidden_at is null and e.ends_at > now()
-        and (o.suspended_until is null or o.suspended_until <= now())`, [id.data]);
+        and (o.suspended_until is null or o.suspended_until <= now()) and o.deactivated_at is null`, [id.data]);
   const r = rows[0];
   if (!r) return null;
   return {

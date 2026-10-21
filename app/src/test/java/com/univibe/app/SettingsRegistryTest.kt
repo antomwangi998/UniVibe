@@ -81,6 +81,24 @@ class SettingsRegistryTest {
         assertEquals(SettingsRoutes.ACCESSIBILITY_INTERACTION, SettingsSearch.search("vibration").first().route)
     }
 
+    @Test fun campusAndLegalControlsOpenTheirOwnScreen() {
+        assertEquals(SettingsRoutes.CAMPUS_IDENTITY, SettingsSearch.search("verified student").first().route)
+        assertEquals(SettingsRoutes.DEFAULT_FEED, SettingsSearch.search("default feed").first().route)
+        assertEquals(SettingsRoutes.LEGAL, SettingsSearch.search("legal").first().route)
+        val terms = SettingsSearch.search("terms of service").first()
+        assertEquals(listOf(SettingsCategories.LEGAL, "Terms of Service"), terms.path)
+        assertEquals(SettingsRoutes.TERMS, terms.route)
+    }
+
+    @Test fun accountControlsAreDistinctAndReachable() {
+        assertEquals(SettingsRoutes.DEACTIVATE, SettingsSearch.search("deactivate").first().route)
+        assertEquals(SettingsRoutes.DEACTIVATE, SettingsSearch.search("take a break").first().route)
+        assertEquals(SettingsRoutes.DATA_EXPORT, SettingsSearch.search("download my information").first().route)
+        assertEquals(SettingsRoutes.DELETE, SettingsSearch.search("delete account").first().route)
+        // Deactivating and deleting are different actions on different screens.
+        assertTrue(SettingsRoutes.DEACTIVATE != SettingsRoutes.DELETE)
+    }
+
     @Test fun nestedPrivacyRoutesSitUnderTheirParents() {
         assertTrue(SettingsRoutes.READ_RECEIPTS.startsWith(SettingsRoutes.PRIVACY_MESSAGES + "/"))
         assertTrue(SettingsRoutes.MESSAGE_POLICY.startsWith(SettingsRoutes.PRIVACY_MESSAGES + "/"))

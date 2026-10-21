@@ -83,6 +83,10 @@ import com.univibe.app.features.events.EventsScreen
 import com.univibe.app.features.home.HomeScreen
 import com.univibe.app.features.profile.ProfileScreen
 import com.univibe.app.features.settings.AboutScreen
+import com.univibe.app.features.settings.CampusIdentityScreen
+import com.univibe.app.features.settings.CampusScreen
+import com.univibe.app.features.settings.DefaultFeedScreen
+import com.univibe.app.features.settings.LegalScreen
 import com.univibe.app.features.settings.AccessibilityDisplayScreen
 import com.univibe.app.features.settings.AccessibilityScreen
 import com.univibe.app.features.settings.AccountScreen
@@ -94,7 +98,9 @@ import com.univibe.app.features.settings.TextSizeScreen
 import com.univibe.app.features.settings.ThemeScreen
 import com.univibe.app.features.settings.TouchAndHapticsScreen
 import com.univibe.app.features.settings.LoginActivityScreen
+import com.univibe.app.features.settings.DataExportScreen
 import com.univibe.app.features.settings.DataStorageScreen
+import com.univibe.app.features.settings.DeactivateAccountScreen
 import com.univibe.app.features.settings.MessagingSettingsScreen
 import com.univibe.app.features.settings.MutedConversationsScreen
 import com.univibe.app.features.settings.PermissionsScreen
@@ -439,7 +445,10 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         SettingsScreen(onBack = back, onNavigate = open, onLogOut = onLogOut)
                     }
                     subScreen(SettingsRoutes.ACCOUNT) {
-                        AccountScreen(onBack = back, onChangePassword = { open(SettingsRoutes.PASSWORD) }, onDelete = { open(SettingsRoutes.DELETE) })
+                        AccountScreen(
+                            onBack = back, onChangePassword = { open(SettingsRoutes.PASSWORD) }, onDelete = { open(SettingsRoutes.DELETE) },
+                            onDeactivate = { open(SettingsRoutes.DEACTIVATE) }, onExport = { open(SettingsRoutes.DATA_EXPORT) },
+                        )
                     }
                     subScreen(SettingsRoutes.PASSWORD) { ChangePasswordScreen(onBack = back) }
                     subScreen(SettingsRoutes.SECURITY) {
@@ -467,6 +476,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(SettingsRoutes.APPEARANCE_FONT) { FontScreen(onBack = back) }
                     subScreen(SettingsRoutes.STATUS) { AccountStatusScreen(onBack = back, onGuidelines = { open(SettingsRoutes.GUIDELINES) }) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DEACTIVATE) { DeactivateAccountScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DATA_EXPORT) { DataExportScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY) {
                         PrivacyScreen(
                             onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) },
@@ -521,10 +532,13 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         HelpScreen(
                             onBack = back,
                             onFaq = { open(SettingsRoutes.FAQ) }, onReport = { open(SettingsRoutes.REPORT) },
-                            onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onAbout = { open(SettingsRoutes.ABOUT) },
-                            onTerms = { open(SettingsRoutes.TERMS) }, onPrivacyPolicy = { open(SettingsRoutes.PRIVACY_POLICY) },
+                            onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onLegal = { open(SettingsRoutes.LEGAL) },
                         )
                     }
+                    subScreen(SettingsRoutes.LEGAL) { LegalScreen(onBack = back, onNavigate = open) }
+                    subScreen(SettingsRoutes.CAMPUS) { CampusScreen(onBack = back, onNavigate = open) }
+                    subScreen(SettingsRoutes.CAMPUS_IDENTITY) { CampusIdentityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DEFAULT_FEED) { DefaultFeedScreen(onBack = back) }
                     subScreen(SettingsRoutes.FAQ) { FaqScreen(onBack = back) }
                     subScreen(SettingsRoutes.TERMS) { TermsScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY_POLICY) { PrivacyPolicyScreen(onBack = back) }

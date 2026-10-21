@@ -175,4 +175,14 @@ class MockAuthRepositoryTest {
         assertEquals(AuthState.SignedOut(), r.session.value)
         assertEquals(AuthError.InvalidCredentials, failure(r.logIn(email, pw, false)))
     }
+
+    @Test fun deactivatingNeedsThePasswordSignsOutAndKeepsTheAccount() = runTest {
+        val r = repo(); r.registerAndVerify(); r.completeOnboarding(profile)
+        assertEquals(AuthError.InvalidCredentials, failure(r.deactivateAccount("WrongPass1!")))
+        assertTrue(r.session.value is AuthState.Authenticated)
+        assertTrue(r.deactivateAccount(pw) is AuthResult.Success)
+        assertEquals(AuthState.SignedOut(), r.session.value)
+        // Unlike deletion, the account is still there and logging in works.
+        assertTrue(r.logIn(email, pw, false) is AuthResult.Success)
+    }
 }

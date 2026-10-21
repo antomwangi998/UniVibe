@@ -387,6 +387,46 @@ class RemoteAuthRepositoryTest {
         assertNull(store.get(REFRESH_KEY))
     }
 
+    @Test fun deactivatingSignsOutAndForgetsTheSessionOnThisPhone() = runTest {
+        val (repo, transport, store) = create { request ->
+            if (request.url.endsWith("/auth/login")) ok(sessionJson(onboarded = true)) else HttpResponse(204, "")
+        }
+        repo.signedIn()
+        assertTrue(repo.deactivateAccount("correct-horse-9") is AuthResult.Success)
+        assertEquals(AuthState.SignedOut(), repo.session.value)
+        assertNull(store.get(REFRESH_KEY))
+        assertTrue(transport.requests.any { it.url.endsWith("/me/deactivate") })
+    }
+
+    @Test fun aWrongPasswordWhenDeactivatingKeepsYouSignedIn() = runTest {
+        val (repo) = create { request ->
+            if (request.url.endsWith("/auth/login")) ok(sessionJson(onboarded = true)) else errorResponse(401, "invalid_credentials")
+        }
+        repo.signedIn()
+        assertEquals(AuthError.InvalidCredentials, failureOf(repo.deactivateAccount("wrong-password-1")))
+        assertTrue(repo.session.value is AuthState.Authenticated)
+    }
+
+    @Test fun exportReturnsTheServersJsonAndKeepsTheSession() = runTest {
+        val (repo, transport) = create { request ->
+            if (request.url.endsWith("/auth/login")) ok(sessionJson(onboarded = true))
+            else if (request.url.endsWith("/me/export")) ok("{\"format\":1}") else HttpResponse(204, "")
+        }
+        repo.signedIn()
+        val r = repo.exportMyData()
+        assertEquals("{\"format\":1}", (r as AuthResult.Success).value)
+        assertTrue(repo.session.value is AuthState.Authenticated)
+        assertTrue(transport.requests.any { it.url.endsWith("/me/export") })
+    }
+
+    @Test fun exportFailureIsReportedNotInvented() = runTest {
+        val (repo) = create { request ->
+            if (request.url.endsWith("/auth/login")) ok(sessionJson(onboarded = true)) else errorResponse(429, "rate_limited", retryAfter = 600)
+        }
+        repo.signedIn()
+        assertTrue(failureOf(repo.exportMyData()) is AuthError.RateLimited)
+    }
+
     @Test fun logOutTellsTheServerAndClearsEverything() = runTest {
         val (repo, transport, store) = create { request ->
             if (request.url.endsWith("/auth/login")) ok(sessionJson(onboarded = true)) else HttpResponse(204, "")

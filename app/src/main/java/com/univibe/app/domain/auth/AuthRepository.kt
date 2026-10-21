@@ -43,6 +43,13 @@ interface AuthRepository {
     suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit>
     /** Permanently deletes the account after re-checking the password. */
     suspend fun deleteAccount(password: String): AuthResult<Unit>
+    /**
+     * Hides the account from other students without deleting anything, after re-checking the password. The server ends
+     * every login, this one included, so success leaves the person signed out. Logging in again restores the account.
+     */
+    suspend fun deactivateAccount(password: String): AuthResult<Unit> = AuthResult.Failure(AuthError.ServiceUnavailable)
+    /** The server's JSON copy of the person's own data. Only a real backend has one to give. */
+    suspend fun exportMyData(): AuthResult<String> = AuthResult.Failure(AuthError.ServiceUnavailable)
     /** Called by the network layer when the server rejects the access/refresh token. */
     suspend fun handleSessionExpired()
     suspend fun logOut()

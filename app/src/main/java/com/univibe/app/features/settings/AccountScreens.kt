@@ -43,6 +43,8 @@ fun AccountScreen(
     onBack: () -> Unit,
     onChangePassword: () -> Unit,
     onDelete: () -> Unit,
+    onDeactivate: () -> Unit,
+    onExport: () -> Unit,
     viewModel: SettingsViewModel = viewModel(),
 ) {
     val user by viewModel.user.collectAsStateWithLifecycle()
@@ -72,7 +74,14 @@ fun AccountScreen(
             SettingsGroup {
                 SettingsNavRow(VibeIcons.Lock, "Change password", onChangePassword)
                 RowDivider()
-                SettingsNavRow(VibeIcons.Delete, "Delete account", onDelete, destructive = true)
+                SettingsNavRow(VibeIcons.Archive, "Download your data", onExport, subtitle = "A copy of your own data as a file")
+            }
+        }
+        item {
+            SettingsGroup {
+                SettingsNavRow(VibeIcons.Visibility, "Deactivate account", onDeactivate, subtitle = "Hide your account; log in again to bring it back")
+                RowDivider()
+                SettingsNavRow(VibeIcons.Delete, "Delete account", onDelete, destructive = true, subtitle = "Permanently remove your account and data")
             }
         }
         item {
