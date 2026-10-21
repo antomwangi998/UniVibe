@@ -71,6 +71,8 @@ data class Post(
     /** Set when the post was published in a community; the author and the community stay distinct. */
     val community: PostCommunity? = null,
     val announcement: Boolean = false,
+    /** Someone shared this event into a community (as opposed to the organizer's own announcement). Shown in the community's posts. */
+    val sharedEvent: Boolean = false,
     /**
      * Set when the post announces an event. It is the event's CURRENT state, from the same server data as the Events tab and
      * the details screen, so a cancellation or RSVP shows up here too. The text of such a post is empty.
@@ -183,6 +185,12 @@ data class CampusEvent(
     val saved: Boolean = false,
     /** Why Discover recommends it ("From a community you joined"), from a real ranking signal; null elsewhere. */
     val reason: String? = null,
+    /** Counts changes that matter for a calendar entry (time, place, format, link). Compared with the version added to the calendar. */
+    val revision: Int = 0,
+    /** Hidden by moderators. Only the organizer still sees the event, and is told. */
+    val hidden: Boolean = false,
+    /** Whether reminders for this event are on for you. Null unless you are going. */
+    val remindersOn: Boolean? = null,
 ) {
     /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
     val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
@@ -196,6 +204,18 @@ data class CampusEvent(
 }
 
 enum class EventStatus { Upcoming, Live, Ended, Cancelled }
+
+/** A short announcement the organizer posted on an event. */
+data class EventUpdate(val id: String, val body: String, val createdAtMillis: Long)
+
+/** One line of the organizer's activity log. Moderator actions show without who or why. */
+data class EventActivity(val id: Long, val action: String, val actorName: String?, val atMillis: Long, val fields: List<String> = emptyList())
+
+/** Links for an event. [webUrl] is null when the server has no public address; [publicPreview] says whether the link shows a preview to non-members. */
+data class EventLink(val appLink: String, val webUrl: String?, val publicPreview: Boolean)
+
+/** Where an event can be shared inside the app. */
+enum class ShareTarget(val wire: String) { Chat("chat"), Community("community") }
 
 /** Ended events stay visible under Past for a week (photos, memories, deep links), then are deleted with their RSVPs. */
 const val EVENT_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
@@ -327,6 +347,8 @@ data class EventDetails(
     val registrationDeadlineMillis: Long? = null,
     val externalUrl: String? = null,
     val categoryCode: String = "",
+    /** The organizer's user id, used to report them. Null where the source has none. */
+    val organizerId: String? = null,
 ) {
     /** Full for everyone except people who already hold a place. */
     val isFull: Boolean
@@ -395,6 +417,8 @@ data class Message(
     val edited: Boolean = false,
     /** Title and description of the first web address in the text, read by the server; null until ready. */
     val linkPreview: LinkPreview? = null,
+    /** A shared event. Only the id travels in the message; the card is loaded for this reader, who may not be allowed to see it. */
+    val eventId: String? = null,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }

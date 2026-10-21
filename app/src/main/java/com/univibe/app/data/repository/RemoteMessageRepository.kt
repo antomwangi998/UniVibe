@@ -439,6 +439,7 @@ class RemoteMessageRepository(
             myReaction = o.strOrNull("myReaction")?.let(::reactionOf),
             forwarded = o.optBoolean("forwarded", false),
             edited = !o.isNull("editedAt"),
+            eventId = o.strOrNull("eventId"),
             linkPreview = o.optJSONObject("linkPreview")?.let { l ->
                 l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
                     ?.let { u ->

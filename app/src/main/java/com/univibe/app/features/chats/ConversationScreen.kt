@@ -855,6 +855,7 @@ private fun MessageItem(
                             Spacer(Modifier.height(4.dp))
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
+                        m.eventId?.let { id -> com.univibe.app.features.events.SharedEventCard(id) }
                         if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
                         m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }
                         Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {

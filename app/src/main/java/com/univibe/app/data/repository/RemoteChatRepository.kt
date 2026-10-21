@@ -178,7 +178,7 @@ class RemoteChatRepository(
             LastKind.Deleted -> "Message deleted"
             LastKind.Voice -> "Voice message"
             LastKind.Photo -> text ?: if (photos > 1) "$photos photos" else "Photo"
-            LastKind.Text -> text ?: ""
+            LastKind.Text -> text ?: if (last?.optBoolean("hasEvent", false) == true) "Event" else ""
         }
         val memberArr = o.optJSONArray("members")
         val members = buildList {

@@ -22,7 +22,7 @@ const reportSchema = z.object({
 }).strict();
 const reviewSchema = z.object({ status: z.enum(['under_review', 'dismissed']), note: z.string().trim().max(500).default('') }).strict();
 const actionSchema = z.object({
-  action: z.enum(['remove_content', 'restore_content', 'suspend_user', 'unsuspend_user']),
+  action: z.enum(['remove_content', 'restore_content', 'suspend_user', 'unsuspend_user', 'hide_event', 'restore_event']),
   note: z.string().trim().max(500).default(''),
   /** Shown to the person the action is about, in Settings → Account status. `note` stays internal. */
   userMessage: z.string().trim().max(300).default(''),
@@ -172,6 +172,17 @@ export function moderationRoutes(ctx: Ctx) {
           if (!res.rowCount) throw new HttpError(404, 'not_found', 'That content no longer exists.');
           await record(type, targetId);
           await audit(client, me.id, b.action, type, targetId, { reportId: id });
+        } else if (b.action === 'hide_event' || b.action === 'restore_event') {
+          // A hidden event vanishes for everyone but its organizer (see eventVisible); its feed post goes with it.
+          if (type !== 'event') throw new HttpError(422, 'validation', 'Only events can be hidden or restored this way.');
+          const hide = b.action === 'hide_event';
+          const res = await client.query(
+            `update events set hidden_at = ${hide ? 'now()' : 'null'}, hidden_by = ${hide ? '$2::uuid' : 'null'}, updated_at = now() where id = $1 and university_id = $3`,
+            [targetId, me.id, me.universityId]);
+          if (!res.rowCount) throw new HttpError(404, 'not_found', 'That event no longer exists.');
+          await record('event', targetId);
+          await client.query("insert into event_audit (event_id, actor_id, action) values ($1, $2, $3)", [targetId, me.id, hide ? 'hide' : 'restore']);
+          await audit(client, me.id, b.action, 'event', targetId, { reportId: id });
         } else {
           const owner = await ownerOf(client, type, targetId);
           if (!owner) throw new HttpError(404, 'not_found', 'That person no longer exists.');

@@ -58,3 +58,6 @@ or `termux-open-url "univibe://events"`.
   and `android:autoVerify="true"`. Add them once you own a domain.
 - Email verification / password-reset links can reuse the same mechanism (see docs/AUTH_BACKEND.md).
 - Ids in links are untrusted input: screens look them up and show a "not found" state for unknown ids.
+
+## Event share links (stage 6)
+`univibe://events/{id}` opens the event (already supported). The web link `<PUBLIC_BASE_URL>/e/{id}` is served by the backend as a page with an "Open in UniVibe" button that uses the app link. Android App Links (opening the https link straight in the app) are NOT set up: they need a verified domain and an `assetlinks.json`, so for now the web page is the bridge.

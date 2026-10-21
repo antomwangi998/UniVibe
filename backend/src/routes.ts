@@ -33,7 +33,7 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(groupRoutes(ctx, hub));
     await app.register(chatExtraRoutes(ctx, hub));
     await app.register(wsRoutes(ctx, hub));
-    await app.register(eventRoutes(ctx));
+    await app.register(eventRoutes(ctx, hub));
     await app.register(moderationRoutes(ctx));
     await app.register(searchRoutes(ctx));
     await app.register(sessionRoutes(ctx));

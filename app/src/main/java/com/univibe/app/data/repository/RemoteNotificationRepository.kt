@@ -88,6 +88,7 @@ class RemoteNotificationRepository(
                     "confirmed" -> "registration confirmed"
                     "registrations" -> if (meta.optBoolean("full", false)) "is now full" else "has ${meta.optInt("count", 0)} registered"
                     "community_event" -> "is a new event in your community"
+                    "update" -> meta.optString("preview").ifBlank { "has a new update" }
                     else -> "was updated"
                 }
                 Shape(NotificationType.Event, what, NotificationTarget.Event(entityId))

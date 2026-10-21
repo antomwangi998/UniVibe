@@ -291,11 +291,13 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
 
                     subScreen(AppRoutes.CHAT, stringArgs("chatId")) { entry ->
-                        ConversationScreen(
-                            chatId = entry.arg("chatId"), onBack = back,
-                            onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
-                            onOpenStudent = { open(AppRoutes.student(it)) },
-                        )
+                        androidx.compose.runtime.CompositionLocalProvider(com.univibe.app.features.events.LocalOpenEvent provides { open(AppRoutes.event(it)) }) {
+                            ConversationScreen(
+                                chatId = entry.arg("chatId"), onBack = back,
+                                onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
+                                onOpenStudent = { open(AppRoutes.student(it)) },
+                            )
+                        }
                     }
                     subScreen(AppRoutes.GROUP_NEW) {
                         NewGroupScreen(
@@ -386,6 +388,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onPost = { PostComposeHandoff.communityId = communityId; open(AppRoutes.CREATE_POST) },
                             onOpenComments = { open(AppRoutes.comments(it)) },
                             onOpenStudent = { open(AppRoutes.student(it)) },
+                            onOpenEvent = { open(AppRoutes.event(it)) },
                         )
                     }
                     subScreen(AppRoutes.COMMUNITY_NEW) {
