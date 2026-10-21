@@ -195,7 +195,7 @@ private fun StoryCard(story: MyStory, onOpen: () -> Unit, onViewers: () -> Unit,
                 }
             }
             Box {
-                VibeIconButton(VibeIcons.More, "More options for this story") { menu = true }
+                VibeIconButton(VibeIcons.More, "More options for this story", onClick = { menu = true })
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("Open") }, onClick = { menu = false; onOpen() })
                     DropdownMenuItem(text = { Text("See viewers") }, onClick = { menu = false; onViewers() })
