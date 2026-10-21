@@ -29,7 +29,16 @@ fun AppFont.family(): FontFamily = when (this) {
 private fun style(family: FontFamily, weight: FontWeight, size: Int, line: Int) =
     TextStyle(fontFamily = family, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp)
 
-fun uniVibeTypography(family: FontFamily): Typography = Typography(
+/** Bold text: one step heavier. Poppins ships Regular, Medium and Bold, so Normal becomes Medium and Medium becomes SemiBold. */
+internal fun TextStyle.heavier(): TextStyle = copy(
+    fontWeight = when (fontWeight) {
+        FontWeight.Normal -> FontWeight.Medium
+        FontWeight.Medium -> FontWeight.SemiBold
+        else -> fontWeight
+    },
+)
+
+fun uniVibeTypography(family: FontFamily, boldText: Boolean = false): Typography = Typography(
     displaySmall = style(family, FontWeight.Bold, 34, 42),
     headlineMedium = style(family, FontWeight.Bold, 30, 38),
     headlineSmall = style(family, FontWeight.SemiBold, 24, 32),
@@ -42,6 +51,13 @@ fun uniVibeTypography(family: FontFamily): Typography = Typography(
     labelLarge = style(family, FontWeight.Medium, 15, 22),
     labelMedium = style(family, FontWeight.Medium, 13, 18),
     labelSmall = style(family, FontWeight.Medium, 12, 16),
+).let { if (boldText) it.heavier() else it }
+
+private fun Typography.heavier() = copy(
+    displaySmall = displaySmall.heavier(), headlineMedium = headlineMedium.heavier(), headlineSmall = headlineSmall.heavier(),
+    titleLarge = titleLarge.heavier(), titleMedium = titleMedium.heavier(), titleSmall = titleSmall.heavier(),
+    bodyLarge = bodyLarge.heavier(), bodyMedium = bodyMedium.heavier(), bodySmall = bodySmall.heavier(),
+    labelLarge = labelLarge.heavier(), labelMedium = labelMedium.heavier(), labelSmall = labelSmall.heavier(),
 )
 
 val UniVibeTypography = uniVibeTypography(UniVibeFont)

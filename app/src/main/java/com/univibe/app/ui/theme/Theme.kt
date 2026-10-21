@@ -1,6 +1,7 @@
 package com.univibe.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -73,15 +74,26 @@ private val DarkColors = darkColorScheme(
     surfaceContainerHighest = Color(0xFF232B37),
 )
 
+/**
+ * Settings → Accessibility → High contrast. Secondary text and borders get stronger; the brand teal, backgrounds and
+ * surfaces are untouched. Every pair below clears WCAG AAA (7:1) for text and 3:1 for borders on its surfaces.
+ */
+fun ColorScheme.withHighContrast(darkTheme: Boolean): ColorScheme =
+    if (darkTheme) copy(onSurfaceVariant = Color(0xFFCBD5E1), outline = Color(0xFFA8B3C2), outlineVariant = Color(0xFF7B8798))
+    else copy(onSurfaceVariant = Color(0xFF334155), outline = Color(0xFF475569), outlineVariant = Color(0xFF64748B))
+
 @Composable
 fun UniVibeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     appFont: AppFont = AppFont.UniVibe,
+    boldText: Boolean = false,
+    highContrast: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val base = if (darkTheme) DarkColors else LightColors
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = remember(appFont) { uniVibeTypography(appFont.family()) },
+        colorScheme = if (highContrast) remember(darkTheme) { base.withHighContrast(darkTheme) } else base,
+        typography = remember(appFont, boldText) { uniVibeTypography(appFont.family(), boldText) },
         shapes = UniVibeShapes,
         content = content,
     )

@@ -9,7 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Density
 import com.univibe.app.ui.components.LocalCommunityMembership
 import com.univibe.app.ui.components.LocalReduceMotion
@@ -45,15 +48,22 @@ fun UniVibeApp(appViewModel: AppViewModel = viewModel()) {
 
     val context = LocalContext.current
     val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
     val reduceMotion = remember(settings.reduceMotion) { settings.reduceMotion || systemAnimationsOff(context) }
 
     CompositionLocalProvider(
         LocalDensity provides Density(density.density, (density.fontScale * settings.textScale.factor).coerceAtMost(2f)),
         LocalReduceMotion provides reduceMotion,
+        LocalHapticFeedback provides if (settings.hapticFeedback) haptics else NoHaptics,
         LocalCommunityMembership provides AppContainer.communityMembership,
     ) {
-        UniVibeTheme(darkTheme = darkTheme, appFont = settings.font) {
+        UniVibeTheme(darkTheme = darkTheme, appFont = settings.font, boldText = settings.boldText, highContrast = settings.highContrast) {
             AuthGate(themeMode = themeMode, onThemeModeChange = appViewModel::setThemeMode)
         }
     }
+}
+
+/** Provided in place of the system haptics when the person turns haptic feedback off, so every call site goes quiet at once. */
+private object NoHaptics : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
 }

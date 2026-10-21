@@ -83,10 +83,16 @@ import com.univibe.app.features.events.EventsScreen
 import com.univibe.app.features.home.HomeScreen
 import com.univibe.app.features.profile.ProfileScreen
 import com.univibe.app.features.settings.AboutScreen
+import com.univibe.app.features.settings.AccessibilityDisplayScreen
 import com.univibe.app.features.settings.AccessibilityScreen
 import com.univibe.app.features.settings.AccountScreen
 import com.univibe.app.features.settings.AccountStatusScreen
 import com.univibe.app.features.settings.AppearanceScreen
+import com.univibe.app.features.settings.FontScreen
+import com.univibe.app.features.settings.MotionScreen
+import com.univibe.app.features.settings.TextSizeScreen
+import com.univibe.app.features.settings.ThemeScreen
+import com.univibe.app.features.settings.TouchAndHapticsScreen
 import com.univibe.app.features.settings.LoginActivityScreen
 import com.univibe.app.features.settings.DataStorageScreen
 import com.univibe.app.features.settings.MessagingSettingsScreen
@@ -99,9 +105,18 @@ import com.univibe.app.features.settings.DeleteAccountScreen
 import com.univibe.app.features.settings.FaqScreen
 import com.univibe.app.features.settings.GuidelinesScreen
 import com.univibe.app.features.settings.HelpScreen
+import com.univibe.app.features.settings.EventNoticesScreen
+import com.univibe.app.features.settings.NotificationActivityScreen
 import com.univibe.app.features.settings.NotificationsScreen
+import com.univibe.app.features.settings.PhoneAlertsScreen
+import com.univibe.app.features.settings.QuietHoursScreen
 import com.univibe.app.features.settings.DiscoverProfileScreen
+import com.univibe.app.features.settings.ActivityStatusScreen
+import com.univibe.app.features.settings.MessagePolicyScreen
+import com.univibe.app.features.settings.PrivacyMessagesScreen
 import com.univibe.app.features.settings.PrivacyScreen
+import com.univibe.app.features.settings.PrivacyVisibilityScreen
+import com.univibe.app.features.settings.ReadReceiptsScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
 import com.univibe.app.features.settings.SettingsScreen
@@ -422,25 +437,73 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(SettingsRoutes.DATA_STORAGE) { DataStorageScreen(onBack = back) }
                     subScreen(SettingsRoutes.MESSAGING) {
                         MessagingSettingsScreen(
-                            onBack = back, onPrivacy = { open(SettingsRoutes.PRIVACY) },
+                            onBack = back, onPrivacy = { open(SettingsRoutes.PRIVACY_MESSAGES) },
                             onMuted = { open(SettingsRoutes.MUTED_CHATS) }, onBlocked = { open(SettingsRoutes.BLOCKED) },
                         )
                     }
                     subScreen(SettingsRoutes.MUTED_CHATS) { MutedConversationsScreen(onBack = back) }
-                    subScreen(SettingsRoutes.APPEARANCE) { AppearanceScreen(themeMode, onThemeModeChange, onBack = back) }
+                    subScreen(SettingsRoutes.APPEARANCE) {
+                        AppearanceScreen(
+                            themeMode = themeMode, onBack = back,
+                            onTheme = { open(SettingsRoutes.APPEARANCE_THEME) },
+                            onFont = { open(SettingsRoutes.APPEARANCE_FONT) },
+                            onTextSize = { open(SettingsRoutes.ACCESSIBILITY_TEXT_SIZE) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.APPEARANCE_THEME) { ThemeScreen(themeMode, onThemeModeChange, onBack = back) }
+                    subScreen(SettingsRoutes.APPEARANCE_FONT) { FontScreen(onBack = back) }
                     subScreen(SettingsRoutes.STATUS) { AccountStatusScreen(onBack = back, onGuidelines = { open(SettingsRoutes.GUIDELINES) }) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY) {
                         PrivacyScreen(
                             onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) },
-                            onDiscoverProfile = { open(SettingsRoutes.DISCOVER_PROFILE) },
+                            onVisibility = { open(SettingsRoutes.PRIVACY_VISIBILITY) },
+                            onMessages = { open(SettingsRoutes.PRIVACY_MESSAGES) },
+                            onActivityStatus = { open(SettingsRoutes.ACTIVITY_STATUS) },
                         )
                     }
+                    subScreen(SettingsRoutes.PRIVACY_VISIBILITY) {
+                        PrivacyVisibilityScreen(onBack = back, onDiscoverProfile = { open(SettingsRoutes.DISCOVER_PROFILE) })
+                    }
+                    subScreen(SettingsRoutes.PRIVACY_MESSAGES) {
+                        PrivacyMessagesScreen(
+                            onBack = back, onWhoCanMessage = { open(SettingsRoutes.MESSAGE_POLICY) },
+                            onReadReceipts = { open(SettingsRoutes.READ_RECEIPTS) }, onBlocked = { open(SettingsRoutes.BLOCKED) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.MESSAGE_POLICY) { MessagePolicyScreen(onBack = back) }
+                    subScreen(SettingsRoutes.READ_RECEIPTS) { ReadReceiptsScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACTIVITY_STATUS) { ActivityStatusScreen(onBack = back) }
                     subScreen(SettingsRoutes.DISCOVER_PROFILE) { DiscoverProfileScreen(onBack = back) }
                     subScreen(SettingsRoutes.BLOCKED) { BlockedUsersScreen(onBack = back) }
                     subScreen(SettingsRoutes.SAFETY) { SafetyScreen(onBack = back) }
-                    subScreen(SettingsRoutes.NOTIFICATIONS) { NotificationsScreen(onBack = back) }
-                    subScreen(SettingsRoutes.ACCESSIBILITY) { AccessibilityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS) {
+                        NotificationsScreen(
+                            onBack = back,
+                            onPhoneAlerts = { open(SettingsRoutes.NOTIFICATIONS_PUSH) },
+                            onActivity = { open(SettingsRoutes.NOTIFICATIONS_ACTIVITY) },
+                            onEventNotices = { open(SettingsRoutes.NOTIFICATIONS_EVENTS) },
+                            onQuietHours = { open(SettingsRoutes.NOTIFICATIONS_QUIET) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_PUSH) { PhoneAlertsScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_ACTIVITY) { NotificationActivityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_EVENTS) { EventNoticesScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_QUIET) { QuietHoursScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACCESSIBILITY) {
+                        AccessibilityScreen(
+                            onBack = back,
+                            onDisplay = { open(SettingsRoutes.ACCESSIBILITY_DISPLAY) },
+                            onMotion = { open(SettingsRoutes.ACCESSIBILITY_MOTION) },
+                            onInteraction = { open(SettingsRoutes.ACCESSIBILITY_INTERACTION) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_DISPLAY) {
+                        AccessibilityDisplayScreen(onBack = back, onTextSize = { open(SettingsRoutes.ACCESSIBILITY_TEXT_SIZE) })
+                    }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_TEXT_SIZE) { TextSizeScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_MOTION) { MotionScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_INTERACTION) { TouchAndHapticsScreen(onBack = back) }
                     subScreen(SettingsRoutes.HELP) {
                         HelpScreen(
                             onBack = back,
