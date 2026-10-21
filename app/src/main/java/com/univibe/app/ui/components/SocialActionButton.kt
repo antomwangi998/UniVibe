@@ -119,7 +119,7 @@ private fun AnimatedActionCount(count: Int, color: Color) {
         },
         label = "actionCount",
     ) { value ->
-        Text(value.toString(), style = MaterialTheme.typography.labelLarge, color = color)
+        Text(compactCount(value), style = MaterialTheme.typography.labelLarge, color = color)
     }
 }
 
@@ -137,6 +137,30 @@ fun AnimatedLikeButton(liked: Boolean, count: Int, onClick: () -> Unit, modifier
         selected = liked,
         popOnSelect = true,
     )
+}
+
+/** Repost toggle. Outline when off, brand teal when on. */
+@Composable
+fun AnimatedRepostButton(reposted: Boolean, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    SocialActionButton(
+        icon = VibeIcons.Repost,
+        contentDescription = if (reposted) "Undo repost, $count reposts" else "Repost, $count reposts",
+        onClick = onClick,
+        modifier = modifier,
+        count = count,
+        tint = if (reposted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        enabled = enabled,
+        selected = reposted,
+        popOnSelect = true,
+    )
+}
+
+/** 1,200 shows as 1.2K, 3,400,000 as 3.4M, so a count never pushes its neighbours around. */
+fun compactCount(n: Int): String = when {
+    n < 1_000 -> n.toString()
+    n < 10_000 -> "${n / 1_000}.${(n % 1_000) / 100}K".replace(".0K", "K")
+    n < 1_000_000 -> "${n / 1_000}K"
+    else -> "${n / 1_000_000}.${(n % 1_000_000) / 100_000}M".replace(".0M", "M")
 }
 
 /** Bookmark toggle. Outline when off, solid brand-colored when saved. */

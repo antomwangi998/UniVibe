@@ -130,6 +130,7 @@ object AppContainer {
         (feedRepository as? RemoteFeedRepository)?.let { r ->
             outboxRunner.register("like") { r.deliverQueued(it) }
             outboxRunner.register("save") { r.deliverQueued(it) }
+            outboxRunner.register("repost") { r.deliverQueued(it) }
         }
         (messageRepository as? RemoteMessageRepository)?.let { r -> outboxRunner.register("message") { r.deliverQueued(it) } }
         runCatching {

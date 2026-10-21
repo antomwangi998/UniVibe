@@ -38,6 +38,7 @@ import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostLimits
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.model.StudentProfile
@@ -73,6 +74,10 @@ interface FeedRepository {
     suspend fun getStories(): List<Student>
     suspend fun setLiked(postId: String, liked: Boolean)
     suspend fun setSaved(postId: String, saved: Boolean)
+    /** Reposts (or un-reposts) a post. One repost per student; repeating a request changes nothing. */
+    suspend fun setReposted(postId: String, reposted: Boolean)
+    /** Tells the server which posts this student has looked at. The server counts each student once per post. */
+    suspend fun recordViews(postIds: List<String>)
     /** Sends a report to moderators. */
     suspend fun reportPost(postId: String, reason: String)
     /** Server must validate length/content; returns the stored post. */
@@ -82,6 +87,8 @@ interface FeedRepository {
         imagePath: String? = null,
         videoPath: String? = null,
         pollOptions: List<String> = emptyList(),
+        /** How long the poll stays open, in hours (1 to 72). Ignored without poll options. */
+        pollHours: Int = PostLimits.DEFAULT_POLL_HOURS,
     ): Post
     /**
      * Creates a post with attached photos and an audience. The server must validate text length, photo count/size/type

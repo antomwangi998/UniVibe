@@ -224,6 +224,13 @@ class SavedPostsViewModel(
         viewModelScope.launch { runCatching { repository.setLiked(id, liked) } }
     }
 
+    fun toggleRepost(id: String) {
+        val post = _state.value.posts.firstOrNull { it.id == id } ?: return
+        val now = !post.repostedByMe
+        _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) else it }) }
+        viewModelScope.launch { runCatching { repository.setReposted(id, now) } }
+    }
+
     fun noteShared(id: String) {
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(shareCount = it.shareCount + 1) else it }) }
         viewModelScope.launch { runCatching { repository.recordShare(id) } }
