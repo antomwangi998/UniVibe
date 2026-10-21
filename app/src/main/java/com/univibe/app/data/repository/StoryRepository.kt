@@ -1,6 +1,9 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.model.MyStory
 import com.univibe.app.data.model.StoryItem
+import com.univibe.app.data.model.StoryViewer
+import com.univibe.app.data.model.StoryViewersPage
 import com.univibe.app.data.model.StoryKind
 import com.univibe.app.data.model.StoryTrayEntry
 import com.univibe.app.data.net.AuthedApi
@@ -34,6 +37,13 @@ interface StoryRepository {
     /** Sends a reply as an ordinary chat message to the author. [clientId] makes a retry safe. */
     suspend fun reply(storyId: String, text: String, clientId: String): Unit = throw IOException("Stories need a connection to the UniVibe server.")
     suspend fun delete(storyId: String): Unit = throw IOException("Stories need a connection to the UniVibe server.")
+
+    /** My own active Stories, newest first, with view counts and reaction totals. */
+    suspend fun myStories(): List<MyStory> = throw IOException("Stories need a connection to the UniVibe server.")
+    /** Who watched one of my Stories, newest first. Only the author can ask. */
+    suspend fun viewers(storyId: String, cursor: String? = null): StoryViewersPage = throw IOException("Stories need a connection to the UniVibe server.")
+    /** Changes who can see one of my active Stories: "campus" or "followers". */
+    suspend fun setAudience(storyId: String, audience: String): Unit = throw IOException("Stories need a connection to the UniVibe server.")
 }
 
 const val STORY_TEXT_MAX = 280
@@ -101,6 +111,55 @@ class RemoteStoryRepository(
     override suspend fun delete(storyId: String) {
         api.send("DELETE", "/api/v1/stories/$storyId", ok = setOf(200, 204))
     }
+
+    override suspend fun myStories(): List<MyStory> = parseMyStories(api.send("GET", "/api/v1/me/stories"))
+
+    override suspend fun viewers(storyId: String, cursor: String?): StoryViewersPage {
+        val query = if (cursor == null) "" else "?cursor=" + java.net.URLEncoder.encode(cursor, "UTF-8")
+        return parseStoryViewers(api.send("GET", "/api/v1/stories/$storyId/viewers$query"))
+    }
+
+    override suspend fun setAudience(storyId: String, audience: String) {
+        api.send("PATCH", "/api/v1/stories/$storyId", JSONObject().put("audience", audience))
+    }
+}
+
+fun parseMyStories(body: String): List<MyStory> {
+    val root = JSONObject(body)
+    val raw = root.getJSONArray("items")
+    val parsed = parseStoryItems(body)
+    // parseStoryItems skips unknown kinds, so match each parsed item back to its raw row by id.
+    val rawById = (0 until raw.length()).associateBy({ raw.getJSONObject(it).getString("id") }, { raw.getJSONObject(it) })
+    return parsed.mapNotNull { item ->
+        val o = rawById[item.id] ?: return@mapNotNull null
+        val reactions = o.optJSONObject("reactions")
+        MyStory(
+            item = item,
+            audience = o.optString("audience", "campus"),
+            expiresAtMs = Instant.parse(o.getString("expiresAt")).toEpochMilli(),
+            viewCount = o.optInt("viewCount", 0),
+            reactions = reactions?.keys()?.asSequence()?.associateWith { reactions.optInt(it) }.orEmpty(),
+        )
+    }
+}
+
+fun parseStoryViewers(body: String): StoryViewersPage {
+    val root = JSONObject(body)
+    val items = root.getJSONArray("items")
+    return StoryViewersPage(
+        total = root.optInt("total", items.length()),
+        nextCursor = if (root.isNull("nextCursor")) null else root.optString("nextCursor").ifEmpty { null },
+        viewers = (0 until items.length()).map { i ->
+            val o = items.getJSONObject(i)
+            val v = o.getJSONObject("viewer")
+            StoryViewer(
+                id = v.getString("id"), name = v.getString("fullName"), handle = v.optString("handle"),
+                avatarUrl = if (v.isNull("avatarUrl")) null else v.optString("avatarUrl").ifEmpty { null },
+                viewedAtMs = Instant.parse(o.getString("viewedAt")).toEpochMilli(),
+                reaction = if (o.isNull("reaction")) null else o.optString("reaction").ifEmpty { null },
+            )
+        },
+    )
 }
 
 fun parseStoryItems(body: String): List<StoryItem> {

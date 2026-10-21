@@ -31,3 +31,16 @@ data class StoryItem(
     val viewedByMe: Boolean,
     val myReaction: String?,
 )
+
+/** One of my own active Stories, with what only its author sees: how many people watched and how they reacted. */
+data class MyStory(
+    val item: StoryItem,
+    val audience: String,
+    val expiresAtMs: Long,
+    val viewCount: Int,
+    val reactions: Map<String, Int>,
+)
+
+data class StoryViewer(val id: String, val name: String, val handle: String, val avatarUrl: String?, val viewedAtMs: Long, val reaction: String?)
+
+data class StoryViewersPage(val total: Int, val viewers: List<StoryViewer>, val nextCursor: String?)
