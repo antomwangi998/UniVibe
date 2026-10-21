@@ -39,6 +39,8 @@ data class EventDetailsUiState(
     val share: ShareState? = null,
     /** What the person is reporting (the event or its organizer), while the reason picker is open. */
     val reporting: ReportTarget? = null,
+    /** Moderators get a "Review as moderator" action. The server decides who that is. */
+    val moderator: Boolean = false,
 )
 
 enum class ReportTarget { Event, Organizer }
@@ -63,7 +65,10 @@ class EventDetailsViewModel(
     val supportsSharing: Boolean get() = repository.supportsOrganizerTools
     val supportsSaving: Boolean get() = repository.supportsSaved
 
-    init { load() }
+    init {
+        load()
+        if (repository.supportsOrganizerTools) viewModelScope.launch { val m = runCatching { repository.isModerator() }.getOrDefault(false); _state.update { it.copy(moderator = m) } }
+    }
 
     fun load() {
         viewModelScope.launch {

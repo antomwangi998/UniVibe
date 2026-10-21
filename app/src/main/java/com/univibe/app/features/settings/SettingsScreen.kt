@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import com.univibe.app.app.AppContainer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -119,6 +121,12 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Shield, "Privacy & safety", { onNavigate(SettingsRoutes.PRIVACY) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Bell, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
+                    // Only moderators ever see this row; the server decides who that is.
+                    val isModerator by produceState(false) { value = runCatching { AppContainer.eventRepository.isModerator() }.getOrDefault(false) }
+                    if (isModerator) {
+                        RowDivider()
+                        SettingsNavRow(VibeIcons.Shield, "Reported events", { onNavigate(com.univibe.app.navigation.AppRoutes.MODERATION_REPORTS) }, subtitle = "Moderators only")
+                    }
                     RowDivider()
                     SettingsNavRow(VibeIcons.Chats, "Messages", { onNavigate(SettingsRoutes.MESSAGING) })
                     RowDivider()

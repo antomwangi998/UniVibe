@@ -559,3 +559,15 @@ data class ProfileUpdate(
     val avatarPath: String?,
     val coverPath: String?,
 )
+
+/** A page of guests plus where the next page starts (null at the end). */
+data class AttendeePage(val items: List<EventAttendee>, val nextCursor: String?)
+
+/** An open report about an event, as moderators see it. */
+data class EventReportItem(val id: String, val eventId: String, val title: String, val reason: String, val details: String, val reportCount: Int, val createdAtMillis: Long)
+
+/** An event as a moderator sees it, including who runs it and how many people reported it. */
+data class ModeratorEvent(
+    val id: String, val title: String, val description: String, val venue: String, val status: String, val hidden: Boolean,
+    val reportCount: Int, val organizerName: String, val organizerHandle: String, val organizerSuspended: Boolean,
+)

@@ -96,3 +96,10 @@ All under `/api/v1` unless noted. Nothing here has been run yet (see EVENTS_PROG
 - Moderation: report actions `hide_event` and `restore_event` (on a report whose target is an event). A hidden event is invisible to everyone but its organizer, who sees `hidden: true`; its feed post, reminders and community announcement stop. The organizer sees the action in account status. `GET /moderation/events/:id` gives moderators the event, organizer and report count. Events of a suspended organizer are invisible to others while the suspension lasts. Organizers are reported with a normal user report.
 - Event JSON gains `revision` (bumps on changes to start, end, place, format or join link; wording edits do not) and `hidden`.
 - Chat messages gain `eventId`; the chat list's `lastMessage` gains `hasEvent`. Posts gain `sharedEvent`.
+
+### Moderator tools, guest list paging and public cover (follow-up to stage 7)
+- `GET /moderation/access` 200 for moderators and admins, 403 for everyone else. The app asks once to decide whether to show moderator tools.
+- `GET /moderation/reports?targetType=event` filters the queue by what was reported.
+- `POST /moderation/events/:id/hide` and `/restore` `{ note?, userMessage? }` act on an event directly, without a report. Hiding settles every open report about the event. Both are recorded in moderation actions, the audit logs and the event's own audit (shown to the organizer without who or why).
+- `GET /events/:id/attendees?limit&cursor` already returned `nextCursor`; the app now pages 50 at a time.
+- `GET /public/events/:id/cover` redirects (302) to a fresh 10-minute storage link for the cover of a PUBLIC, published, visible event, and is a plain 404 for anything else. The address never expires, so link-preview robots can keep it. `GET /e/:id` uses it as `og:image` when `PUBLIC_BASE_URL` is set. `GET /public/events/:id` gains `hasCover` (never the storage key).

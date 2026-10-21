@@ -2,7 +2,10 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventActivity
+import com.univibe.app.data.model.AttendeePage
 import com.univibe.app.data.model.EventAttendee
+import com.univibe.app.data.model.EventReportItem
+import com.univibe.app.data.model.ModeratorEvent
 import com.univibe.app.data.model.EventLink
 import com.univibe.app.data.model.EventUpdate
 import com.univibe.app.data.model.ShareTarget
@@ -184,7 +187,14 @@ interface EventRepository {
     /** The organizer's own unpublished events. */
     suspend fun myDrafts(): List<CampusEvent> = emptyList()
     /** Who is going. The organizer always sees it; others only when the organizer allows it and they are going. */
-    suspend fun attendees(eventId: String): List<EventAttendee> = emptyList()
+    suspend fun attendees(eventId: String, cursor: String? = null): AttendeePage = AttendeePage(emptyList(), null)
+
+    // ---- Moderator tools. Everyone else gets "no" from [isModerator] and never sees them.
+    suspend fun isModerator(): Boolean = false
+    suspend fun eventReports(): List<EventReportItem> = emptyList()
+    suspend fun moderatorEvent(id: String): ModeratorEvent? = null
+    /** Hides an event from everyone but its organizer, or brings it back. [userMessage] is shown to the organizer in Account status. */
+    suspend fun setEventHidden(id: String, hide: Boolean, note: String, userMessage: String) { throw UnsupportedOperationException("Not available.") }
     /** Organizer only: closes an event that has started. */
     suspend fun completeEvent(id: String) { throw UnsupportedOperationException("Not available yet.") }
     /** Turns reminders on or off for one event you are going to. */

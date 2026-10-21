@@ -73,4 +73,53 @@ describe.skipIf(!url)('events stage 7: drafts, early close, guest list, forwardi
     expect(fwd.status).toBe(422);
     expect(fwd.body.message).toContain('event page');
   });
+
+  it('moderator tools: access probe, report list filter, hide and restore without a report, public cover stays closed', async () => {
+    const org = await h.student();
+    const viewer = await h.student();
+    const mod = await h.student();
+    await pool.query("update users set role = 'moderator' where id = $1", [mod.id]);
+    expect((await call('GET', `${V1}/moderation/access`, viewer.token)).status).toBe(403);
+    expect((await call('GET', `${V1}/moderation/access`, mod.token)).status).toBe(200);
+
+    const e = await create(org.token);
+    await call('POST', `${V1}/reports`, viewer.token, { targetType: 'event', targetId: e.id, reason: 'spam', details: '' });
+    const queue = await call('GET', `${V1}/moderation/reports?targetType=event`, mod.token);
+    expect(queue.status).toBe(200);
+    expect(queue.body.items.every((r: { targetType: string }) => r.targetType === 'event')).toBe(true);
+    expect(queue.body.items.some((r: { targetId: string }) => r.targetId === e.id)).toBe(true);
+
+    expect((await call('POST', `${V1}/moderation/events/${e.id}/hide`, viewer.token, {})).status).toBe(403);
+    const hide = await call('POST', `${V1}/moderation/events/${e.id}/hide`, mod.token, { note: 'spam', userMessage: 'Your event was hidden.' });
+    expect(hide.status, JSON.stringify(hide.body)).toBe(200);
+    expect((await call('GET', `${V1}/events/${e.id}`, viewer.token)).status).toBe(404);
+    expect((await call('GET', `${V1}/moderation/reports?targetType=event`, mod.token)).body.items.some((r: { targetId: string }) => r.targetId === e.id)).toBe(false); // settled by the hide
+    expect((await call('GET', `/public/events/${e.id}/cover`, undefined)).status).toBe(404);
+    expect((await call('POST', `${V1}/moderation/events/${e.id}/restore`, mod.token, {})).status).toBe(200);
+    expect((await call('GET', `${V1}/events/${e.id}`, viewer.token)).status).toBe(200);
+  });
+
+  it('the public cover address answers 404 for events without a cover, private events and unknown ids', async () => {
+    const org = await h.student();
+    const noCover = await create(org.token);
+    const priv = await create(org.token, { visibility: 'university' });
+    expect((await call('GET', `/public/events/${noCover.id}/cover`, undefined)).status).toBe(404);
+    expect((await call('GET', `/public/events/${priv.id}/cover`, undefined)).status).toBe(404);
+    expect((await call('GET', `/public/events/not-an-id/cover`, undefined)).status).toBe(404);
+    const preview = await call('GET', `/public/events/${noCover.id}`, undefined);
+    expect(preview.body.hasCover).toBe(false);
+    expect(JSON.stringify(preview.body)).not.toMatch(/coverKey|object_key/);
+  });
+
+  it('the guest list pages with a cursor', async () => {
+    const org = await h.student();
+    const e = await create(org.token);
+    for (let i = 0; i < 3; i++) await call('POST', `${V1}/events/${e.id}/register`, (await h.student()).token);
+    const first = await call('GET', `${V1}/events/${e.id}/attendees?limit=2`, org.token);
+    expect(first.body.items).toHaveLength(2);
+    expect(first.body.nextCursor).toBeTruthy();
+    const second = await call('GET', `${V1}/events/${e.id}/attendees?limit=2&cursor=${encodeURIComponent(first.body.nextCursor)}`, org.token);
+    expect(second.body.items).toHaveLength(1);
+    expect(second.body.nextCursor).toBeNull();
+  });
 });

@@ -44,7 +44,8 @@ No waitlist, no invitations, no payments or free/paid filter, no location-based 
 Migration 033 (two indexes). Android: cover photo picker in the event form (optional; every card shows the event's colour when there is no cover), cover strip on events shared in chats, community posts and the community Events tab, drafts (Save as draft, a Drafts tab, Publish from the event page), Saved tab and bookmarks on cards and the event page, attendee list screen ("See who's going"; organizers also see who checked in), status now trusts the server's `phase` for "ended" and "live" (an event closed early shows as ended), forwarding an event message answers "Share events from the event page". Tests: `EventStage67Test.kt` (Android), `events-stage7.integration.test.ts` (backend, needs TEST_DATABASE_URL).
 Still open:
 - Nothing from stages 1 to 7 has been compiled or run. First: `npm run typecheck`, `TEST_DATABASE_URL=... npm test` in `backend/`, then `./gradlew testDebugUnitTest assembleDebug`.
-- The public web preview shows no cover photo: cover links are signed and expire, and link-preview robots cache them, so a stale image would show. Needs a stable public image address first.
-- Android moderator screen for hide and restore, and Android App Links for the https share link (needs a verified domain).
-- Attendee list loads the first 100 people only.
+- Android App Links for the https share link (needs a verified domain).
 - Uploading a cover uses the existing image rules (size limit, `purpose: event`); no cropping tool.
+
+### Follow-up: moderator screens, guest list paging, public cover (written, not run)
+Android: Settings shows "Reported events" to moderators only (the server decides, asked once via `/moderation/access`); a queue of open event reports; a review screen with Hide or Restore, an internal note and a message the organizer reads in Account status; event pages show "Review as moderator" to moderators. The guest list pages 50 at a time and keeps what is on screen if a page fails. Backend: direct hide and restore, queue filter by type, stable public cover address with `og:image` on the share page. Tests added to `events-stage7.integration.test.ts`. No Android test covers the new screens or paging yet.
