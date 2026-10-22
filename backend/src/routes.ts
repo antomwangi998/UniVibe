@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Ctx } from './context';
 import { communityRoutes } from './modules/communities';
+import { communityChannelRoutes } from './modules/community_channels';
 import { discoverRoutes } from './modules/discover';
 import { discoverFeedRoutes } from './modules/discover_feed';
 import { discoverEventRoutes } from './modules/discover_events';
@@ -40,6 +41,7 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(accountStatusRoutes(ctx));
     await app.register(notificationRoutes(ctx, hub));
     await app.register(communityRoutes(ctx, hub));
+    await app.register(communityChannelRoutes(ctx, hub));
     await app.register(noteRoutes(ctx, hub));
     await app.register(storyRoutes(ctx, hub));
   };

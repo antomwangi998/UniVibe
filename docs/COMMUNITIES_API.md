@@ -60,3 +60,54 @@ Types: `community_join_request`, `community_join_approved`, `community_join_decl
 - Android: avatar and cover upload in the create form, invitation inbox and invite UI, per-community notification-level picker, announcement toggle in the composer, moderator post-removal UI, Compose UI tests.
 - Backend: mention notifications for community posts, digests, a separate administrator tier, post-approval queue, Redis caching, Prometheus metrics.
 - Migration numbering: `022_communities.sql` and `022_google_identity.sql` share a prefix. The migrator tracks full file names, so both apply; do not rename either once deployed.
+
+## Discussion channels (migration 037)
+Code: `backend/src/modules/community_channels.ts` (routes), `channel_access.ts` (pure permission and message-shape rules, unit-tested in `test/channel-access.test.ts`). Integration tests: `test/community-channels.integration.test.ts`.
+
+### Model
+- Channel types: `text`, `announcement`, `qa`, `resources`, `media`. Each has real behaviour: announcements are staff-only and need a title; Q&A questions need a title and answers can be accepted; resources need a link or file; media posts need an attachment. The type cannot be changed after creation.
+- Channel settings (kept few on purpose): `viewRole` members|staff, `postRole` members|staff, `locked` (read-only for members), `repliesEnabled`, `allowAttachments`, archived. Staff = owner and moderators; there is no separate administrator tier yet.
+- Channel messages are their own rows, not Home Feed posts. They reuse: the media pipeline (upload with purpose `message`, photos and documents), the chat reaction vocabulary (heart, like, laugh, fire, sad; several different reactions per person, each kind once), `/reports`, the audit log, the job queue and `notify()`.
+- Every community gets `announcements` and `general` (backfilled by the migration, created on community create).
+- Channel content is **members only**, whatever the community's visibility. Non-members get 403 `not_a_member` on the channel list (404 for private communities) and 404 on every channel-level route, so a channel's existence is never confirmed.
+
+### Routes (under `/api/v1`)
+| Route | Who |
+|---|---|
+| `GET /communities/:id/channels` groups, visible channels, unread, pins, my permissions | active member |
+| `POST /communities/:id/channels`, `PATCH .../channels/:cid` (rename, settings, group, position, `archived`) | staff |
+| `DELETE .../channels/:cid` | owner only (moderators archive) |
+| `PUT /communities/:id/channel-order {groups, channels:[{id,groupId}]}` | staff |
+| `POST/PATCH/DELETE /communities/:id/channel-groups[/:gid]` | staff |
+| `GET .../channels/:cid/messages?limit&cursor` newest first; `?afterSeq=N` oldest-first catch-up (max 100, `hasMore`) | may view |
+| `POST .../messages {title?, content, clientId?, replyToId?, mediaIds?}` (idempotent per `clientId`) | `send` or `reply` |
+| `PATCH/DELETE .../messages/:mid` | author edits; author or staff deletes |
+| `GET .../messages/:mid/thread` root plus paged replies | may view |
+| `PUT/DELETE .../messages/:mid/reactions/:reaction` | `react` |
+| `PUT/DELETE .../messages/:mid/pin`, `GET .../pins` (max 20) | staff / may view |
+| `PUT/DELETE .../messages/:mid/accepted {answerId}` | Q&A: question author or staff |
+| `POST .../read {upToSeq?}` | may view |
+| `GET .../search?q&authorId&from&to&hasAttachments=true&pinned=true&cursor` | may view |
+
+Every request re-reads the caller's membership and role from the database. Nothing is trusted from the client. Permission flags in responses come from the same function that enforces them.
+
+### Behaviour worth knowing
+- Message numbers (`seq`) are per channel, assigned under the channel row lock, so `afterSeq` can never skip a late commit. `createdAt` is taken under the same lock.
+- Deleting keeps the row (tombstone): content, title, pin and files are erased, replies keep pointing at it and show "deleted". Files are queued in `storage_garbage`. Platform removal (`remove_content` on a `channel_message` report) sets status `removed` and is reversible.
+- Timelines of `qa` and `announcement` channels list top-level items only; answers and comments are fetched with the thread route. Answers belong to the question (no answer-to-answer).
+- Blocked pairs do not see each other's channel messages (history, thread, pins, search, reply previews, live events).
+- Announcement-channel posts enqueue `channel.announce`, which notifies active, unmuted members (type `community_channel_announcement`, entity `channel_message`, metadata `communityId, channelId, messageId`, honours the `communities` preference).
+
+### Real time
+Same WebSocket and `Hub` as chat. The hub is per user, not room based, so there is no "join room" step to bypass: on every event the server computes who may read the channel *at that moment* from the database and sends only to those connected people. Events: `channel:message`, `channel:message:updated` (edit, pin, accepted answer, reply count), `channel:message:deleted`, `channel:reaction {messageId,userId,reaction,active,reactions}`, `channel:changed {communityId,channelId|null,kind}` (ids only; re-read the list). Message payloads are viewer-neutral: the app derives "mine" from `userId` and its own state. Sockets are fire-and-forget; after a reconnect call `afterSeq` for new messages and refetch the visible page to pick up edits, pins and deletions.
+
+### Not built yet (deliberately)
+- Android: no channel settings screen beyond lock/archive and "New channel" (no rename, group editing, reordering or per-channel permission editor yet, although the server supports them), no document attachments in the composer (photos only; documents display fine), no accepted-answer control in the timeline (it is in the thread). The app reads `community_channel_announcement` notifications and opens the community.
+- Polls in channels (today's polls are single-choice and tied to `posts`), link previews in channel messages, typing and presence in channels, mentions, slow mode, per-member channel mutes, an administrator tier, per-channel role overrides.
+- Surfacing channel announcements in Home Feed or the Posts tab. Posts already have `is_announcement`; surfacing a channel announcement there needs a canonical reference (not a copy) and a product decision on which mechanism wins.
+- Multi-instance realtime: `Hub` is process memory (existing limitation).
+
+### Android (this change)
+- `data/model/ChannelModels.kt` (models and the pure list logic), `data/repository/ChannelRepository.kt` (REST and parsing; `UnavailableChannelRepository` for offline demo mode), `ChatSocket.kt` (new `ChatEvent.Channel*` events), `features/communities/ChannelViewModels.kt` and `ChannelScreens.kt`.
+- The community page has a **Discussions** tab (members only): channels by group with unread counts; staff get **New channel**. Tapping opens the conversation (`communities/{id}/channels/{cid}`), and a thread opens at `.../threads/{messageId}`.
+- Conversation: newest at the bottom, older pages load as you scroll up (list anchored at the bottom, so the position holds), messages show author, role badge, time and "edited", reply previews, reactions, attachments and pins. Send is optimistic with visible Sending / Failed / Retry states; retries reuse the same `clientId`, so a retry can never double-post. A read-only composer says why. Realtime events are merged by message id; on reconnect the app fetches everything after its last message number and refreshes the newest page. If the server stops listing the channel, refuses with 404/not_a_member/suspended, or the membership event says the student is out, the screen stops accepting input and shows "You can't open this channel".
