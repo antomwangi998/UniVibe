@@ -14,6 +14,7 @@ import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.GroupRepository
 import com.univibe.app.data.repository.MessageRepository
+import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -127,6 +128,7 @@ class ConversationViewModel(
     private val messages: MessageRepository = AppContainer.messageRepository,
     private val groups: GroupRepository = AppContainer.groupRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
+    private val privacy: PrivacyRepository = AppContainer.privacyRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ConversationUiState())
     val state: StateFlow<ConversationUiState> = _state.asStateFlow()
@@ -328,6 +330,54 @@ class ConversationViewModel(
         viewModelScope.launch {
             try { chats.setMuted(chatId, muted) }
             catch (e: Exception) { _state.update { it.copy(chat = it.chat?.copy(muted = !muted), notice = "Couldn't change notifications. Try again.") } }
+        }
+    }
+
+    /** Pins or unpins this conversation in the chat list; put back if the server says no. */
+    fun togglePin() {
+        val chat = _state.value.chat ?: return
+        val pinned = !chat.pinned
+        _state.update { it.copy(chat = chat.copy(pinned = pinned)) }
+        viewModelScope.launch {
+            try { chats.setPinned(chatId, pinned) }
+            catch (e: Exception) { _state.update { it.copy(chat = it.chat?.copy(pinned = !pinned), notice = if (pinned) "Couldn't pin the chat. Try again." else "Couldn't unpin the chat. Try again.") } }
+        }
+    }
+
+    /** Sets the "marked unread" flag, then [onDone] (the screen leaves, so opening the chat again does not undo it at once). */
+    fun markUnread(onDone: () -> Unit) {
+        viewModelScope.launch {
+            try { chats.markUnread(chatId); onDone() }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't mark as unread. Try again.") } }
+        }
+    }
+
+    fun archiveChat(onDone: () -> Unit) {
+        viewModelScope.launch {
+            try { chats.archive(chatId); onDone() }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't archive the chat. Try again.") } }
+        }
+    }
+
+    /** Hides the history for this person only. The other person keeps theirs. */
+    fun clearHistory() {
+        viewModelScope.launch {
+            try {
+                messages.clearChat(chatId)
+                latestMessages = emptyList(); publishMessages()
+                _state.update { it.copy(notice = "Chat cleared") }
+            } catch (e: Exception) { _state.update { it.copy(notice = "Couldn't clear the chat. Try again.") } }
+        }
+    }
+
+    /** 1:1 chats only. The block is the same one the profile menu makes, and can be undone in Settings. */
+    fun blockPerson(onDone: () -> Unit) {
+        val chat = _state.value.chat ?: return
+        val id = chat.studentId ?: return
+        viewModelScope.launch {
+            try { privacy.block(id, chat.title); onDone() }
+            catch (e: java.io.IOException) { _state.update { it.copy(notice = "Couldn't block ${chat.title}. Check your connection and try again.") } }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't block ${chat.title}. Try again.") } }
         }
     }
 

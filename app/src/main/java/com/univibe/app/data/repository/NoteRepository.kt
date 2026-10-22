@@ -25,6 +25,11 @@ interface NoteRepository {
     suspend fun publish(text: String, audience: NoteAudience): Note
     suspend fun deleteMine()
     suspend fun setMuted(userId: String, muted: Boolean)
+    /**
+     * Answers someone's Note as a chat message in my conversation with them. [clientId] makes a retry safe: the same
+     * reply sent twice arrives once.
+     */
+    suspend fun reply(authorId: String, text: String, clientId: String): Unit = throw IOException("Replying needs a connection to the UniVibe server.")
     /** Fires when the server says a Note changed, and after every reconnect (so missed events are reconciled). */
     fun changes(): Flow<Unit> = emptyFlow()
     /** Someone went online or offline (only for people who share their activity with me). */
@@ -80,6 +85,10 @@ class RemoteNoteRepository(
 
     override suspend fun setMuted(userId: String, muted: Boolean) {
         api.send(if (muted) "PUT" else "DELETE", "/api/v1/users/$userId/note-mute", ok = setOf(204, 200))
+    }
+
+    override suspend fun reply(authorId: String, text: String, clientId: String) {
+        api.send("POST", "/api/v1/users/$authorId/note/reply", JSONObject().put("content", text.trim()).put("clientId", clientId), setOf(200, 201))
     }
 }
 
