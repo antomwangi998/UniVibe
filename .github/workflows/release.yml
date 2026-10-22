@@ -1,0 +1,56 @@
+name: Release APK
+
+on:
+  push:
+    tags: [ 'v[0-9]+.[0-9]+.[0-9]+' ]   # git tag v0.1.7 && git push origin v0.1.7
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (MAJOR.MINOR.PATCH, e.g. 0.1.7)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Bad version: $VERSION"; exit 1; }
+          IFS=. read MA MI PA <<< "$VERSION"
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$((MA*10000 + MI*100 + PA))" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build fast APK
+        run: >
+          gradle assembleFast --stacktrace
+          -Punivibe.versionName=${{ steps.v.outputs.name }}
+          -Punivibe.versionCode=${{ steps.v.outputs.code }}
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.v.outputs.name }}"
+          cp app/build/outputs/apk/fast/*.apk "UniVibe-$TAG.apk"
+          gh release create "$TAG" "UniVibe-$TAG.apk" \
+            --target "${{ github.sha }}" --title "UniVibe $TAG" --generate-notes
