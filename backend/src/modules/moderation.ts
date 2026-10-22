@@ -11,7 +11,7 @@ import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard } from './cards';
 import { eventVisible } from './events';
 
 export const REPORT_REASONS = ['spam', 'harassment', 'hate', 'sexual', 'violence', 'self_harm', 'impersonation', 'misinformation', 'other'] as const;
-const TARGETS = ['user', 'post', 'comment', 'message', 'event', 'community', 'story'] as const;
+const TARGETS = ['user', 'post', 'comment', 'message', 'event', 'community', 'story', 'channel_message'] as const;
 const MAX_SUSPENSION_DAYS = 30;
 
 const reportSchema = z.object({
@@ -46,6 +46,7 @@ async function ownerOf(q: Q, type: string, id: string): Promise<string | null> {
     event: 'select organizer_id as owner from events where id = $1',
     community: 'select owner_id as owner from communities where id = $1',
     story: 'select author_id as owner from stories where id = $1',
+    channel_message: 'select author_id as owner from community_channel_messages where id = $1',
   };
   return (await q.query<{ owner: string | null }>(sql[type], [id])).rows[0]?.owner ?? null;
 }
@@ -73,6 +74,11 @@ export function moderationRoutes(ctx: Ctx) {
         // Only an active Story the reporter may see (same audience rules as viewing it).
         story: [`select 1 from stories s join users a on a.id = s.author_id where s.id = $3 and s.author_id <> $1 and s.expires_at > now()
                   and ${userVisible('a', '$1', '$2')} and (s.audience = 'campus' or ${acceptedFollow('$1::uuid', 's.author_id')})`, [me.id, me.universityId, id]],
+        // A channel message only an active member who may read that channel can report (so reporting never reveals private content).
+        channel_message: [`select 1 from community_channel_messages cm join community_channels ch on ch.id = cm.channel_id join communities c on c.id = ch.community_id
+                            join community_members mm on mm.community_id = c.id and mm.user_id = $1 and mm.status = 'active'
+                           where cm.id = $3 and cm.author_id is distinct from $1 and cm.status = 'active' and c.university_id = $2 and c.status in ('active', 'archived')
+                             and (ch.view_role = 'members' or mm.role in ('owner', 'moderator')) and (ch.archived_at is null or mm.role in ('owner', 'moderator'))`, [me.id, me.universityId, id]],
         // Only communities whose profile the reporter could see (public, discoverable, or theirs).
         community: [`select 1 from communities c where c.id = $3 and c.owner_id <> $1 and c.university_id = $2 and c.status <> 'deleted' and (c.visibility = 'public' or c.discoverable or exists (select 1 from community_members vm where vm.community_id = c.id and vm.user_id = $1 and vm.status = 'active'))`, [me.id, me.universityId, id]],
       };
@@ -104,6 +110,7 @@ export function moderationRoutes(ctx: Ctx) {
         user: 'select handle as p from users where id = $1',
         event: 'select title as p from events where id = $1',
         community: 'select name as p from communities where id = $1',
+        channel_message: "select case when status = 'active' then left(coalesce(title, content), 200) end as p from community_channel_messages where id = $1",
         story: "select case when kind = 'text' then left(text, 200) else coalesce(left(caption, 200), kind) end as p from stories where id = $1",
       };
       return (await pool.query<{ p: string | null }>(sql[r.target_type], [r.target_id])).rows[0]?.p ?? null;
@@ -201,9 +208,11 @@ export function moderationRoutes(ctx: Ctx) {
           client.query('insert into moderation_actions (report_id, moderator_id, action, target_type, target_id, note, user_message) values ($1, $2, $3, $4, $5, $6, $7)', [id, me.id, b.action, targetType, tid, b.note, b.userMessage]);
 
         if (b.action === 'remove_content' || b.action === 'restore_content') {
-          if (type !== 'post' && type !== 'comment') throw new HttpError(422, 'validation', 'Only posts and comments can be removed or restored.');
-          const table = type === 'post' ? 'posts' : 'comments';
-          const res = await client.query(`update ${table} set status = $2 where id = $1`, [targetId, b.action === 'remove_content' ? 'removed' : 'active']);
+          if (type !== 'post' && type !== 'comment' && type !== 'channel_message') throw new HttpError(422, 'validation', 'Only posts, comments and channel messages can be removed or restored.');
+          const table = type === 'post' ? 'posts' : type === 'comment' ? 'comments' : 'community_channel_messages';
+          // A channel message its author or channel staff already deleted has no content left to restore: only platform removals are reversible.
+          const only = type === 'channel_message' ? (b.action === 'remove_content' ? " and status = 'active'" : " and status = 'removed'") : '';
+          const res = await client.query(`update ${table} set status = $2${type === 'channel_message' && b.action === 'remove_content' ? ', pinned_at = null, pinned_by = null' : ''} where id = $1${only}`, [targetId, b.action === 'remove_content' ? 'removed' : 'active']);
           if (!res.rowCount) throw new HttpError(404, 'not_found', 'That content no longer exists.');
           await record(type, targetId);
           await audit(client, me.id, b.action, type, targetId, { reportId: id });
