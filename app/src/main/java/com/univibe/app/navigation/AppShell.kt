@@ -64,6 +64,7 @@ import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
 import com.univibe.app.features.communities.ChannelScreen
+import com.univibe.app.features.communities.ManageChannelsScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
 import com.univibe.app.features.communities.ThreadScreen
 import com.univibe.app.features.communities.CommunityFormScreen
@@ -439,7 +440,11 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenStudent = { open(AppRoutes.student(it)) },
                             onOpenEvent = { open(AppRoutes.event(it)) },
                             onOpenChannel = { open(AppRoutes.channel(communityId, it)) },
+                            onManageChannels = { open(AppRoutes.manageChannels(communityId)) },
                         )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_MANAGE_CHANNELS, stringArgs("communityId")) { entry ->
+                        ManageChannelsScreen(communityId = entry.arg("communityId"), onBack = back)
                     }
                     subScreen(AppRoutes.COMMUNITY_CHANNEL, stringArgs("communityId", "channelId")) { entry ->
                         val communityId = entry.arg("communityId")

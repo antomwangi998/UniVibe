@@ -40,6 +40,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -71,6 +72,7 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.PhotoImage
+import com.univibe.app.ui.components.PostPoll
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeButton
@@ -106,7 +108,7 @@ private fun timeLabel(iso: String): String = runCatching {
 
 /** The Discussions section of a community page: channels grouped by the community's own groups, with unread counts. */
 @Composable
-fun ChannelDirectoryContent(community: Community, onOpenChannel: (String) -> Unit) {
+fun ChannelDirectoryContent(community: Community, onOpenChannel: (String) -> Unit, onManage: () -> Unit = {}) {
     val viewModel = keyedViewModel("channels-${community.id}") { ChannelListViewModel(community.id) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -130,7 +132,10 @@ fun ChannelDirectoryContent(community: Community, onOpenChannel: (String) -> Uni
                 if (group != null) Text(group.name.uppercase(), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.sm))
                 channels.forEach { ChannelRow(it, onClick = { onOpenChannel(it.id) }) }
             }
-            if (directory.canManage) VibeButton("New channel", { creating = true }, Modifier.fillMaxWidth().padding(top = Spacing.sm), leadingIcon = VibeIcons.Add)
+            if (directory.canManage) {
+                VibeButton("New channel", { creating = true }, Modifier.fillMaxWidth().padding(top = Spacing.sm), leadingIcon = VibeIcons.Add)
+                VibeButton("Manage channels", onManage, Modifier.fillMaxWidth(), style = com.univibe.app.ui.components.VibeButtonStyle.Secondary, leadingIcon = VibeIcons.Settings)
+            }
         }
     }
 
@@ -208,6 +213,7 @@ fun ChannelScreen(
     var deleteFor by remember { mutableStateOf<ChannelMessage?>(null) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var confirmArchive by rememberSaveable { mutableStateOf(false) }
+    var pollSheet by rememberSaveable { mutableStateOf(false) }
     val channel = s.channel
     val myId = viewModel.myId
 
@@ -253,7 +259,7 @@ fun ChannelScreen(
                                 m, mine = m.author?.id == myId, type = channel.type, canReact = channel.access.react,
                                 onReact = { viewModel.toggleReaction(m, it) }, onMore = { menuFor = m },
                                 onThread = if (channel.type.threadedTimeline || m.replyCount > 0) ({ onOpenThread(m.id) }) else null,
-                                onOpenStudent = onOpenStudent,
+                                onOpenStudent = onOpenStudent, onVote = { i -> viewModel.vote(m, i) },
                             )
                         }
                         if (s.loadingOlder) item { Text("Loading earlier messages…", Modifier.fillMaxWidth().padding(Spacing.md), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -266,12 +272,17 @@ fun ChannelScreen(
                     title = s.title, onTitle = viewModel::setTitle, text = s.text, onText = viewModel::setText,
                     photos = s.photos, onRemovePhoto = viewModel::removePhoto, onPickPhoto = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onCancelReply = viewModel::cancelReply, onCancelEdit = viewModel::cancelEdit, onSend = viewModel::send,
+                    onPoll = if (channel.type == ChannelType.Text || channel.type == ChannelType.Announcement) ({ pollSheet = true }) else null,
                     placeholder = when (channel.type) { ChannelType.Qa -> "Add details (optional)"; ChannelType.Announcement -> "Write the announcement"; else -> "Message #${channel.name}" },
                 )
             }
         }
     }
 
+    if (pollSheet && channel != null) PollSheet(
+        needsTitle = channel.type.needsTitle, onDismiss = { pollSheet = false },
+        onCreate = { title, question, options, hours -> viewModel.sendPoll(title, question, options, hours); pollSheet = false },
+    )
     menuFor?.let { m ->
         val access = channel?.access ?: ChannelAccess()
         MessageSheet(
@@ -438,7 +449,7 @@ fun ThreadScreen(communityId: String, channelId: String, messageId: String, onBa
 private fun MessageRow(
     m: ChannelMessage, mine: Boolean, type: ChannelType, canReact: Boolean,
     onReact: (String) -> Unit, onMore: () -> Unit, onThread: (() -> Unit)?, onOpenStudent: (String) -> Unit,
-    highlighted: Boolean = false,
+    highlighted: Boolean = false, onVote: ((Int) -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
@@ -470,6 +481,8 @@ private fun MessageRow(
             } else {
                 m.title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                 if (!m.content.isNullOrBlank()) Text(m.content, style = MaterialTheme.typography.bodyMedium)
+                // The same poll component the feed uses. Without voting rights (read-only member) it shows the results.
+                m.poll?.let { PostPoll(it, onVote = if (canReact) onVote else null) }
                 m.attachments.forEach { f ->
                     if (f.isImage && f.url != null) Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))) { PhotoImage(f.url, f.fileName ?: "Photo") }
                     else Row(Modifier.clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant.copy(alpha = 0.5f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -503,7 +516,7 @@ private fun MessageRow(
 private fun PendingRow(p: PendingSend, onRetry: () -> Unit, onDiscard: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(listOfNotNull(p.draft.title, p.draft.content.ifBlank { null }, if (p.draft.photoPaths.isNotEmpty()) "${p.draft.photoPaths.size} photo(s)" else null).joinToString("\n"), style = MaterialTheme.typography.bodyMedium, color = colors.onSurface.copy(alpha = 0.6f))
+        Text(listOfNotNull(p.draft.title, p.draft.content.ifBlank { null }, if (p.draft.photoPaths.isNotEmpty()) "${p.draft.photoPaths.size} photo(s)" else null, p.draft.poll?.let { "Poll: " + it.options.joinToString(" / ") }).joinToString("\n"), style = MaterialTheme.typography.bodyMedium, color = colors.onSurface.copy(alpha = 0.6f))
         if (!p.failed) Text("Sending…", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
         else Row(verticalAlignment = Alignment.CenterVertically) {
             Text(p.error ?: "Not sent", style = MaterialTheme.typography.labelMedium, color = colors.error, modifier = Modifier.weight(1f, fill = false))
@@ -519,7 +532,7 @@ private fun Composer(
     title: String, onTitle: (String) -> Unit, text: String, onText: (String) -> Unit,
     photos: List<String>, onRemovePhoto: (String) -> Unit, onPickPhoto: () -> Unit,
     onCancelReply: () -> Unit, onCancelEdit: () -> Unit, onSend: () -> Unit, placeholder: String,
-    repliesOnly: Boolean = false,
+    repliesOnly: Boolean = false, onPoll: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val canWrite = if (repliesOnly || replying != null) access.reply else access.send
@@ -550,6 +563,7 @@ private fun Composer(
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             if (access.attach && !editing) VibeIconButton(VibeIcons.Photo, "Attach a photo", onPickPhoto)
+            if (onPoll != null && access.send && !editing && replying == null) VibeIconButton(VibeIcons.Poll, "Add a poll", onPoll)
             VibeTextField(text, onText, Modifier.weight(1f), placeholder = placeholder, singleLine = false, maxLines = 5)
             val ready = (text.isNotBlank() || photos.isNotEmpty() || (needsTitle && title.isNotBlank())) && (!requiresPhoto || photos.isNotEmpty() || editing)
             VibeIconButton(VibeIcons.Send, "Send", { if (ready) onSend() })
@@ -579,5 +593,35 @@ private fun MessageSheet(
         if (onEdit != null && mine && access.canWrite) SheetRow(VibeIcons.Edit, "Edit", false, onEdit)
         if (mine || access.manage) SheetRow(VibeIcons.Delete, "Delete", true, onDelete)
         if (!mine) SheetRow(VibeIcons.Report, "Report", true, onReport)
+    }
+}
+
+/** A poll for the channel: a question, 2 to 4 different options, and how long voting stays open (the server enforces the same limits). */
+@Composable
+private fun PollSheet(needsTitle: Boolean, onDismiss: () -> Unit, onCreate: (String?, String, List<String>, Int) -> Unit) {
+    var title by rememberSaveable { mutableStateOf("") }
+    var question by rememberSaveable { mutableStateOf("") }
+    val options = remember { mutableStateListOf("", "") }
+    var hours by rememberSaveable { mutableStateOf(24) }
+    val filled = options.map { it.trim() }.filter { it.isNotEmpty() }
+    val distinct = filled.map { it.lowercase() }.toSet().size == filled.size
+    val valid = question.isNotBlank() && filled.size >= 2 && distinct && (!needsTitle || title.isNotBlank())
+    VibeBottomSheet(onDismiss = onDismiss) {
+        Text("New poll", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
+        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            if (needsTitle) VibeTextField(title, { title = it.take(100) }, label = "Title")
+            VibeTextField(question, { question = it.take(280) }, label = "Question", singleLine = false, maxLines = 3)
+            options.forEachIndexed { i, text ->
+                VibeTextField(text, { options[i] = it.take(40) }, placeholder = "Option ${i + 1}")
+            }
+            if (options.size < 4) TextButton(onClick = { options.add("") }) { Text("Add an option") }
+            if (filled.size >= 2 && !distinct) Text("Options must be different.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text("Open for", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                listOf(1 to "1 hour", 6 to "6 hours", 24 to "1 day", 72 to "3 days").forEach { (h, label) -> InterestChip(label, selected = hours == h, onClick = { hours = h }) }
+            }
+            Text("One vote each, and votes can't be changed. Nobody sees who voted for what.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        VibeButton("Post poll", { onCreate(title.takeIf { needsTitle }, question, options.toList(), hours) }, Modifier.fillMaxWidth().padding(top = Spacing.sm), enabled = valid)
     }
 }

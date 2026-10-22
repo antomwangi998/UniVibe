@@ -17,6 +17,7 @@ import com.univibe.app.data.net.ChatEvent
 import com.univibe.app.data.net.LiveConnection
 import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.net.accentFor
+import com.univibe.app.data.net.parsePoll
 import com.univibe.app.data.net.send
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -60,7 +61,32 @@ interface ChannelRepository {
     suspend fun createChannel(communityId: String, name: String, description: String, type: ChannelType): String
     suspend fun updateChannel(communityId: String, channelId: String, locked: Boolean? = null, archived: Boolean? = null)
     suspend fun report(messageId: String, reason: String)
+    /** Votes in a channel poll (one vote per student, final). Returns the message with the new counts. */
+    suspend fun vote(communityId: String, channelId: String, messageId: String, optionIndex: Int): ChannelMessage
+
+    // Channel management (moderators; deleting is the owner's).
+    suspend fun editChannel(communityId: String, channelId: String, edit: ChannelEdit)
+    suspend fun deleteChannel(communityId: String, channelId: String)
+    suspend fun createGroup(communityId: String, name: String)
+    suspend fun renameGroup(communityId: String, groupId: String, name: String)
+    suspend fun deleteGroup(communityId: String, groupId: String)
+    /** The full display order: groups in order, then every channel in order with the group it sits in (null = none). */
+    suspend fun reorder(communityId: String, groupOrder: List<String>, channels: List<Pair<String, String?>>)
 }
+
+/** What a moderator changed. Null fields are left as they are; [setGroup] says whether [groupId] (which may be null: "no group") applies. */
+data class ChannelEdit(
+    val name: String? = null,
+    val description: String? = null,
+    val setGroup: Boolean = false,
+    val groupId: String? = null,
+    val repliesEnabled: Boolean? = null,
+    val allowAttachments: Boolean? = null,
+    val viewRole: String? = null,
+    val postRole: String? = null,
+    val locked: Boolean? = null,
+    val archived: Boolean? = null,
+)
 
 /** Used in offline demo mode: channels live on the server only. */
 object UnavailableChannelRepository : ChannelRepository {
@@ -83,6 +109,13 @@ object UnavailableChannelRepository : ChannelRepository {
     override suspend fun createChannel(communityId: String, name: String, description: String, type: ChannelType) = fail()
     override suspend fun updateChannel(communityId: String, channelId: String, locked: Boolean?, archived: Boolean?) = fail()
     override suspend fun report(messageId: String, reason: String) = fail()
+    override suspend fun vote(communityId: String, channelId: String, messageId: String, optionIndex: Int) = fail()
+    override suspend fun editChannel(communityId: String, channelId: String, edit: ChannelEdit) = fail()
+    override suspend fun deleteChannel(communityId: String, channelId: String) = fail()
+    override suspend fun createGroup(communityId: String, name: String) = fail()
+    override suspend fun renameGroup(communityId: String, groupId: String, name: String) = fail()
+    override suspend fun deleteGroup(communityId: String, groupId: String) = fail()
+    override suspend fun reorder(communityId: String, groupOrder: List<String>, channels: List<Pair<String, String?>>) = fail()
 }
 
 private const val V1 = "/api/v1"
@@ -127,6 +160,7 @@ fun parseChannelMessage(o: JSONObject): ChannelMessage {
         },
         reactions = counts,
         myReactions = if (mineArray == null) emptySet() else (0 until mineArray.length()).map { mineArray.getString(it) }.toSet(),
+        poll = parsePoll(o.optJSONObject("poll")),
     )
 }
 
@@ -160,6 +194,8 @@ class RemoteChannelRepository(
                     id = c.getString("id"), groupId = c.str("groupId"), name = c.optString("name"), description = c.optString("description"),
                     type = ChannelType.parse(c.optString("type")), locked = c.optBoolean("locked"), archived = c.optBoolean("archived"),
                     unread = c.optInt("unreadCount"), pinnedCount = c.optInt("pinnedCount"), access = parseAccess(c.optJSONObject("permissions")),
+                    viewRole = c.optString("viewRole", "members"), postRole = c.optString("postRole", "members"),
+                    repliesEnabled = c.optBoolean("repliesEnabled", true), allowAttachments = c.optBoolean("allowAttachments", true),
                 )
             }
         }
@@ -193,6 +229,7 @@ class RemoteChannelRepository(
         val body = JSONObject().put("content", draft.content).put("clientId", draft.clientId).put("mediaIds", mediaIds)
         if (!draft.title.isNullOrBlank()) body.put("title", draft.title)
         if (draft.replyToId != null) body.put("replyToId", draft.replyToId)
+        draft.poll?.let { p -> body.put("poll", JSONObject().put("options", JSONArray(p.options)).put("durationHours", p.durationHours)) }
         return parseChannelMessage(JSONObject(api.send("POST", "${base(communityId, channelId)}/messages", body, ok = setOf(200, 201))))
     }
 
@@ -255,6 +292,46 @@ class RemoteChannelRepository(
         if (locked != null) body.put("locked", locked)
         if (archived != null) body.put("archived", archived)
         api.send("PATCH", base(communityId, channelId), body)
+    }
+
+    override suspend fun vote(communityId: String, channelId: String, messageId: String, optionIndex: Int): ChannelMessage =
+        parseChannelMessage(JSONObject(api.send("PUT", "${base(communityId, channelId)}/messages/$messageId/vote", JSONObject().put("optionIndex", optionIndex))))
+
+    override suspend fun editChannel(communityId: String, channelId: String, edit: ChannelEdit) {
+        val body = JSONObject()
+        edit.name?.let { body.put("name", it.trim()) }
+        edit.description?.let { body.put("description", it.trim()) }
+        if (edit.setGroup) body.put("groupId", edit.groupId ?: JSONObject.NULL)
+        edit.repliesEnabled?.let { body.put("repliesEnabled", it) }
+        edit.allowAttachments?.let { body.put("allowAttachments", it) }
+        edit.viewRole?.let { body.put("viewRole", it) }
+        edit.postRole?.let { body.put("postRole", it) }
+        edit.locked?.let { body.put("locked", it) }
+        edit.archived?.let { body.put("archived", it) }
+        api.send("PATCH", base(communityId, channelId), body)
+    }
+
+    override suspend fun deleteChannel(communityId: String, channelId: String) {
+        api.send("DELETE", base(communityId, channelId), ok = NO_CONTENT)
+    }
+
+    override suspend fun createGroup(communityId: String, name: String) {
+        api.send("POST", "$V1/communities/$communityId/channel-groups", JSONObject().put("name", name.trim()), ok = setOf(201))
+    }
+
+    override suspend fun renameGroup(communityId: String, groupId: String, name: String) {
+        api.send("PATCH", "$V1/communities/$communityId/channel-groups/$groupId", JSONObject().put("name", name.trim()))
+    }
+
+    override suspend fun deleteGroup(communityId: String, groupId: String) {
+        api.send("DELETE", "$V1/communities/$communityId/channel-groups/$groupId", ok = NO_CONTENT)
+    }
+
+    override suspend fun reorder(communityId: String, groupOrder: List<String>, channels: List<Pair<String, String?>>) {
+        val body = JSONObject()
+            .put("groups", JSONArray(groupOrder))
+            .put("channels", JSONArray(channels.map { (id, group) -> JSONObject().put("id", id).put("groupId", group ?: JSONObject.NULL) }))
+        api.send("PUT", "$V1/communities/$communityId/channel-order", body)
     }
 
     override suspend fun report(messageId: String, reason: String) {

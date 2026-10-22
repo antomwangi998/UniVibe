@@ -7,14 +7,19 @@ import com.univibe.app.data.model.ChannelDraft
 import com.univibe.app.data.model.ChannelGroup
 import com.univibe.app.data.model.ChannelMessage
 import com.univibe.app.data.model.ChannelType
+import com.univibe.app.data.model.PollOption
+import com.univibe.app.data.model.Poll
 import com.univibe.app.data.model.ReplyPreview
+import com.univibe.app.data.model.groupOrderAfterMoving
 import com.univibe.app.data.model.latestSeq
+import com.univibe.app.data.model.orderAfterMovingChannel
 import com.univibe.app.data.model.tombstoned
 import com.univibe.app.data.model.upserted
 import com.univibe.app.data.model.upsertedAll
 import com.univibe.app.data.model.withReaction
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.net.ChatEvent
+import com.univibe.app.data.repository.ChannelEdit
 import com.univibe.app.data.repository.ChannelRepository
 import com.univibe.app.data.repository.ReactionState
 import com.univibe.app.data.repository.SearchFilters
@@ -63,6 +68,14 @@ class ChannelModelsTest {
         assertEquals(emptySet<String>(), mine.upserted(msg("a", 1), keepMine = false)[0].myReactions)
     }
 
+    @Test fun `a socket update keeps my own poll vote because the payload is viewer-neutral`() {
+        val mine = msg("p", 1).copy(poll = Poll(listOf(PollOption("A", 1), PollOption("B", 0)), myVote = 0))
+        val neutral = msg("p", 1).copy(poll = Poll(listOf(PollOption("A", 1), PollOption("B", 1)), myVote = null))
+        val merged = listOf(mine).upserted(neutral, keepMine = true)
+        assertEquals(0, merged[0].poll?.myVote)
+        assertEquals(1, merged[0].poll?.options?.get(1)?.votes)
+    }
+
     @Test fun `a deleted message keeps its row and loses its words`() {
         val list = listOf(msg("a", 1, "secret"), msg("b", 2, replyTo = "a")).tombstoned("a")
         assertTrue(list[0].deleted)
@@ -90,6 +103,23 @@ class ChannelModelsTest {
         val d = ChannelDirectory(listOf(ChannelGroup("g1", "Academics"), ChannelGroup("g2", "Empty")), listOf(ch("general", null), ch("help", "g1"), ch("old", "gone")), canManage = false, canDelete = false)
         assertEquals(listOf(null, "g1"), d.sections.map { it.first?.id })
         assertEquals(listOf("general", "old"), d.sections[0].second.map { it.id }) // a channel whose group is missing is not lost
+    }
+
+    @Test fun `moving a channel swaps it with its neighbour inside its own section only`() {
+        fun ch(id: String, group: String?) = Channel(id, group, id, "", ChannelType.Text, false, false, 0, 0, ChannelAccess())
+        val d = ChannelDirectory(listOf(ChannelGroup("g1", "One"), ChannelGroup("g2", "Two")), listOf(ch("a", null), ch("b", null), ch("c", "g1"), ch("d", "g1")), canManage = true, canDelete = false)
+        assertEquals(listOf("b" to null, "a" to null, "c" to "g1", "d" to "g1"), d.orderAfterMovingChannel("b", -1))
+        assertNull(d.orderAfterMovingChannel("a", -1)) // already first in its section
+        assertNull(d.orderAfterMovingChannel("b", 1))  // last of the loose ones: it does not jump into the next group
+        assertEquals(listOf("a" to null, "b" to null, "d" to "g1", "c" to "g1"), d.orderAfterMovingChannel("c", 1))
+        assertNull(d.orderAfterMovingChannel("nope", 1))
+    }
+
+    @Test fun `moving a group swaps it with its neighbour`() {
+        val d = ChannelDirectory(listOf(ChannelGroup("g1", "One"), ChannelGroup("g2", "Two")), emptyList(), canManage = true, canDelete = false)
+        assertEquals(listOf("g2", "g1"), d.groupOrderAfterMoving("g1", 1))
+        assertNull(d.groupOrderAfterMoving("g1", -1))
+        assertNull(d.groupOrderAfterMoving("missing", 1))
     }
 
     @Test fun `channel types decide titles and timelines`() {
@@ -166,6 +196,20 @@ class ChannelViewModelTest {
         override suspend fun createChannel(communityId: String, name: String, description: String, type: ChannelType) = "new"
         override suspend fun updateChannel(communityId: String, channelId: String, locked: Boolean?, archived: Boolean?) = Unit
         override suspend fun report(messageId: String, reason: String) = Unit
+        val votes = mutableListOf<Int>()
+        var voteError: Throwable? = null
+        override suspend fun vote(communityId: String, channelId: String, messageId: String, optionIndex: Int): ChannelMessage {
+            voteError?.let { throw it }
+            votes += optionIndex
+            val poll = Poll(listOf(PollOption("A", if (optionIndex == 0) 1 else 0), PollOption("B", if (optionIndex == 1) 1 else 0)), myVote = optionIndex, endsAtMillis = null)
+            return msg(messageId, 1, "poll").copy(poll = poll)
+        }
+        override suspend fun editChannel(communityId: String, channelId: String, edit: ChannelEdit) = Unit
+        override suspend fun deleteChannel(communityId: String, channelId: String) = Unit
+        override suspend fun createGroup(communityId: String, name: String) = Unit
+        override suspend fun renameGroup(communityId: String, groupId: String, name: String) = Unit
+        override suspend fun deleteGroup(communityId: String, groupId: String) = Unit
+        override suspend fun reorder(communityId: String, groupOrder: List<String>, channels: List<Pair<String, String?>>) = Unit
     }
 
     @Before fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -281,5 +325,34 @@ class ChannelViewModelTest {
         assertTrue(vm.state.value.messages[0].myReactions.isEmpty())
         repo.events.tryEmit(ChatEvent.ChannelMessageDeleted("k", "ch", "a"))
         assertTrue(vm.state.value.messages[0].deleted)
+    }
+
+    @Test fun `voting replaces the message with the server's counts and remembers my vote`() {
+        val repo = FakeChannels().apply { history = listOf(msg("p", 1, "Which day?")) }
+        val vm = ChannelViewModel("k", "ch", repo)
+        vm.vote(vm.state.value.messages[0], 1)
+        val poll = vm.state.value.messages[0].poll
+        assertEquals(listOf(1), repo.votes)
+        assertEquals(1, poll?.myVote)
+        assertEquals(1, poll?.options?.get(1)?.votes)
+    }
+
+    @Test fun `already voted from another device refreshes instead of failing`() {
+        val repo = FakeChannels().apply { history = listOf(msg("p", 1)); voteError = ApiException(409, "already_voted", "You already voted in this poll.") }
+        val vm = ChannelViewModel("k", "ch", repo)
+        vm.vote(vm.state.value.messages[0], 0)
+        assertNull(vm.state.value.notice)
+        assertFalse(vm.state.value.accessLost)
+    }
+
+    @Test fun `a poll is sent as a pending message with trimmed options`() {
+        val repo = FakeChannels()
+        val vm = ChannelViewModel("k", "ch", repo)
+        vm.sendPoll(null, "  Which day?  ", listOf(" Friday ", "", "Saturday"), 24)
+        val sent = repo.sent.single()
+        assertEquals("Which day?", sent.content)
+        assertEquals(listOf("Friday", "Saturday"), sent.poll?.options)
+        assertEquals(24, sent.poll?.durationHours)
+        assertNull(sent.replyToId)
     }
 }

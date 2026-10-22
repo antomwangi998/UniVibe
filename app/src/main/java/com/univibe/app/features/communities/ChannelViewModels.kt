@@ -8,6 +8,7 @@ import com.univibe.app.data.model.ChannelDirectory
 import com.univibe.app.data.model.ChannelDraft
 import com.univibe.app.data.model.ChannelMessage
 import com.univibe.app.data.model.ChannelType
+import com.univibe.app.data.model.PollDraft
 import com.univibe.app.data.model.MembershipState
 import com.univibe.app.data.model.latestSeq
 import com.univibe.app.data.model.tombstoned
@@ -325,6 +326,32 @@ class ChannelViewModel(
                 _state.update { it.copy(messages = it.messages.upserted(updated), editing = null, text = "", title = "") }
             } catch (e: Exception) {
                 if (e.lostAccess()) _state.update { it.copy(accessLost = true) } else _state.update { it.copy(notice = e.userText()) }
+            }
+        }
+    }
+
+    /** Posts a poll as a message of its own (text and announcement channels). Same pending / retry handling as any message. */
+    fun sendPoll(title: String?, question: String, options: List<String>, durationHours: Int) {
+        val ch = _state.value.channel ?: return
+        val draft = ChannelDraft(
+            title = if (ch.type.needsTitle) title?.trim()?.ifBlank { null } else null, content = question.trim(), replyToId = null,
+            photoPaths = emptyList(), clientId = UUID.randomUUID().toString(),
+            poll = PollDraft(options.map { it.trim() }.filter { it.isNotEmpty() }, durationHours),
+        )
+        _state.update { it.copy(pending = it.pending + PendingSend(draft)) }
+        deliver(draft)
+    }
+
+    /** One vote per student, final. The server's answer carries the new counts and this student's choice. */
+    fun vote(m: ChannelMessage, optionIndex: Int) {
+        viewModelScope.launch {
+            try {
+                val updated = repository.vote(communityId, channelId, m.id, optionIndex)
+                _state.update { it.copy(messages = it.messages.upserted(updated)) }
+            } catch (e: Exception) {
+                if (e.lostAccess()) _state.update { it.copy(accessLost = true) }
+                else if (e is ApiException && e.code == "already_voted") load() // another device already voted: show that vote
+                else _state.update { it.copy(notice = e.userText()) }
             }
         }
     }
