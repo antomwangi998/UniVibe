@@ -22,8 +22,9 @@ android {
         applicationId = "com.univibe.app" // placeholder: change before publishing
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.1.6-live"
+        versionCode = (project.findProperty("univibe.versionCode") as? String)?.toIntOrNull() ?: 7
+        versionName = (project.findProperty("univibe.versionName") as? String) ?: "0.1.6-live"
+        
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleServerClientId\"")
     }
