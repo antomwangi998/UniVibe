@@ -23,6 +23,8 @@ const schema = z.object({
   PUBLIC_BASE_URL: z.string().url().optional(),
   NOTE_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
   STORY_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
+  // How long a finished upload may sit unused (not on a post, message, Story, profile, ...) before it is deleted. Default 24.
+  MEDIA_ORPHAN_GRACE_HOURS: z.coerce.number().int().min(1).max(720).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
