@@ -14,6 +14,9 @@ import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.GroupRepository
 import com.univibe.app.data.repository.MessageRepository
+import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.prefs.ChatAppearanceStore
+import com.univibe.app.data.prefs.StoredChatAppearance
 import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import kotlinx.coroutines.delay
@@ -42,6 +45,10 @@ class FileToSend(val file: com.univibe.app.data.media.PickedFile, val caption: S
 const val MAX_FORWARD_TARGETS = 5
 
 data class ConversationUiState(
+    /** This phone's look for the conversation (theme and wallpaper), see ChatAppearanceStore. */
+    val themeId: String = "default",
+    val wallpaperId: String = "none",
+    val wallpaperPhoto: String? = null,
     val loading: Boolean = true,
     val notFound: Boolean = false,
     val chat: Chat? = null,
@@ -141,6 +148,11 @@ class ConversationViewModel(
     private var latestMessages: List<Message> = emptyList()
 
     private fun publishMessages() = _state.update { s -> s.copy(messages = latestMessages.filterNot { it.id in hiddenIds }) }
+
+    init {
+        val look = ChatAppearanceStore.get(chatId)
+        _state.update { it.copy(themeId = look.themeId, wallpaperId = look.wallpaperId, wallpaperPhoto = look.wallpaperPhoto) }
+    }
 
     init {
         _state.update { it.copy(input = DraftStore.get(draftKey)) }
@@ -379,6 +391,29 @@ class ConversationViewModel(
             catch (e: java.io.IOException) { _state.update { it.copy(notice = "Couldn't block ${chat.title}. Check your connection and try again.") } }
             catch (e: Exception) { _state.update { it.copy(notice = "Couldn't block ${chat.title}. Try again.") } }
         }
+    }
+
+    // ---- theme and wallpaper (kept on this phone only)
+
+    private fun saveLook() = _state.value.let { ChatAppearanceStore.set(chatId, StoredChatAppearance(it.themeId, it.wallpaperId, it.wallpaperPhoto)) }
+
+    fun setChatTheme(id: String) { _state.update { it.copy(themeId = id) }; saveLook() }
+
+    fun setWallpaper(id: String) { _state.update { it.copy(wallpaperId = id) }; saveLook() }
+
+    /** A picked picture becomes the wallpaper. The one it replaces is deleted from app storage. */
+    fun setWallpaperPhoto(path: String) {
+        val old = _state.value.wallpaperPhoto
+        _state.update { it.copy(wallpaperId = "photo", wallpaperPhoto = path) }
+        saveLook()
+        if (old != null && old != path) PhotoStore.delete(old)
+    }
+
+    fun resetLook() {
+        val old = _state.value.wallpaperPhoto
+        _state.update { it.copy(themeId = "default", wallpaperId = "none", wallpaperPhoto = null) }
+        saveLook()
+        PhotoStore.delete(old)
     }
 
     fun openMenu(message: Message?) = _state.update { it.copy(menuMessage = message) }

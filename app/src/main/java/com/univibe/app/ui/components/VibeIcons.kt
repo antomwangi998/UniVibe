@@ -151,6 +151,7 @@ object VibeIcons {
         "M4.5 16.5 H12.8", "M17.2 16.5 H19.5", "M12.8 16.5 A2.2 2.2 0 1 0 17.2 16.5 A2.2 2.2 0 1 0 12.8 16.5 Z",
     )
     private const val RING = "M3.8 12 A8.2 8.2 0 1 0 20.2 12 A8.2 8.2 0 1 0 3.8 12 Z"
+    val Palette = icon("Palette", 0f, LINE, "M12 3.5 A8.5 8.5 0 1 0 12 20.5 Q14.6 20.5 14 18.3 Q13.5 16.5 15.5 16.5 H17 A3.5 3.5 0 0 0 20.5 13 Q20.5 3.5 12 3.5 Z", "M7.5 11.5 H7.52", "M10 7.8 H10.02", "M14.5 7.8 H14.52")
     val Link = icon("Link", 0f, LINE, "M9.5 14.5 L14.5 9.5", "M11 7.5 L12.2 6.3 A3.2 3.2 0 0 1 16.7 10.8 L15.5 12", "M13 16.5 L11.8 17.7 A3.2 3.2 0 0 1 7.3 13.2 L8.5 12")
     val Info = icon("Info", 0f, LINE, RING, "M12 11 V16", "M12 8 H12.01")
     val CheckCircle = icon("CheckCircle", 0f, LINE, RING, "M8.5 12.3 L11 14.8 L15.8 9.5")
