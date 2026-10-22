@@ -87,6 +87,7 @@ class UniVibeApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         DraftStore.init(this)
+        com.univibe.app.data.prefs.ChatAppearanceStore.init(this)
         AppContainer.init(this)
     }
 
@@ -113,7 +114,7 @@ object AppContainer {
         // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
         // Unsent drafts belong to the account that wrote them: a deliberate sign-out clears them.
-        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) com.univibe.app.data.prefs.DraftStore.clearAll() } }
+        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) { com.univibe.app.data.prefs.DraftStore.clearAll(); com.univibe.app.data.prefs.ChatAppearanceStore.clearAll() } } }
         // Saved screens belong to the signed-in account: switching accounts or signing out on purpose wipes them.
         appScope.launch {
             authRepository.session.collect { state ->

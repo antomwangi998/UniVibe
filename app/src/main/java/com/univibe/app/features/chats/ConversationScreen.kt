@@ -118,6 +118,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -210,6 +212,15 @@ private fun buildRows(messages: List<Message>): List<ChatRow> {
 @Composable
 fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}) {
     val viewModel = keyedViewModel("chat-$chatId") { ConversationViewModel(chatId) }
+    // Only the theme id is watched here, so typing and new messages do not recompose the wrapper.
+    val themeId by remember(viewModel) { viewModel.state.map { it.themeId }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(viewModel.state.value.themeId)
+    // The chat's accent colours everything inside: my bubbles, the send button, links and reply bars.
+    ChatThemed(themeId) { ConversationBody(chatId, viewModel, onBack, onOpenGroupInfo, onOpenStudent) }
+}
+
+@Composable
+private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, onBack: () -> Unit, onOpenGroupInfo: () -> Unit, onOpenStudent: (String) -> Unit) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     // Photos are chosen first, then looked over (and captioned) in a sheet; nothing is sent until the person taps Send.
     var pendingPhotos by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
@@ -239,6 +250,13 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     val composerFocus = remember { FocusRequester() }
     val chat = s.chat
     var showMedia by rememberSaveable { mutableStateOf(false) }
+    var showLook by rememberSaveable { mutableStateOf(false) }
+    val pickWallpaper = com.univibe.app.ui.components.rememberPhotoPicker("wallpaper") { path -> viewModel.setWallpaperPhoto(path) }
+    if (showLook) ChatAppearanceSheet(
+        themeId = s.themeId, wallpaperId = s.wallpaperId, wallpaperPhoto = s.wallpaperPhoto,
+        onTheme = viewModel::setChatTheme, onWallpaper = viewModel::setWallpaper, onPickPhoto = pickWallpaper,
+        onReset = viewModel::resetLook, onDismiss = { showLook = false },
+    )
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     var confirmBlock by rememberSaveable { mutableStateOf(false) }
     if (showMedia) ChatMediaSheet(
@@ -440,6 +458,11 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                             leadingIcon = { Icon(VibeIcons.Photo, contentDescription = null) },
                             onClick = { menuOpen = false; showMedia = true },
                         )
+                        DropdownMenuItem(
+                            text = { Text("Theme and wallpaper") },
+                            leadingIcon = { Icon(VibeIcons.Palette, contentDescription = null) },
+                            onClick = { menuOpen = false; showLook = true },
+                        )
                         if (chat != null) {
                             DropdownMenuItem(
                                 text = { Text(if (chat.muted) "Unmute notifications" else "Mute notifications") },
@@ -522,6 +545,7 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
             s.loading -> Box(Modifier.weight(1f))
             s.notFound -> Box(Modifier.weight(1f)) { ErrorState("This conversation isn't available.", onBack, title = "Not found") }
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                ChatWallpaperLayer(s.wallpaperId, s.wallpaperPhoto, Modifier.matchParentSize())
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     state = listState,
