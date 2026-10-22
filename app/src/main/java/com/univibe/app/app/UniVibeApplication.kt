@@ -212,6 +212,11 @@ object AppContainer {
         api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id }.also { r -> r.outbox = outbox } }
             ?: UnavailableMessageRepository
     }
+    /** Discussion channels: real server only (they have no offline demo form). */
+    val channelRepository: com.univibe.app.data.repository.ChannelRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteChannelRepository(it, chatSocket, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value)?.id } }
+            ?: com.univibe.app.data.repository.UnavailableChannelRepository
+    }
     val communityRepository: CommunityRepository by lazy {
         api?.let {
             RemoteCommunityRepository(it, myId = { accountOf(authRepository.session.value)?.id }) { id, state, count ->

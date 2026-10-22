@@ -179,6 +179,7 @@ fun CommunityDetailScreen(
     onOpenComments: (String) -> Unit = {},
     onOpenStudent: (String) -> Unit = {},
     onOpenEvent: (String) -> Unit = {},
+    onOpenChannel: (String) -> Unit = {},
 ) {
     val viewModel = keyedViewModel("community-$communityId") { CommunityDetailViewModel(communityId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
@@ -238,6 +239,7 @@ fun CommunityDetailScreen(
                 }
                 when (s.tab) {
                     CommunityTab.Posts -> postsTab(c, s, onPost, onOpenComments, onOpenStudent, onOpenEvent)
+                    CommunityTab.Discussions -> item { ChannelDirectoryContent(c, onOpenChannel) }
                     CommunityTab.Events -> eventsTab(c, s, onOpenEvent)
                     CommunityTab.Members -> membersTab(c, s, viewModel, onOpenStudent)
                     CommunityTab.About -> aboutTab(c, s, viewModel, onEdit)
