@@ -9,6 +9,7 @@ import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import type { Hub } from '../realtime';
 import { POST_COLS, POST_FROM, type PostRow, presentPosts, visible } from '../posts';
 import { CARD_COLUMNS, CARD_JOIN, type CardRow, signedUrl, toCard } from './cards';
+import { createDefaultChannels } from './community_channels';
 import { type JoinState, isStaff, joinState } from './community_state';
 import { audit } from './moderation';
 import { notify, retract } from './notify';
@@ -241,6 +242,7 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
              b.postPermission, b.invitePermission, b.rules, b.avatarMediaId ?? null, b.coverMediaId ?? null, me.id, b.clientKey ?? null]);
           const cid = made.rows[0].id;
           await client.query("insert into community_members (community_id, user_id, role, notification_level) values ($1, $2, 'owner', 'all')", [cid, me.id]);
+          await createDefaultChannels(client, cid, me.id);
           await audit(client, me.id, 'community.create', 'community', cid, { visibility: b.visibility });
           return cid;
         });

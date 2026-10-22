@@ -16,7 +16,7 @@ const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events
   message: 'push_messages', group_invite: 'push_messages', event_update: 'push_events', verification: null,
   community_join_request: 'push_social', community_join_approved: 'push_social', community_join_declined: 'push_social',
   community_invitation: 'push_social', community_role_changed: null, community_member_removed: null,
-  community_announcement: 'push_social',
+  community_announcement: 'push_social', community_channel_announcement: 'push_social',
   story_reaction: 'push_social',
 };
 
@@ -145,6 +145,33 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
         after = rows[rows.length - 1].user_id;
       }
       void sent;
+    },
+    // Fan-out of one announcement made in an announcement channel. Same rules as `community.announce`: idempotent (notify() skips
+    // anyone already notified), muted members, blocked pairs and people who switched community notices off are skipped, and a
+    // message removed or a channel archived before delivery notifies nobody. Staff-only channels notify staff only.
+    'channel.announce': async (job) => {
+      const { messageId, channelId, communityId } = job.payload;
+      if (typeof messageId !== 'string' || typeof channelId !== 'string' || typeof communityId !== 'string') throw new PermanentJobError('payload incomplete');
+      const msg = (await ctx.pool.query<{ author_id: string | null; status: string; ctype: string; view_role: string; archived_at: Date | null }>(
+        `select m.author_id, m.status, ch.type as ctype, ch.view_role, ch.archived_at
+           from community_channel_messages m join community_channels ch on ch.id = m.channel_id
+          where m.id = $1 and ch.id = $2 and ch.community_id = $3 and m.reply_to_id is null`, [messageId, channelId, communityId])).rows[0];
+      if (!msg || msg.status !== 'active' || msg.ctype !== 'announcement' || msg.archived_at) return;
+      if (!(await ctx.pool.query("select 1 from communities where id = $1 and status = 'active'", [communityId])).rowCount) return;
+      let after = '00000000-0000-0000-0000-000000000000';
+      for (let page = 0; page < 25; page++) { // hard cap: 25 x 200 recipients per announcement
+        const { rows } = await ctx.pool.query<{ user_id: string }>(
+          `select m.user_id from community_members m
+            where m.community_id = $1 and m.status = 'active' and m.user_id <> coalesce($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid) and m.user_id > $3
+              and m.notification_level <> 'muted' and ($4::text = 'members' or m.role in ('owner', 'moderator'))
+              and not exists (select 1 from community_mutes mu where mu.user_id = m.user_id and mu.community_id = m.community_id)
+            order by m.user_id limit 200`, [communityId, msg.author_id, after, msg.view_role]);
+        if (!rows.length) break;
+        for (const r of rows) {
+          await withTx(ctx.pool, (c) => notify(c, { recipientId: r.user_id, actorId: msg.author_id, type: 'community_channel_announcement', entityType: 'channel_message', entityId: messageId, metadata: { communityId, channelId, messageId } }));
+        }
+        after = rows[rows.length - 1].user_id;
+      }
     },
     // A community's new event, announced in the app to members who asked for more than mentions. Idempotent: anyone who already
     // has the notice is skipped, so a retry never doubles up. Muted members, blocked pairs and people who switched event

@@ -67,6 +67,17 @@ sealed interface ChatEvent {
     data class NoteChanged(val userId: String, val deleted: Boolean) : ChatEvent
     data class StoryChanged(val userId: String, val kind: String) : ChatEvent
 
+    // Discussion channels. Message payloads are viewer-neutral JSON (see the server's docs): the app adds its own "mine" state.
+    data class ChannelMessageNew(val communityId: String, val channelId: String, val message: JSONObject) : ChatEvent
+    data class ChannelMessageUpdated(val communityId: String, val channelId: String, val message: JSONObject) : ChatEvent
+    data class ChannelMessageDeleted(val communityId: String, val channelId: String, val messageId: String) : ChatEvent
+    data class ChannelReaction(
+        val communityId: String, val channelId: String, val messageId: String, val userId: String,
+        val reaction: String, val active: Boolean, val reactions: JSONObject,
+    ) : ChatEvent
+    /** A channel was created, renamed, locked, archived, deleted or reordered. [channelId] is null for group and order changes. */
+    data class ChannelChanged(val communityId: String, val channelId: String?, val kind: String) : ChatEvent
+
     companion object {
         fun parse(o: JSONObject): ChatEvent? = when (o.optString("type")) {
             "message:new" -> MessageNew(o.getString("conversationId"))
@@ -79,6 +90,14 @@ sealed interface ChatEvent {
             "community:membership" -> CommunityMembership(o.getString("communityId"), o.getString("membership"), o.optInt("memberCount", 0))
             "note:changed" -> NoteChanged(o.getString("userId"), o.optString("kind") == "deleted")
             "story:changed" -> StoryChanged(o.getString("userId"), o.optString("kind"))
+            "channel:message" -> ChannelMessageNew(o.getString("communityId"), o.getString("channelId"), o.getJSONObject("message"))
+            "channel:message:updated" -> ChannelMessageUpdated(o.getString("communityId"), o.getString("channelId"), o.getJSONObject("message"))
+            "channel:message:deleted" -> ChannelMessageDeleted(o.getString("communityId"), o.getString("channelId"), o.getString("messageId"))
+            "channel:reaction" -> ChannelReaction(
+                o.getString("communityId"), o.getString("channelId"), o.getString("messageId"), o.getString("userId"),
+                o.getString("reaction"), o.getBoolean("active"), o.getJSONObject("reactions"),
+            )
+            "channel:changed" -> ChannelChanged(o.getString("communityId"), if (o.isNull("channelId")) null else o.getString("channelId"), o.optString("kind"))
             else -> null
         }
     }

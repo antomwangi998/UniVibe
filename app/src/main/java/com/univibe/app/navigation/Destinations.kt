@@ -79,6 +79,9 @@ object AppRoutes {
     const val STUDENT = "student/{studentId}"
     const val COMMUNITIES = "communities"
     const val COMMUNITY = "communities/{communityId}"
+    const val COMMUNITY_MANAGE_CHANNELS = "community/{communityId}/manage-channels"
+    const val COMMUNITY_CHANNEL = "communities/{communityId}/channels/{channelId}"
+    const val COMMUNITY_THREAD = "communities/{communityId}/channels/{channelId}/threads/{messageId}"
     const val COMMUNITY_NEW = "community/new"
     const val COMMUNITY_EDIT = "community/{communityId}/edit"
     const val EDIT_PROFILE = "profile/edit"
@@ -98,6 +101,9 @@ object AppRoutes {
     fun student(id: String) = "student/$id"
     fun community(id: String) = "communities/$id"
     fun communityEdit(id: String) = "community/$id/edit"
+    fun manageChannels(communityId: String) = "community/$communityId/manage-channels"
+    fun channel(communityId: String, channelId: String) = "communities/$communityId/channels/$channelId"
+    fun thread(communityId: String, channelId: String, messageId: String) = "communities/$communityId/channels/$channelId/threads/$messageId"
 }
 
 enum class TopLevelDestination(
