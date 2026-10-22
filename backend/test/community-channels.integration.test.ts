@@ -356,6 +356,63 @@ describe.skipIf(!url)('community channels (needs TEST_DATABASE_URL)', () => {
     expect((await call('POST', `${V1}/reports`, w.member.token, report)).status).toBe(201);
   });
 
+  it('polls: members vote once, counts are anonymous, closed and edited polls are refused, and who may post follows the channel', async () => {
+    const w = await world();
+    const url = `${w.chan(w.general.id)}/messages`;
+    const poll = { options: ['Friday', 'Saturday'], durationHours: 24 };
+    // Same rules as feed polls: 2 to 4 distinct options, at most 3 days.
+    expect((await call('POST', url, w.member.token, { content: 'Which day?', poll: { options: ['Only one'], durationHours: 24 } })).status).toBe(400);
+    expect((await call('POST', url, w.member.token, { content: 'Which day?', poll: { options: ['A', 'a'], durationHours: 24 } })).status).toBe(400);
+    expect((await call('POST', url, w.member.token, { content: 'Which day?', poll: { options: ['A', 'B'], durationHours: 100 } })).status).toBe(400);
+    expect((await call('POST', url, w.member.token, { content: '', poll })).status).toBe(400);
+    const made = await call('POST', url, w.member.token, { content: 'Which day?', poll });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    expect(made.body.poll.options.map((o: { text: string }) => o.text)).toEqual(['Friday', 'Saturday']);
+    expect(made.body.poll.myVote).toBeNull();
+    expect(made.body.poll.ended).toBe(false);
+
+    const vote = (t: string, i: number) => call('PUT', `${w.chan(w.general.id)}/messages/${made.body.id}/vote`, t, { optionIndex: i });
+    const first = await vote(w.owner.token, 1);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body.poll.myVote).toBe(1);
+    expect(first.body.poll.options[1].votes).toBe(1);
+    const again = await vote(w.owner.token, 0); // a vote cannot be changed
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe('already_voted');
+    // Two simultaneous taps from one person count once.
+    const results = await Promise.all([vote(w.mod.token, 0), vote(w.mod.token, 1)]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect((await vote(w.member.token, 7)).status).toBe(400);
+    expect((await vote(w.outsider.token, 0)).status).toBe(404); // not a member: the channel does not exist for them
+    // Nobody's choice is visible to anyone else.
+    const viewed = await call('GET', `${w.chan(w.general.id)}/messages?limit=5`, w.member.token);
+    const seen = viewed.body.items.find((m: { id: string }) => m.id === made.body.id);
+    expect(seen.poll.myVote).toBeNull();
+    expect(seen.poll.options.reduce((n: number, o: { votes: number }) => n + o.votes, 0)).toBe(2);
+    expect(seen.poll).not.toHaveProperty('voters'); // only counts and your own choice are ever sent
+
+    // A poll cannot be edited once posted, and a closed poll takes no more votes.
+    expect((await call('PATCH', `${w.chan(w.general.id)}/messages/${made.body.id}`, w.member.token, { content: 'Changed question' })).status).toBe(400);
+    await pool.query("update community_channel_messages set poll_ends_at = now() - interval '1 minute' where id = $1", [made.body.id]);
+    const late = await vote(w.member.token, 0);
+    expect(late.status).toBe(409);
+    expect(late.body.error).toBe('poll_ended');
+    const closed = await call('GET', `${w.chan(w.general.id)}/messages?limit=5`, w.member.token);
+    expect(closed.body.items.find((m: { id: string }) => m.id === made.body.id).poll.ended).toBe(true);
+
+    // Polls follow the channel's posting rules: announcement polls are staff only and need a title; question channels take none.
+    const ann = `${w.chan(w.announcements.id)}/messages`;
+    expect((await call('POST', ann, w.member.token, { title: 'Venue', content: 'Where?', poll })).status).toBe(403);
+    expect((await call('POST', ann, w.mod.token, { content: 'Where?', poll })).status).toBe(400); // title missing
+    expect((await call('POST', ann, w.mod.token, { title: 'Venue', content: 'Where?', poll })).status).toBe(201);
+    const qa = await call('POST', `${V1}/communities/${w.c.id}/channels`, w.owner.token, { name: 'ask', type: 'qa' });
+    expect((await call('POST', `${w.chan(qa.body.id)}/messages`, w.owner.token, { title: 'A question?', content: 'x', poll })).status).toBe(400);
+    // A deleted poll takes no votes and shows no results.
+    const gone = await call('POST', url, w.member.token, { content: 'Pizza?', poll });
+    await call('DELETE', `${w.chan(w.general.id)}/messages/${gone.body.id}`, w.member.token);
+    expect((await call('PUT', `${w.chan(w.general.id)}/messages/${gone.body.id}/vote`, w.owner.token, { optionIndex: 0 })).status).toBe(404);
+  });
+
   it('ordering and groups: groups are created, channels move between them, deleting a group keeps its channels', async () => {
     const w = await world();
     const g = await call('POST', `${V1}/communities/${w.c.id}/channel-groups`, w.mod.token, { name: 'Academics' });

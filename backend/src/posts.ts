@@ -1,3 +1,4 @@
+import { pollSchema, pollView } from './polls';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { blockedBetween, notSuspended } from './access';
 import { enqueue } from './jobs';
@@ -13,18 +14,8 @@ import type { Storage } from './storage';
 import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId, signAuthors } from './shared';
 
 const TEXT_MAX = 280;
-const POLL_MAX_HOURS = 72;
 const text = z.string().trim().min(1, 'Write something first.').max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
 
-const pollSchema = z.object({
-  options: z
-    .array(z.string().trim().min(1, 'Poll options cannot be empty.').max(40, 'Keep poll options under 40 characters.'))
-    .min(2, 'A poll needs at least 2 options.')
-    .max(4, 'A poll can have at most 4 options.')
-    .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, 'Poll options must be different.'),
-  /** How long voting stays open. Never more than 3 days. */
-  durationHours: z.number().int().min(1, 'A poll must run for at least an hour.').max(POLL_MAX_HOURS, 'A poll can run for 3 days at most.').default(24),
-});
 // A post may have no text when it carries photos or a video.
 const maybeText = z.string().trim().max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
 const createSchema = z.object({
@@ -165,15 +156,7 @@ function postJson(r: PostRow, media: MediaOut[], event: unknown = null) {
     repostedByMe: r.reposted,
     viewCount: r.view_count,
     edited: r.edited_at !== null,
-    poll: r.poll_options
-      ? {
-          options: r.poll_options.map((t, i) => ({ text: t, votes: counts[String(i)] ?? 0 })),
-          myVote: r.my_vote,
-          // Seconds left, not a date, so a wrong clock on the phone cannot keep a poll open or end it early.
-          secondsLeft: r.poll_seconds_left ?? 0,
-          ended: (r.poll_seconds_left ?? 0) <= 0,
-        }
-      : null,
+    poll: r.poll_options ? pollView(r.poll_options, r.poll_seconds_left, r.my_vote, counts) : null,
   };
 }
 

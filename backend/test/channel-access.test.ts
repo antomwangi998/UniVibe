@@ -149,3 +149,21 @@ describe('message shape per channel type', () => {
     }
   });
 });
+
+describe('polls in channels', () => {
+  const base = { content: 'Which day?', title: null as string | null, attachments: 0, isReply: false, poll: true };
+  it('are allowed in text channels with a question', () => {
+    expect(messageShapeError({ ...base, type: 'text' })).toBeNull();
+    expect(messageShapeError({ ...base, type: 'text', content: '' })).not.toBeNull();
+    expect(messageShapeError({ ...base, type: 'text', content: 'q'.repeat(281) })).not.toBeNull();
+  });
+  it('need their title in announcement channels', () => {
+    expect(messageShapeError({ ...base, type: 'announcement' })).not.toBeNull();
+    expect(messageShapeError({ ...base, type: 'announcement', title: 'Vote on the venue' })).toBeNull();
+  });
+  it('are refused where they make no sense, and as replies or with files', () => {
+    for (const type of ['qa', 'resources', 'media'] as const) expect(messageShapeError({ ...base, type })).not.toBeNull();
+    expect(messageShapeError({ ...base, type: 'text', isReply: true })).not.toBeNull();
+    expect(messageShapeError({ ...base, type: 'text', attachments: 1 })).not.toBeNull();
+  });
+});

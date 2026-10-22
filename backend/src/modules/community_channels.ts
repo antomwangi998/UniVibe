@@ -15,6 +15,7 @@ import {
   canAcceptAnswer, channelPermissions, channelSlug, isStaffRole, mayDeleteChannel, messageShapeError, normalizeSettings,
 } from './channel_access';
 import { audit } from './moderation';
+import { type PollView, pollSchema, pollView } from '../polls';
 
 type Q = Pick<PoolClient, 'query'>;
 
@@ -59,12 +60,17 @@ interface MsgRow extends CardRow {
   accepted_answer_id: string | null; reply_to_id: string | null;
   reply_status: string | null; reply_author_id: string | null; reply_content: string | null; reply_title: string | null; reply_hidden: boolean | null;
   reply_count: number; is_accepted: boolean; author_role: string | null; cursorT: string;
+  poll_options: string[] | null; poll_seconds_left: number | null; my_vote: number | null; vote_counts: Record<string, number> | null;
 }
 
 /** Every message read uses this shape. `viewer` is the placeholder holding the viewer id (used to hide blocked people). */
 const msgSelect = (viewer: string) => `
   select m.id, m.channel_id, m.seq, m.author_id, m.title, m.content, m.status, m.created_at, m.edited_at, m.pinned_at,
-         m.accepted_answer_id, m.reply_to_id, ${tsText('m.created_at')} as "cursorT",
+         m.accepted_answer_id, m.reply_to_id, ${tsText('m.created_at')} as "cursorT", m.poll_options,
+         case when m.poll_options is null then null else greatest(0, floor(extract(epoch from (m.poll_ends_at - now()))))::int end as poll_seconds_left,
+         (select v.option_index from community_channel_poll_votes v where v.message_id = m.id and v.user_id = ${viewer}) as my_vote,
+         (select coalesce(json_object_agg(t.option_index, t.n), '{}'::json)
+            from (select option_index, count(*)::int as n from community_channel_poll_votes where message_id = m.id group by option_index) t) as vote_counts,
          r.status as reply_status, r.author_id as reply_author_id, left(r.content, 120) as reply_content, r.title as reply_title,
          (r.id is not null and ${blockedBetween(viewer, 'r.author_id')}) as reply_hidden,
          (select count(*)::int from community_channel_messages x where x.reply_to_id = m.id and x.status = 'active') as reply_count,
@@ -84,6 +90,8 @@ export interface ChannelMessageView {
   replyCount: number;
   replyTo: { id: string; authorId: string | null; preview: string | null; deleted: boolean } | null;
   acceptedAnswerId: string | null; isAcceptedAnswer: boolean;
+  /** Same shape as a feed poll, so the app renders both with one component. Null for ordinary messages. */
+  poll: PollView | null;
   media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; fileName: string | null; sizeBytes: number | null }[];
   /** Counts per reaction, e.g. { heart: 2 }. `myReactions` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
@@ -126,6 +134,7 @@ async function presentMessages(ctx: Ctx, rows: MsgRow[], viewerId: string | null
         ? { id: r.reply_to_id, authorId: r.reply_hidden ? null : r.reply_author_id, preview: replyVisible ? String(r.reply_title ?? r.reply_content ?? '').slice(0, 80) : null, deleted: r.reply_status !== null && r.reply_status !== 'active' }
         : null,
       acceptedAnswerId: gone ? null : r.accepted_answer_id, isAcceptedAnswer: !gone && r.is_accepted,
+      poll: gone || !r.poll_options ? null : pollView(r.poll_options, r.poll_seconds_left, viewerId ? r.my_vote : null, r.vote_counts),
       media: gone ? [] : mediaViews.filter((m) => m.messageId === r.id).map((m) => m.view),
       reactions: gone ? {} : reacts.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = x.n; return acc; }, {}),
       ...(viewerId ? { myReactions: gone ? [] : mine } : {}),
@@ -141,6 +150,7 @@ const sendSchema = z.object({
   clientId: z.string().min(1).max(64).optional(),
   replyToId: z.string().uuid().optional(),
   mediaIds: z.array(z.string().uuid()).max(4).default([]),
+  poll: pollSchema.optional(),
 }).strict();
 const editSchema = z.object({ title: z.string().trim().max(120).optional(), content: z.string().trim().max(4000).optional() }).strict();
 
@@ -264,8 +274,8 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
     }
 
     async function loadOwn(q: Q, channelId: string, messageId: string, lock = false) {
-      const { rows } = await q.query<{ id: string; author_id: string | null; status: string; reply_to_id: string | null; pinned_at: Date | null; accepted_answer_id: string | null; title: string | null; content: string; created_at: Date }>(
-        `select id, author_id, status, reply_to_id, pinned_at, accepted_answer_id, title, content, created_at
+      const { rows } = await q.query<{ id: string; author_id: string | null; status: string; reply_to_id: string | null; pinned_at: Date | null; accepted_answer_id: string | null; title: string | null; content: string; created_at: Date; poll_options: string[] | null }>(
+        `select id, author_id, status, reply_to_id, pinned_at, accepted_answer_id, title, content, created_at, poll_options
            from community_channel_messages where id = $1 and channel_id = $2 ${lock ? 'for update' : ''}`, [messageId, channelId]);
       if (!rows[0]) throw new HttpError(404, 'not_found', 'That message is not available.');
       return rows[0];
@@ -539,7 +549,7 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
           // Answers belong to the question, not to other answers.
           if (ch.type === 'qa' && target.rows[0].reply_to_id) throw new HttpError(422, 'validation', 'Reply to the question, not to an answer.');
         }
-        const problem = messageShapeError({ type: ch.type, content: b.content, title: b.title ?? null, attachments: b.mediaIds.length, isReply });
+        const problem = messageShapeError({ type: ch.type, content: b.content, title: b.title ?? null, attachments: b.mediaIds.length, isReply, poll: b.poll !== undefined });
         if (problem) throw new HttpError(400, 'validation', problem);
 
         const next = await client.query<{ message_seq: string }>(
@@ -547,9 +557,9 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
         const seq = next.rows[0].message_seq;
         // created_at is taken now, under the channel lock (not at transaction start), so time order matches message-number order.
         const ins = await client.query<{ id: string }>(
-          `insert into community_channel_messages (channel_id, seq, author_id, client_id, title, content, reply_to_id, created_at)
-           values ($1, $2, $3, $4, $5, $6, $7, clock_timestamp()) returning id`,
-          [channelId, seq, me.id, b.clientId ?? null, b.title ? b.title : null, b.content, b.replyToId ?? null]);
+          `insert into community_channel_messages (channel_id, seq, author_id, client_id, title, content, reply_to_id, created_at, poll_options, poll_ends_at)
+           values ($1, $2, $3, $4, $5, $6, $7, clock_timestamp(), $8::text[], case when $8::text[] is null then null else now() + make_interval(hours => $9::int) end) returning id`,
+          [channelId, seq, me.id, b.clientId ?? null, b.title ? b.title : null, b.content, b.replyToId ?? null, b.poll ? b.poll.options : null, b.poll ? b.poll.durationHours : 0]);
         const messageId = ins.rows[0].id;
         if (b.mediaIds.length) {
           const attached = await client.query(
@@ -593,6 +603,8 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
         // Only the author edits their words; moderators can delete, not rewrite.
         if (m.status !== 'active' || m.author_id !== me.id) throw new HttpError(404, 'not_found', 'That message is not available.');
         if (!perms.send && !perms.reply) deny(perms);
+        // Changing a question after people voted would change what they voted on.
+        if (m.poll_options) throw new HttpError(400, 'validation', "A poll can't be edited once it is posted.");
         const files = (await client.query<{ n: number }>("select count(*)::int as n from media where channel_message_id = $1 and status = 'ready'", [messageId])).rows[0].n;
         const title = b.title === undefined ? m.title : b.title || null;
         const content = b.content ?? m.content;
@@ -726,6 +738,36 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
         `${msgSelect('$1')} where m.channel_id = $2 and m.pinned_at is not null and m.status = 'active' and not ${blockedBetween('$1', 'm.author_id')}
           order by m.pinned_at desc, m.id desc limit ${MAX_PINS}`, [me.id, channelId]);
       return { items: await presentMessages(ctx, rows, me.id) };
+    });
+
+    // ================= polls
+
+    app.put('/communities/:id/channels/:channelId/messages/:messageId/vote', async (req) => {
+      const me = await ctx.auth(req);
+      const communityId = communityParam(req);
+      const channelId = channelParam(req);
+      const messageId = messageParam(req);
+      const b = z.object({ optionIndex: z.number().int().min(0).max(3) }).strict().parse(req.body ?? {});
+      ctx.limit(`channel-vote:${me.id}`, 300, 3600);
+      // Voting is like reacting: any member who can read the channel, while the community is open and the channel not archived.
+      // A locked channel still lets people vote (it only stops new posts).
+      const { ch, perms } = await loadChannel(me, communityId, channelId);
+      if (!perms.react) deny(perms);
+      const { rows } = await pool.query<{ status: string; poll_options: string[] | null; open: boolean }>(
+        'select status, poll_options, (poll_ends_at is not null and poll_ends_at > now()) as open from community_channel_messages where id = $1 and channel_id = $2', [messageId, channelId]);
+      const m = rows[0];
+      if (!m || m.status !== 'active') throw new HttpError(404, 'not_found', 'That message is not available.');
+      if (!m.poll_options) throw new HttpError(400, 'validation', 'This message has no poll.');
+      if (b.optionIndex >= m.poll_options.length) throw new HttpError(400, 'validation', 'Unknown option.');
+      if (!m.open) throw new HttpError(409, 'poll_ended', 'This poll has ended.');
+      try {
+        await pool.query('insert into community_channel_poll_votes (message_id, user_id, option_index) values ($1, $2, $3)', [messageId, me.id, b.optionIndex]);
+      } catch (e) {
+        if (isUnique(e)) throw new HttpError(409, 'already_voted', 'You already voted in this poll.');
+        throw e;
+      }
+      await emitUpdated(ch, [messageId], null);
+      return (await loadMessages(me, [messageId], channelId))[0];
     });
 
     // ================= question and answer
