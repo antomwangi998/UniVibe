@@ -98,6 +98,7 @@ import androidx.compose.material.icons.outlined.SentimentDissatisfied
 import androidx.compose.material.icons.outlined.SentimentVerySatisfied
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
@@ -237,6 +238,29 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
     val listState = rememberLazyListState()
     val composerFocus = remember { FocusRequester() }
     val chat = s.chat
+    var showMedia by rememberSaveable { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    var confirmBlock by rememberSaveable { mutableStateOf(false) }
+    if (showMedia) ChatMediaSheet(
+        messages = s.messages,
+        onOpenPhoto = viewModel::openViewer,
+        onGoToMessage = viewModel::jumpTo,
+        onDismiss = { showMedia = false },
+    )
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        title = { Text("Clear this chat?") },
+        text = { Text("The messages disappear for you only. The other person keeps their copy.") },
+        confirmButton = { TextButton(onClick = { confirmClear = false; viewModel.clearHistory() }) { Text("Clear") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+    )
+    if (confirmBlock) AlertDialog(
+        onDismissRequest = { confirmBlock = false },
+        title = { Text("Block ${s.chat?.title.orEmpty()}?") },
+        text = { Text("They won't be able to message you, and you won't see each other's activity. You can undo this in Settings.") },
+        confirmButton = { TextButton(onClick = { confirmBlock = false; viewModel.blockPerson(onBack) }) { Text("Block", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = { confirmBlock = false }) { Text("Cancel") } },
+    )
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
@@ -411,12 +435,44 @@ fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -
                                 onClick = { menuOpen = false; headerAction.invoke() },
                             )
                         }
+                        DropdownMenuItem(
+                            text = { Text("Media, links and docs") },
+                            leadingIcon = { Icon(VibeIcons.Photo, contentDescription = null) },
+                            onClick = { menuOpen = false; showMedia = true },
+                        )
                         if (chat != null) {
                             DropdownMenuItem(
                                 text = { Text(if (chat.muted) "Unmute notifications" else "Mute notifications") },
                                 leadingIcon = { Icon(VibeIcons.BellOff, contentDescription = null) },
                                 onClick = { menuOpen = false; viewModel.toggleMute() },
                             )
+                            DropdownMenuItem(
+                                text = { Text(if (chat.pinned) "Unpin chat" else "Pin chat") },
+                                leadingIcon = { Icon(VibeIcons.Pin, contentDescription = null) },
+                                onClick = { menuOpen = false; viewModel.togglePin() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mark as unread") },
+                                leadingIcon = { Icon(VibeIcons.ChatUnread, contentDescription = null) },
+                                onClick = { menuOpen = false; viewModel.markUnread(onBack) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Archive chat") },
+                                leadingIcon = { Icon(VibeIcons.Archive, contentDescription = null) },
+                                onClick = { menuOpen = false; viewModel.archiveChat(onBack) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Clear chat") },
+                                leadingIcon = { Icon(VibeIcons.Delete, contentDescription = null) },
+                                onClick = { menuOpen = false; confirmClear = true },
+                            )
+                            if (!chat.isGroup && chat.studentId != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Block ${chat.title.substringBefore(' ')}", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(VibeIcons.Block, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = { menuOpen = false; confirmBlock = true },
+                                )
+                            }
                         }
                     }
                 }

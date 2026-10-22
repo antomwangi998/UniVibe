@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color as ComposeColor
+import com.univibe.app.ui.theme.BrandTeal
 
 /** Initials avatar; swap the inner Box for an async image once photos are available. */
 @Composable
@@ -45,9 +47,23 @@ fun StudentAvatar(
             Surface(
                 modifier = Modifier.align(Alignment.BottomEnd).size(size * 0.28f).semantics { contentDescription = "Online" },
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
+                color = BrandTeal,
                 border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),
             ) {}
         }
     }
+}
+
+/**
+ * The teal "active now" dot. Draw it on the outer box that holds an avatar (and its Story ring), not on a box that
+ * clips to a circle, so the dot is never cut off. [borderColor] should be the colour behind the avatar.
+ */
+@Composable
+fun ActiveDot(modifier: Modifier = Modifier, size: Dp = 14.dp, borderColor: ComposeColor = MaterialTheme.colorScheme.background) {
+    Surface(
+        modifier = modifier.size(size).semantics { contentDescription = "Active now" },
+        shape = CircleShape,
+        color = BrandTeal,
+        border = BorderStroke(2.dp, borderColor),
+    ) {}
 }

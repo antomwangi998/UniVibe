@@ -75,8 +75,13 @@ data class NotesUiState(
     val draftAudience: NoteAudience = NoteAudience.Campus,
     val publishing: Boolean = false,
     val publishError: String? = null,
+    /** The reply being written to someone's Note, and whether it is on its way. */
+    val replyText: String = "",
+    val replySending: Boolean = false,
+    val replyError: String? = null,
     val notice: String? = null,
 ) {
+    val canSendReply: Boolean get() = replyText.isNotBlank() && !replySending
     val myActive: Note? get() = mine?.takeIf { it.isActiveAt(nowMs) }
     val visibleOthers: List<Note> get() = others.filter { it.isActiveAt(nowMs) }
     val theirs: Note? get() = (sheet as? NotesSheet.Theirs)?.let { s -> visibleOthers.firstOrNull { it.authorId == s.authorId } }
@@ -127,6 +132,8 @@ class NotesViewModel(
     private var storiesJob: Job? = null
     /** While my own change is in flight, a refresh must not overwrite it with an answer computed before it. */
     private var mutating = 0
+    /** Kept while a reply is being retried, so a retry after a dropped answer cannot send it twice. */
+    private var replyClientId: String? = null
 
     private fun now() = deviceClock() + clockOffsetMs
 
@@ -233,7 +240,7 @@ class NotesViewModel(
     fun onMyNoteClick() = _state.update { if (it.myActive != null) it.copy(sheet = NotesSheet.Mine) else it }
 
     /** The Note bubble: always opens the Note. */
-    fun onNoteClick(authorId: String) = _state.update { it.copy(sheet = NotesSheet.Theirs(authorId)) }
+    fun onNoteClick(authorId: String) = _state.update { it.copy(sheet = NotesSheet.Theirs(authorId), replyText = "", replyError = null) }
 
     /**
      * The avatar when the person has no Story ring (or Stories are not available): opens their Note, the same as the
@@ -252,7 +259,8 @@ class NotesViewModel(
 
     fun setDraft(text: String) = _state.update { it.copy(draft = text, publishError = null) }
     fun setAudience(audience: NoteAudience) = _state.update { it.copy(draftAudience = audience) }
-    fun closeSheet() = _state.update { if (it.publishing) it else it.copy(sheet = NotesSheet.None, publishError = null) }
+    fun closeSheet() = _state.update { if (it.publishing || it.replySending) it else it.copy(sheet = NotesSheet.None, publishError = null, replyText = "", replyError = null) }
+    fun setReply(text: String) { replyClientId = null; _state.update { it.copy(replyText = text.take(REPLY_MAX_CHARS), replyError = null) } }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
 
     // ---- changes (each applied at once, then confirmed by the server)
@@ -294,6 +302,35 @@ class NotesViewModel(
         }
     }
 
+    /** Sends the reply to the open Note's author. The sheet closes on success; on failure the text stays so it can be retried. */
+    fun sendReply() {
+        val s = _state.value
+        val authorId = (s.sheet as? NotesSheet.Theirs)?.authorId ?: return
+        if (!s.canSendReply) return
+        val text = s.replyText.trim()
+        val clientId = replyClientId ?: java.util.UUID.randomUUID().toString().also { replyClientId = it }
+        _state.update { it.copy(replySending = true, replyError = null) }
+        viewModelScope.launch {
+            try {
+                repository.reply(authorId, text, clientId)
+                replyClientId = null
+                _state.update { it.copy(replySending = false, replyText = "", sheet = NotesSheet.None, notice = "Reply sent") }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _state.update { it.copy(replySending = false, replyError = replyMessage(e)) }
+            }
+        }
+    }
+
+    private fun replyMessage(e: Exception): String = when {
+        e is ApiException && e.status == 403 -> "You can't message this person."
+        e is ApiException && e.status == 404 -> "This Note is no longer available."
+        e is ApiException && e.status == 429 -> "You're sending too fast. Try again in a moment."
+        e is ApiException && e.status == 400 -> e.message ?: "That reply isn't valid."
+        e is IOException -> "No connection. Your reply wasn't sent."
+        else -> "Couldn't send your reply. Try again."
+    }
+
     private fun publishMessage(e: Exception): String = when {
         e is ApiException && e.status == 400 -> e.message ?: "That Note isn't valid."
         e is ApiException && e.status == 429 -> "You're posting too fast. Try again later."
@@ -302,3 +339,5 @@ class NotesViewModel(
         else -> "Couldn't publish your Note. Try again."
     }
 }
+
+const val REPLY_MAX_CHARS = 500
