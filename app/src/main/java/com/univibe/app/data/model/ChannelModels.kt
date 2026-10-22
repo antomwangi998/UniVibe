@@ -53,6 +53,11 @@ data class Channel(
     val unread: Int,
     val pinnedCount: Int,
     val access: ChannelAccess,
+    // The settings a moderator can change (the server sends them to everyone who can see the channel).
+    val viewRole: String = "members",
+    val postRole: String = "members",
+    val repliesEnabled: Boolean = true,
+    val allowAttachments: Boolean = true,
 )
 
 data class ChannelGroup(val id: String, val name: String)
@@ -72,6 +77,32 @@ data class ChannelDirectory(
                 groups.forEach { g -> channels.filter { it.groupId == g.id }.takeIf { it.isNotEmpty() }?.let { add(g to it) } }
             }
         }
+}
+
+/**
+ * The full order to send to the server after moving [channelId] one step ([delta] = -1 up, +1 down) inside its own section,
+ * as (channel id, group id) pairs in display order. Null when it cannot move (already first or last, or unknown).
+ */
+fun ChannelDirectory.orderAfterMovingChannel(channelId: String, delta: Int): List<Pair<String, String?>>? {
+    val secs = sections
+    val si = secs.indexOfFirst { s -> s.second.any { it.id == channelId } }
+    if (si < 0) return null
+    val list = secs[si].second.toMutableList()
+    val i = list.indexOfFirst { it.id == channelId }
+    val j = i + delta
+    if (j !in list.indices) return null
+    val moved = list[i]; list[i] = list[j]; list[j] = moved
+    return secs.flatMapIndexed { k, s -> (if (k == si) list else s.second).map { it.id to s.first?.id } }
+}
+
+/** The group order after moving [groupId] one step, or null when it cannot move. */
+fun ChannelDirectory.groupOrderAfterMoving(groupId: String, delta: Int): List<String>? {
+    val ids = groups.map { it.id }.toMutableList()
+    val i = ids.indexOf(groupId)
+    val j = i + delta
+    if (i < 0 || j !in ids.indices) return null
+    val moved = ids[i]; ids[i] = ids[j]; ids[j] = moved
+    return ids
 }
 
 data class ChannelAuthor(val id: String, val name: String, val handle: String, val avatarUrl: String?, val accent: Int, val verified: Boolean)
@@ -104,6 +135,8 @@ data class ChannelMessage(
     val attachments: List<ChannelAttachment>,
     val reactions: Map<String, Int>,
     val myReactions: Set<String>,
+    /** A poll, in the same shape as a feed poll (so the same component draws it). Null for ordinary messages. */
+    val poll: Poll? = null,
 ) {
     val resolved: Boolean get() = acceptedAnswerId != null
     val isStaffAuthor: Boolean get() = authorRole == "owner" || authorRole == "moderator"
@@ -116,7 +149,10 @@ data class ChannelDraft(
     val photoPaths: List<String>,
     /** Stable for retries: the server returns the stored message instead of creating a second one. */
     val clientId: String,
+    val poll: PollDraft? = null,
 )
+
+data class PollDraft(val options: List<String>, val durationHours: Int)
 
 data class MessagePage(val items: List<ChannelMessage>, val nextCursor: String?, val latestSeq: Long = 0L)
 
@@ -134,7 +170,11 @@ val CHANNEL_REACTIONS: List<Pair<String, String>> = listOf(
  */
 fun List<ChannelMessage>.upserted(incoming: ChannelMessage, keepMine: Boolean = false): List<ChannelMessage> {
     val old = firstOrNull { it.id == incoming.id }
-    val merged = if (keepMine && old != null) incoming.copy(myReactions = old.myReactions) else incoming
+    // Socket payloads are viewer-neutral: they carry no "mine", so this student's own reactions and poll vote are carried over.
+    val merged = if (keepMine && old != null) incoming.copy(
+        myReactions = old.myReactions,
+        poll = incoming.poll?.let { p -> p.copy(myVote = p.myVote ?: old.poll?.myVote) },
+    ) else incoming
     val without = if (old == null) this else filter { it.id != incoming.id }
     return (without + merged).sortedWith(compareBy<ChannelMessage> { it.seq }.thenBy { it.id })
 }
