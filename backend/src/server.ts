@@ -13,6 +13,7 @@ import { Hub } from './realtime';
 import { purgeExpiredEvents, sendEventReminders } from './modules/events';
 import { createSharpProcessor } from './imaging';
 import { MEDIA_LIMITS, cleanupPendingMedia, cleanupStorageGarbage } from './media';
+import { purgeUnusedMedia } from './media_cleanup';
 import { createR2Storage } from './storage';
 import { createGoogleVerifier, googleClientIds } from './google';
 
@@ -74,6 +75,8 @@ async function main() {
   });
   every('purge-expired-notes', 3600 * 1000, async () => app.log.info(await purgeExpiredNotes(pool), 'purged expired notes'));
   every('purge-expired-stories', 15 * 60 * 1000, async () => app.log.info(await purgeExpiredStories(pool, storage ?? null), 'purged expired stories'));
+  // Uploads nothing uses any more (abandoned composers, failed posts, replaced covers). Every 15 minutes; each run takes at most 2,000.
+  if (storage) every('purge-unused-media', 15 * 60 * 1000, async () => app.log.info(await purgeUnusedMedia(pool, storage, { graceHours: config.MEDIA_ORPHAN_GRACE_HOURS }), 'purged unused media'));
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {
