@@ -165,7 +165,12 @@ export interface MessageShapeInput {
   attachments: number;
   /** True when this message answers or comments on another one. */
   isReply: boolean;
+  /** True when the message carries a poll. */
+  poll?: boolean;
 }
+
+/** Polls fit conversation and announcements; they make no sense as a question, a resource or a photo post. */
+export const POLL_CHANNEL_TYPES: readonly ChannelType[] = ['text', 'announcement'];
 
 const LINK_RE = /\bhttps?:\/\/[^\s<>"']{4,}/i;
 
@@ -173,6 +178,14 @@ const LINK_RE = /\bhttps?:\/\/[^\s<>"']{4,}/i;
 export function messageShapeError(i: MessageShapeInput): string | null {
   const content = i.content.trim();
   const title = i.title?.trim() ?? '';
+  if (i.poll) {
+    if (i.isReply) return 'A poll cannot be a reply.';
+    if (!POLL_CHANNEL_TYPES.includes(i.type)) return 'Polls are not available in this kind of channel.';
+    if (i.attachments) return "A poll can't have photos or files.";
+    if (!content) return 'Add a question for your poll.';
+    if (content.length > 280) return 'Keep the poll question under 280 characters.';
+    // Announcement polls still need their title; the normal rules below check it.
+  }
   if (i.isReply) {
     if (title) return 'Replies do not have titles.';
     return content || i.attachments ? null : 'Write a reply or attach a file.';
