@@ -178,7 +178,7 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
            from unnest($2::uuid[]) with ordinality as x(id, ord)
-          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio', 'document') and m.status = 'ready' and m.message_id is null`,
+          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio', 'document') and m.status = 'ready' and m.message_id is null and m.channel_message_id is null`,
         [messageId, input.mediaIds, me.id]);
       if (attached.rowCount !== input.mediaIds.length) throw new HttpError(422, 'invalid_media', 'One of the attachments is not available.');
       // A voice message stands alone: no other attachments with it.

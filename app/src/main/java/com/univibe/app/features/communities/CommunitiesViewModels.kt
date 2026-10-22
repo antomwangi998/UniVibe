@@ -84,7 +84,7 @@ class CommunitiesViewModel(
 }
 
 // ------------------------------------------------------------------ details + members + moderation
-enum class CommunityTab { Posts, Events, Members, About }
+enum class CommunityTab { Posts, Discussions, Events, Members, About }
 
 sealed interface CommunityConfirm {
     data object Leave : CommunityConfirm
