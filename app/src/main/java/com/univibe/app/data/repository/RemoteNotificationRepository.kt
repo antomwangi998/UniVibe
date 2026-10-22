@@ -63,6 +63,7 @@ class RemoteNotificationRepository(
         val meta = o.optJSONObject("metadata") ?: JSONObject()
         val entityId = if (o.isNull("entityId")) "" else o.getString("entityId")
         val postId = meta.optString("postId").ifBlank { entityId }
+        val communityId = meta.optString("communityId").ifBlank { entityId }
         val conversationId = meta.optString("conversationId").ifBlank { entityId }
         var title = actor?.name ?: "UniVibe"
         val shape = when (o.getString("type")) {
@@ -99,6 +100,7 @@ class RemoteNotificationRepository(
             "community_invitation" -> Shape(NotificationType.Community, "invited you to join a community", NotificationTarget.Community(entityId))
             "community_role_changed" -> { title = "Community"; Shape(NotificationType.Community, "Your role in a community changed.", NotificationTarget.Community(entityId)) }
             "community_member_removed" -> { title = "Community"; Shape(NotificationType.Community, "Your membership in a community changed.", NotificationTarget.Community(entityId)) }
+            "community_channel_announcement" -> Shape(NotificationType.Community, "posted an announcement", NotificationTarget.Community(communityId))
             "community_announcement" -> Shape(NotificationType.Community, "posted a community announcement", NotificationTarget.Post(postId))
             "verification" -> {
                 title = "Student verification"

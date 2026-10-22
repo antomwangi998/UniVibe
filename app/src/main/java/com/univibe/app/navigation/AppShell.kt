@@ -63,7 +63,9 @@ import com.univibe.app.features.notifications.NotificationCenterScreen
 import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
+import com.univibe.app.features.communities.ChannelScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
+import com.univibe.app.features.communities.ThreadScreen
 import com.univibe.app.features.communities.CommunityFormScreen
 import com.univibe.app.features.post.PostComposeHandoff
 import com.univibe.app.features.profile.EditProfileScreen
@@ -436,6 +438,22 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenComments = { open(AppRoutes.comments(it)) },
                             onOpenStudent = { open(AppRoutes.student(it)) },
                             onOpenEvent = { open(AppRoutes.event(it)) },
+                            onOpenChannel = { open(AppRoutes.channel(communityId, it)) },
+                        )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_CHANNEL, stringArgs("communityId", "channelId")) { entry ->
+                        val communityId = entry.arg("communityId")
+                        val channelId = entry.arg("channelId")
+                        ChannelScreen(
+                            communityId = communityId, channelId = channelId, onBack = back,
+                            onOpenThread = { open(AppRoutes.thread(communityId, channelId, it)) },
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                        )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_THREAD, stringArgs("communityId", "channelId", "messageId")) { entry ->
+                        ThreadScreen(
+                            communityId = entry.arg("communityId"), channelId = entry.arg("channelId"), messageId = entry.arg("messageId"),
+                            onBack = back, onOpenStudent = { open(AppRoutes.student(it)) },
                         )
                     }
                     subScreen(AppRoutes.COMMUNITY_NEW) {
