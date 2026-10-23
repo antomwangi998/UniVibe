@@ -142,7 +142,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     }
                     VibeTextField(
                         s.externalUrl, viewModel::setExternalUrl, label = "Registration link (optional)", isError = !s.externalUrlOk,
-                        supportingText = "A link that starts with https://",
+                        supportingText = "A link that starts with https://", capitalize = false,
                     )
                     Text("Format", style = MaterialTheme.typography.titleSmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -153,7 +153,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     if (s.needsLink) {
                         VibeTextField(
                             s.onlineUrl, viewModel::setOnlineUrl, label = "Link to join online", isError = s.onlineUrl.isNotEmpty() && !s.onlineUrlOk,
-                            supportingText = "Starts with https://. Only you and people who registered can see it.",
+                            supportingText = "Starts with https://. Only you and people who registered can see it.", capitalize = false,
                         )
                     }
                     if (s.needsVenue) Text("Where", style = MaterialTheme.typography.titleSmall)

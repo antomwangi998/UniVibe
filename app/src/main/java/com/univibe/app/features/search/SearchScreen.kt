@@ -65,7 +65,7 @@ fun SearchScreen(
             leadingIcon = VibeIcons.Search,
             trailingIcon = if (state.query.isNotEmpty()) ({ VibeIconButton(VibeIcons.Close, "Clear search", viewModel::clear) }) else null,
             modifier = Modifier.padding(horizontal = Spacing.md).focusRequester(focus),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), capitalize = false,
             keyboardActions = KeyboardActions(onSearch = { viewModel.remember() }),
         )
         Box(Modifier.weight(1f).fillMaxWidth().padding(top = Spacing.sm)) {

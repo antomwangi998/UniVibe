@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.ui.components.SuggestedPeopleCarousel
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIconButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,6 +71,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -137,6 +139,10 @@ import com.univibe.app.ui.components.shareEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.features.events.RsvpOption
 
+/** Feed positions (0-based) after which a suggestions row appears: 5th post, and 20th post. */
+private const val SUGGEST_FIRST_AFTER = 4
+private const val SUGGEST_SECOND_AFTER = 19
+
 @Composable
 fun HomeScreen(
     onOpenEvents: () -> Unit = {},
@@ -146,6 +152,7 @@ fun HomeScreen(
     onCreatePost: () -> Unit = {},
     unreadNotifications: Int = 0,
     onOpenNotifications: () -> Unit = {},
+    onOpenDiscover: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -239,7 +246,8 @@ fun HomeScreen(
                         )
                     }
                 }
-                else -> items(state.visiblePosts, key = { it.id }, contentType = { if (it.event != null) "event" else "post" }) { post ->
+                else -> itemsIndexed(state.visiblePosts, key = { _, p -> p.id }, contentType = { _, p -> if (p.event != null) "event" else "post" }) { index, post ->
+                  Column {
                     val announced = post.event
                     if (announced != null) {
                         EventFeedCard(
@@ -266,6 +274,19 @@ fun HomeScreen(
                         onRepost = { viewModel.toggleRepost(post.id) },
                         onSeen = { viewModel.noteSeen(post.id) },
                     )
+                    // "Suggested for you": only on the campus feed, once near the top and once much further down.
+                    if (state.filter == FeedFilter.Campus) {
+                        val batch = when (index) {
+                            SUGGEST_FIRST_AFTER -> state.visibleSuggestions.take(6)
+                            SUGGEST_SECOND_AFTER -> state.visibleSuggestions.drop(6).take(6)
+                            else -> emptyList()
+                        }
+                        SuggestedPeopleCarousel(
+                            people = batch, onOpenStudent = onOpenStudent,
+                            onFollow = viewModel::followSuggestion, onDismiss = viewModel::dismissSuggestion, onSeeAll = onOpenDiscover,
+                        )
+                    }
+                  }
                 }
             }
             if (state.loadingMore) item(key = "more") {

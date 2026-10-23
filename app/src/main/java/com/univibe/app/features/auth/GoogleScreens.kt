@@ -100,7 +100,7 @@ fun GoogleRegistrationScreen(viewModel: GoogleRegistrationViewModel = viewModel(
             leadingIcon = VibeIcons.Badge,
             isError = state.admissionError != null,
             supportingText = state.admissionError ?: "Helps verify you as a student. You can add it later.",
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), capitalize = false,
             keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
         )
         if (state.universities.size <= 1) {
