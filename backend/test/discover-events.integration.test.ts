@@ -97,7 +97,7 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     await pool.query("update events set registration_deadline = now() - interval '1 minute' where id = $1", [closed.id]);
     const get = async (qs: string) => ids((await call('GET', `${D}?limit=30&${qs}`, viewer.token)).body);
     expect(await get('category=music')).toEqual([music.id]);
-    expect(await get('category=music,technology')).toEqual(expect.arrayContaining([music.id, tech.id]));
+    expect(await get('category=music,academic')).toEqual(expect.arrayContaining([music.id, online.id]));
     expect(await get('format=online')).toEqual([online.id]);
     const open = await get('registrationOpen=true');
     expect(open).toContain(tech.id);
@@ -117,24 +117,26 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     const viewer = await h.student();
     const org = await h.student();
     const org2 = await h.student();
-    const old = await create(org.token);
+    const tag = uniq('past-test-'); // the shared test database holds many events, so find ours by title
+    const old = await create(org.token, { title: `${tag} old` });
     await pool.query("update events set starts_at = now() - interval '5 hours', ends_at = now() - interval '4 hours' where id = $1", [old.id]);
-    const soon = await create(org.token, { startsAt: inHours(10), endsAt: inHours(11) });
-    const later = await create(org2.token, { startsAt: inHours(70), endsAt: inHours(71) });
-    expect(ids((await call('GET', `${D}?scope=past&limit=30`, viewer.token)).body)).toContain(old.id);
-    expect(ids((await call('GET', `${D}?limit=30`, viewer.token)).body)).not.toContain(old.id);
-    const timed = ids((await call('GET', `${D}?sort=time&limit=50`, viewer.token)).body);
+    const soon = await create(org.token, { title: `${tag} soon`, startsAt: inHours(10), endsAt: inHours(11) });
+    const later = await create(org2.token, { title: `${tag} later`, startsAt: inHours(70), endsAt: inHours(71) });
+    expect(ids((await call('GET', `${D}?scope=past&limit=30&q=${tag}`, viewer.token)).body)).toContain(old.id);
+    expect(ids((await call('GET', `${D}?limit=30&q=${tag}`, viewer.token)).body)).not.toContain(old.id);
+    const timed = ids((await call('GET', `${D}?sort=time&limit=30&q=${tag}`, viewer.token)).body);
     expect(timed.indexOf(soon.id)).toBeLessThan(timed.indexOf(later.id));
   });
 
   it('pages without repeating events', async () => {
     const viewer = await h.student();
     const owners = await Promise.all([1, 2, 3, 4, 5].map(() => h.student()));
-    const made = await Promise.all(owners.map((o) => create(o.token)));
+    const tag = uniq('paging-'); // only our own events, so other test files adding events cannot shift the pages
+    const made = await Promise.all(owners.map((o, i) => create(o.token, { title: `${tag} ${i}` })));
     const seen: string[] = [];
     let cursor: string | null = null;
     for (let i = 0; i < 40; i++) {
-      const res: { body: { items: Array<{ id: string }>; nextCursor: string | null } } = await call('GET', `${D}?limit=2${cursor ? `&cursor=${cursor}` : ''}`, viewer.token);
+      const res: { body: { items: Array<{ id: string }>; nextCursor: string | null } } = await call('GET', `${D}?limit=2&q=${tag}${cursor ? `&cursor=${cursor}` : ''}`, viewer.token);
       seen.push(...ids(res.body));
       cursor = res.body.nextCursor;
       if (!cursor) break;

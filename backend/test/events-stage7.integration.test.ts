@@ -30,12 +30,12 @@ describe.skipIf(!url)('events stage 7: drafts, early close, guest list, forwardi
     const d = await create(org.token, { status: 'draft' });
     expect(d.status).toBe('draft');
     const ids = async (token: string, path: string) => ((await call('GET', `${V1}${path}`, token)).body.items as Array<{ id: string }>).map((e) => e.id);
-    expect(await ids(other.token, '/events')).not.toContain(d.id);
+    expect(await ids(other.token, `/events?limit=50&q=${encodeURIComponent(d.title)}`)).not.toContain(d.id);
     expect((await call('GET', `${V1}/events/${d.id}`, other.token)).status).toBe(404);
     expect(await ids(org.token, '/me/events?scope=upcoming')).toContain(d.id); // the app's Drafts tab reads this
     expect(await ids(org.token, '/events')).not.toContain(d.id);
     expect((await call('POST', `${V1}/events/${d.id}/publish`, org.token)).status).toBeLessThan(300);
-    expect(await ids(other.token, '/events')).toContain(d.id);
+    expect(await ids(other.token, `/events?limit=50&q=${encodeURIComponent(d.title)}`)).toContain(d.id);
   });
 
   it('closing an event early reports phase "ended" to everyone', async () => {

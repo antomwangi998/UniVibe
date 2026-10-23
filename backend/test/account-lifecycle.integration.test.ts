@@ -57,7 +57,7 @@ describe.skipIf(!url)('account deactivation and data export (needs TEST_DATABASE
 
   it('stops push notifications to a deactivated account', async () => {
     const a = await h.student();
-    await pool.query("insert into device_tokens (user_id, installation_id, fcm_token, platform) values ($1, 'inst-1', $2, 'android')", [a.id, 'x'.repeat(40)]);
+    await pool.query("insert into device_tokens (user_id, installation_id, fcm_token, platform) values ($1, 'inst-0001', $2, 'android')", [a.id, 'x'.repeat(40)]);
     expect((await call('POST', '/me/deactivate', a.token, { password: PASSWORD })).status).toBe(204);
     const live = await pool.query('select 1 from device_tokens where user_id = $1 and revoked_at is null', [a.id]);
     expect(live.rowCount).toBe(0);

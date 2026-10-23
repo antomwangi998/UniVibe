@@ -7,7 +7,7 @@ import { harness, url } from './helpers';
 /** Stands in for a connected WebSocket: records every event the server pushes to this person. */
 function fakeSocket() {
   const events: { type: string; [k: string]: unknown }[] = [];
-  const ws = { OPEN: 1, readyState: 1, send: (p: string) => { events.push(JSON.parse(p)); } };
+  const ws = { OPEN: 1, readyState: 1, send: (p: string) => { events.push(JSON.parse(p)); }, close: () => {} };
   return { ws: ws as unknown as import('ws').WebSocket, events };
 }
 

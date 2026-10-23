@@ -97,7 +97,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await bad({ capacity: 5001 }, 400);
     await bad({ startsAt: 'tomorrow' }, 400);
     await bad({ organizerId: 'someone-else' }, 400);
-    expect((await call('GET', `${V1}/events?category=nonsense`, org.token)).status).toBe(400);
+    expect((await call('GET', `${V1}/events?category=BAD CODE`, org.token)).status).toBe(400);
   });
 
   it('limits upcoming events per organizer', async () => {
@@ -270,7 +270,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await pool.query("update events set registration_deadline = now() - interval '1 minute' where id = $1", [e.id]);
     const res = await call('POST', `${V1}/events/${e.id}/register`, s1.token);
     expect(res.status).toBe(409);
-    expect(res.body.error?.code ?? res.body.code).toBe('registration_closed');
+    expect(res.body.error).toBe('registration_closed');
     expect((await call('GET', `${V1}/events/${e.id}`, s1.token)).body.registration).toBe('closed');
   });
 
@@ -360,7 +360,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     const e = await create(org.token);
     await call('POST', `${V1}/events/${e.id}/register`, s1.token);
     await call('PATCH', `${V1}/events/${e.id}`, org.token, { description: 'A longer description.' });
-    const n = () => pool.query("select count(*)::int as n from notifications where recipient_id = $1 and type = 'event_update' and entity_id = $2", [s1.id, e.id]);
+    const n = () => pool.query("select count(*)::int as n from notifications where recipient_id = $1 and type = 'event_update' and entity_id = $2 and metadata->>'kind' = 'changed'", [s1.id, e.id]);
     expect((await n()).rows[0].n).toBe(0);
     await call('PATCH', `${V1}/events/${e.id}`, org.token, { venueName: 'Main Hall' });
     expect((await n()).rows[0].n).toBe(1);
