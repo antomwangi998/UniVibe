@@ -164,9 +164,10 @@ export function moderationRoutes(ctx: Ctx) {
 
     /** Hides or restores an event and records who did it. [reportId] is null when a moderator acts from the event itself. */
     async function setEventHidden(client: Q, me: AuthUser, eventId: string, hide: boolean, note: string, userMessage: string, reportId: string | null) {
-      const res = await client.query(
-        `update events set hidden_at = ${hide ? 'now()' : 'null'}, hidden_by = ${hide ? '$2::uuid' : 'null'}, updated_at = now() where id = $1 and university_id = $3`,
-        [eventId, me.id, me.universityId]);
+      // Restoring has no $2: Postgres rejects a bind with more values than the statement uses, so each case passes only its own.
+      const res = hide
+        ? await client.query('update events set hidden_at = now(), hidden_by = $2::uuid, updated_at = now() where id = $1 and university_id = $3', [eventId, me.id, me.universityId])
+        : await client.query('update events set hidden_at = null, hidden_by = null, updated_at = now() where id = $1 and university_id = $2', [eventId, me.universityId]);
       if (!res.rowCount) throw new HttpError(404, 'not_found', 'That event no longer exists.');
       await client.query(
         'insert into moderation_actions (report_id, moderator_id, action, target_type, target_id, note, user_message) values ($1, $2, $3, $4, $5, $6, $7)',
