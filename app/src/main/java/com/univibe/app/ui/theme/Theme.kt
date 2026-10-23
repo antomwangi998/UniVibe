@@ -42,36 +42,42 @@ private val LightColors = lightColorScheme(
     surfaceContainerHighest = Color(0xFFE2E8F0),
 )
 
+// Pure black dark theme (X "Lights out" style).
+private val PureBlack = Color(0xFF000000)
+private val PureBlackText = Color(0xFFE7E9EA)
+private val PureBlackTextMuted = Color(0xFF71767B)
+private val PureBlackDivider = Color(0xFF2F3336)
+
 private val DarkColors = darkColorScheme(
     primary = DarkPrimary,
     onPrimary = Color(0xFF042F2E),
     primaryContainer = DarkPrimaryContainer,
     onPrimaryContainer = DarkOnPrimaryContainer,
     secondary = Color(0xFF94A3B8),
-    onSecondary = Color(0xFF0D1117),
+    onSecondary = Color.Black,
     secondaryContainer = Color(0xFF1E293B),
     onSecondaryContainer = Color(0xFFE2E8F0),
     tertiary = Color(0xFFFDBA74),
     onTertiary = Color(0xFF431407),
     tertiaryContainer = Color(0xFF7C2D12),
     onTertiaryContainer = Color(0xFFFFEDD5),
-    background = DarkBackground,
-    onBackground = DarkText,
-    surface = DarkSurface,
-    onSurface = DarkText,
-    surfaceVariant = Color(0xFF1F2937),
-    onSurfaceVariant = DarkTextMuted,
+    background = PureBlack,
+    onBackground = PureBlackText,
+    surface = PureBlack,
+    onSurface = PureBlackText,
+    surfaceVariant = Color(0xFF16181C),
+    onSurfaceVariant = PureBlackTextMuted,
     outline = DarkOutline,
-    outlineVariant = DarkOutlineVariant,
+    outlineVariant = PureBlackDivider,
     error = Color(0xFFF87171),
     onError = Color(0xFF450A0A),
     errorContainer = Color(0xFF7F1D1D),
     onErrorContainer = Color(0xFFFEE2E2),
-    surfaceContainerLowest = Color(0xFF0D1117),
-    surfaceContainerLow = Color(0xFF11161D),
-    surfaceContainer = Color(0xFF161B22),
-    surfaceContainerHigh = Color(0xFF1C232D),
-    surfaceContainerHighest = Color(0xFF232B37),
+    surfaceContainerLowest = PureBlack,
+    surfaceContainerLow = Color(0xFF080808),
+    surfaceContainer = Color(0xFF0F1114),
+    surfaceContainerHigh = Color(0xFF16181C),
+    surfaceContainerHighest = Color(0xFF202327),
 )
 
 /**
