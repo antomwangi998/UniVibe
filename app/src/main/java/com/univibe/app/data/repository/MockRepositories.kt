@@ -922,6 +922,12 @@ class MockProfileRepository(
         if (live() != null) backend!!.following() else
         MockData.allStudents.filter { it.id != MockData.ME_ID && it.id in store.following }.map { FollowEntry(it, true) }
 
+    override suspend fun getFollowersOf(studentId: String): List<FollowEntry> =
+        if (live() != null) backend!!.followersOf(studentId) else getFollowers()
+
+    override suspend fun getFollowingOf(studentId: String): List<FollowEntry> =
+        if (live() != null) backend!!.followingOf(studentId) else getFollowing()
+
     override suspend fun setFollowing(studentId: String, following: Boolean) {
         if (live() != null) {
             backend!!.setFollowing(studentId, following)

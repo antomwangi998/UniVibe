@@ -226,6 +226,9 @@ interface ProfileRepository {
     suspend fun getStudentProfile(id: String): StudentProfile?
     suspend fun getFollowers(): List<FollowEntry>
     suspend fun getFollowing(): List<FollowEntry>
+    /** Another student's followers / following. Empty when offline or not available. */
+    suspend fun getFollowersOf(studentId: String): List<FollowEntry> = emptyList()
+    suspend fun getFollowingOf(studentId: String): List<FollowEntry> = emptyList()
     suspend fun setFollowing(studentId: String, following: Boolean)
 }
 

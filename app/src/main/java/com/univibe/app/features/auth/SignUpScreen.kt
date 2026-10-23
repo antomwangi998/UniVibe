@@ -86,7 +86,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
             leadingIcon = VibeIcons.Badge,
             isError = state.admissionError != null,
             supportingText = state.admissionError ?: "Helps verify you as a student. You can add it later.",
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), capitalize = false,
             keyboardActions = next,
         )
 

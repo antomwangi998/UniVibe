@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,10 +35,13 @@ fun VibeTextField(
     maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    /** Plain-text fields start sentences with a capital. Turn off for links, admission numbers, search and the like. */
+    capitalize: Boolean = true,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     val colors = MaterialTheme.colorScheme
+    val effectiveKeyboard = keyboardOptions.withSentenceCaps(capitalize)
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -51,7 +56,7 @@ fun VibeTextField(
         singleLine = singleLine,
         minLines = minLines,
         maxLines = maxLines,
-        keyboardOptions = keyboardOptions,
+        keyboardOptions = effectiveKeyboard,
         keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
         shape = RoundedCornerShape(16.dp),
@@ -62,4 +67,14 @@ fun VibeTextField(
             unfocusedContainerColor = colors.surface,
         ),
     )
+}
+
+/**
+ * Turns on sentence capitalisation for ordinary text input (the keyboard then capitalises the first letter of each
+ * sentence). Email, password, number and other typed fields, and fields that already chose a capitalisation, are left alone.
+ */
+fun KeyboardOptions.withSentenceCaps(enabled: Boolean = true): KeyboardOptions {
+    val plainText = keyboardType == KeyboardType.Text || keyboardType == KeyboardType.Unspecified
+    val unset = capitalization == KeyboardCapitalization.None || capitalization == KeyboardCapitalization.Unspecified
+    return if (enabled && plainText && unset) copy(capitalization = KeyboardCapitalization.Sentences) else this
 }

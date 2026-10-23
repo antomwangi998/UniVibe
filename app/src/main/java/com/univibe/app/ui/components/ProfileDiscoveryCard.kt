@@ -49,7 +49,9 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
                 else Modifier,
             ),
     ) {
-        student.photoPath?.let { path ->
+        // Discover photo first; if they never added one, their profile picture; only then initials.
+        val cardPhoto = student.photoPath ?: student.avatarUrl
+        cardPhoto?.let { path ->
             PhotoImage(path, contentDescription = "${student.name}'s photo", modifier = Modifier.fillMaxSize())
         }
         if (onClick != null) {
@@ -63,7 +65,7 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
                 }
             }
         }
-        if (student.photoPath == null) Text(
+        if (cardPhoto == null) Text(
             text = student.name.split(" ").take(2).joinToString("") { it.first().uppercase() },
             color = Color.White.copy(alpha = 0.35f),
             fontSize = 120.sp,
@@ -94,7 +96,9 @@ fun ProfileDiscoveryCard(student: Student, modifier: Modifier = Modifier, onClic
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${student.name.substringBefore(' ')}, ${student.age}", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    if (student.age > 0) "${student.name.substringBefore(' ')}, ${student.age}" else student.name.substringBefore(' '),
+                    color = Color.White, style = MaterialTheme.typography.headlineMedium)
                 if (student.online) {
                     Spacer(Modifier.width(8.dp))
                     Box(Modifier.size(10.dp).background(MaterialTheme.colorScheme.primary, CircleShape))

@@ -2,6 +2,7 @@
 
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.withSentenceCaps
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.onClick
@@ -820,7 +821,7 @@ private fun MessageComposerCard(
                     cursorBrush = SolidColor(colors.primary),
                     maxLines = 6,
                     // Settings -> Messages -> "Enter key sends": the keyboard shows a Send key instead of a new-line key.
-                    keyboardOptions = if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
+                    keyboardOptions = (if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default).withSentenceCaps(),
                     keyboardActions = KeyboardActions(onSend = { onImeSend() }),
                 )
                 }

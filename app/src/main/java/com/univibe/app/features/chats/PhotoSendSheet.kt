@@ -1,5 +1,7 @@
 package com.univibe.app.features.chats
 
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -87,6 +89,7 @@ fun PhotoSendSheet(
             OutlinedTextField(
                 value = caption, onValueChange = { if (it.length <= MAX_MESSAGE) caption = it },
                 modifier = Modifier.fillMaxWidth(), label = { Text("Add a caption") }, maxLines = 4,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onCancel) { Text("Cancel") }

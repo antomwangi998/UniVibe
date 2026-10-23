@@ -284,6 +284,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onCreatePost = { open(AppRoutes.CREATE_POST) },
                             unreadNotifications = unreadNotifications,
                             onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
+                            onOpenDiscover = { selectTab(TopLevelDestination.Discover.route) },
                         )
                     }
                     tab(TopLevelDestination.Discover.route) {
@@ -420,7 +421,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             studentId = entry.arg("studentId"), onBack = back,
                             onOpenChat = { open(AppRoutes.chat(it)) }, onEditProfile = { open(AppRoutes.EDIT_PROFILE) },
                             onOpenCommunity = { open(AppRoutes.community(it)) }, onOpenComments = { open(AppRoutes.comments(it)) },
+                            onOpenFollowers = { open(AppRoutes.studentFollowers(it)) }, onOpenFollowing = { open(AppRoutes.studentFollowing(it)) },
                         )
+                    }
+                    subScreen(AppRoutes.STUDENT_FOLLOWERS, stringArgs("studentId")) { entry ->
+                        FollowListScreen(FollowKind.Followers, back, entry.arg("studentId")) { open(AppRoutes.student(it)) }
+                    }
+                    subScreen(AppRoutes.STUDENT_FOLLOWING, stringArgs("studentId")) { entry ->
+                        FollowListScreen(FollowKind.Following, back, entry.arg("studentId")) { open(AppRoutes.student(it)) }
                     }
                     subScreen(AppRoutes.EDIT_PROFILE) { EditProfileScreen(onBack = back) }
                     subScreen(AppRoutes.PHOTOS) { PhotosScreen(onBack = back) }
