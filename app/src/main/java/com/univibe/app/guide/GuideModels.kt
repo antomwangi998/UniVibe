@@ -37,6 +37,8 @@ data class Tutorial(
     val steps: List<GuideStep>,
     /** A tutorial can hide itself, for example when the feature behind it is off for this person. */
     val isAvailable: () -> Boolean = { true },
+    /** Runs after the entry screen is opened, e.g. to scroll a list back to its top so the first controls are on screen. */
+    val onStart: () -> Unit = {},
 )
 
 sealed interface TourProgress {

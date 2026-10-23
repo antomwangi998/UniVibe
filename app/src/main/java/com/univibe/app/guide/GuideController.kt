@@ -59,6 +59,7 @@ class GuideController(
         tutorial = t
         stepIndex = from.coerceIn(0, t.steps.lastIndex)
         navigate(t.entryRoute)
+        if (from == 0) runCatching { t.onStart() }
         step?.route?.let(navigate)
         save(TourProgress.InProgress(stepIndex))
     }

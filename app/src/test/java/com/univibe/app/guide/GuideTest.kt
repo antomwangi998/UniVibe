@@ -108,3 +108,17 @@ class TooltipPlacementTest {
         assertTrue(at.y >= 16)
     }
 }
+
+class ShippedToursTest {
+    @org.junit.Test fun everyShippedTourIsWellFormed() {
+        // Registering twice must be harmless, and every tour needs a closing step and unique step ids (the registry enforces both).
+        registerGuideTours(); registerGuideTours()
+        val ids = TutorialRegistry.all().map { it.id }
+        org.junit.Assert.assertEquals(ids.distinct(), ids)
+        listOf(NAVIGATION_TOUR_ID, HOME_TOUR_ID, STORIES_NOTES_TOUR_ID, DISCOVER_TOUR_ID).forEach { id ->
+            val t = TutorialRegistry.get(id)
+            org.junit.Assert.assertNotNull("missing tour $id", t)
+            org.junit.Assert.assertEquals(StepKind.Completion, t!!.steps.last().kind)
+        }
+    }
+}

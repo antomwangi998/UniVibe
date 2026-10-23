@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats.notes
 
+import com.univibe.app.guide.guideTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -119,6 +120,7 @@ private fun YourNoteItem(me: NotesMe, note: Note?, slot: Dp, hasStory: Boolean, 
         Box(
             Modifier
                 .size(AvatarBox)
+                .guideTarget("chats.myNote")
                 .clickable(role = Role.Button, onClickLabel = if (note == null) "Add a note" else "Your note options", onClick = onAvatar)
                 .semantics {
                     contentDescription = (if (note == null) "Add a note" else "Your profile photo. Edit or delete your note") +

@@ -119,7 +119,7 @@ import com.univibe.app.guide.GuideHost
 import com.univibe.app.guide.GuideWelcome
 import com.univibe.app.guide.NAVIGATION_TOUR_ID
 import com.univibe.app.guide.TutorialRegistry
-import com.univibe.app.guide.registerNavigationTour
+import com.univibe.app.guide.registerGuideTours
 import com.univibe.app.guide.rememberGuideController
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -217,7 +217,7 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSlideOut(from: 
 @Composable
 fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit, userId: String) {
     val navController = rememberNavController()
-    remember { registerNavigationTour() }
+    remember { registerGuideTours() }
     val guide = rememberGuideController(userId)
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
