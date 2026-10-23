@@ -1,5 +1,7 @@
 package com.univibe.app.features.chats.stories
 
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.Toast
@@ -136,6 +138,7 @@ fun CreateStoryScreen(onBack: () -> Unit, onPublished: () -> Unit) {
                         value = s.text, onValueChange = vm::setText,
                         textStyle = TextStyle(color = Color.White, textAlign = TextAlign.Center, fontSize = MaterialTheme.typography.headlineSmall.fontSize, fontWeight = MaterialTheme.typography.headlineSmall.fontWeight),
                         cursorBrush = SolidColor(Color.White),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.Center) {

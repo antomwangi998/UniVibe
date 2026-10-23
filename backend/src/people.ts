@@ -105,4 +105,36 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     await signAuthors(ctx.storage, rows);
     return rows.map((r) => ({ student: authorJson(r), isFollowing: true }));
   });
+
+  /**
+   * Another student's followers / following. Same rules as their profile: only same-university, verified, unsuspended
+   * students, and a blocked pair looks like "not found". Entries you have blocked (or who blocked you) are left out.
+   */
+  async function assertProfileVisible(viewerId: string, universityId: string, targetId: string) {
+    const target = await pool.query(
+      `select 1 from users u where u.id = $1 and u.university_id = $2 and u.email_verified_at is not null and ${userVisible('u', '$3', '$2')}`,
+      [targetId, universityId, viewerId],
+    );
+    if (!target.rowCount) throw new HttpError(404, 'not_found', 'That student was not found.');
+  }
+
+  for (const kind of ['followers', 'following'] as const) {
+    app.get(`/students/:id/${kind}`, async (req) => {
+      const user = await ctx.requireUser(req);
+      const id = paramId(req);
+      ctx.tooMany(`follow-list:${user.id}`, 120, 600);
+      await assertProfileVisible(user.id, user.university_id, id);
+      // followers: rows where the target is followed; following: rows the target follows.
+      const [listed, anchor] = kind === 'followers' ? ['f.follower_id', 'f.followee_id'] : ['f.followee_id', 'f.follower_id'];
+      const { rows } = await pool.query<AuthorCols & { followed_by_me: boolean; is_me: boolean }>(
+        `select ${AUTHOR_COLS}, (a.id = $1) as is_me, ` +
+          'exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = a.id) as followed_by_me ' +
+          `from follows f join users a on a.id = ${listed} join universities uni on uni.id = a.university_id ` +
+          `where ${anchor} = $3 and ${userVisible('a', '$1', '$2')} order by f.created_at desc limit 200`,
+        [user.id, user.university_id, id],
+      );
+      await signAuthors(ctx.storage, rows);
+      return rows.map((r) => ({ student: authorJson(r), isFollowing: r.followed_by_me, isMe: r.is_me }));
+    });
+  }
 }
