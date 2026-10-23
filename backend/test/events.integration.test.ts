@@ -354,6 +354,18 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await create(org.token, { category: 'robotics' });
   });
 
+  it('a cancelled event can be deleted even though people had registered', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    const e = await create(org.token);
+    await call('POST', `${V1}/events/${e.id}/register`, s1.token);
+    const early = await call('DELETE', `${V1}/events/${e.id}`, org.token);
+    expect(early.status).toBe(409); // still live with a guest: cancel first
+    expect((await call('POST', `${V1}/events/${e.id}/cancel`, org.token)).status).toBe(204);
+    expect((await call('DELETE', `${V1}/events/${e.id}`, org.token)).status).toBe(204);
+    expect((await call('GET', `${V1}/events/${e.id}`, org.token)).status).toBe(404);
+  });
+
   it('v2: wording edits do not notify registrants, time and venue changes do', async () => {
     const org = await h.student();
     const s1 = await h.student();

@@ -190,7 +190,7 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
             confirmLabel = "Cancel event", dismissLabel = "Keep event", destructive = true, onConfirm = viewModel::doConfirmed, onDismiss = { viewModel.confirm(null) },
         )
         EventConfirm.Delete -> ConfirmDialog(
-            title = "Delete this event?", message = "It's removed for everyone. If people have RSVPed you'll need to cancel it instead.",
+            title = "Delete this event?", message = "It's removed for everyone. If people have RSVPed you'll need to cancel it first.",
             confirmLabel = "Delete", dismissLabel = "Keep event", destructive = true, onConfirm = viewModel::doConfirmed, onDismiss = { viewModel.confirm(null) },
         )
         null -> Unit

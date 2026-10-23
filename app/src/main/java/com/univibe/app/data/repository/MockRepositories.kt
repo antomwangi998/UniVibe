@@ -789,7 +789,7 @@ class MockEventRepository(private val store: MockStore = MockStore()) : EventRep
     override suspend fun deleteEvent(id: String) {
         val d = find(id) ?: throw IllegalArgumentException("Event not found")
         check(d.event.mine) { "Only the host can delete this event." }
-        check(d.event.going + d.event.interested == 0) { "People have RSVPed. Cancel the event so they're told." }
+        check(d.event.cancelled || d.event.going + d.event.interested == 0) { "People have RSVPed. Cancel the event so they're told." }
         store.events.removeAll { it.event.id == id }
         store.rsvps.remove(id)
     }
