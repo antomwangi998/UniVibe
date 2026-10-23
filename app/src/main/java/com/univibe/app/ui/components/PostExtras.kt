@@ -33,7 +33,9 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -79,9 +81,12 @@ fun pollTimeLeft(millis: Long): String {
 }
 
 /**
- * A poll inside a post card. With [onVote] the options are tappable until the student has voted or the poll has ended;
- * without it (read-only lists such as Saved) results are always shown. Each option is a bar filled with teal in
- * proportion to its share of the votes. Once the poll ends, everyone sees the results and "Poll ended".
+ * A poll inside a post card, directly under the question.
+ *
+ * Before voting: clean, tappable options with no bars and no numbers.
+ * After voting (or once the poll ended, or in read-only lists): every option fills with teal in proportion to its
+ * share, the percentage sits on the right, and the student's own choice gets a teal border and a check. The fills
+ * animate in when results first appear and whenever the numbers change. Only counts are ever shown, never who voted.
  */
 @Composable
 fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
@@ -104,18 +109,18 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
             val share = if (poll.totalVotes == 0) 0f else option.votes.toFloat() / poll.totalVotes
             val percent = (share * 100).roundToInt()
             val leading = showResults && option.votes > 0 && option.votes == topVotes
-            val fill by animateFloatAsState(
-                targetValue = if (showResults) share.coerceIn(0f, 1f) else 0f,
-                animationSpec = tween(durationMillis = 600),
-                label = "pollFill",
-            )
+            // Starts full when results are already showing (scrolling past an old poll never replays it); animates
+            // from empty when the student votes, and glides to the new share when the numbers change.
+            val target = if (showResults) share.coerceIn(0f, 1f) else 0f
+            val fill = remember { Animatable(target) }
+            LaunchedEffect(target) { fill.animateTo(target, tween(durationMillis = 600, easing = FastOutSlowInEasing)) }
             val shape = RoundedCornerShape(14.dp)
             Box(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .clip(shape)
-                    .border(1.dp, if (chosen) colors.primary else colors.outlineVariant, shape)
+                    .border(if (chosen) 1.5.dp else 1.dp, if (chosen) colors.primary else colors.outlineVariant, shape)
                     .then(if (canVote && onVote != null) Modifier.clickable(role = Role.Button) { onVote(index) } else Modifier)
                     .semantics {
                         contentDescription = if (showResults) {
@@ -124,18 +129,21 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (fill > 0f) {
+                // matchParentSize, not fillMaxHeight: inside a feed the row's height is unbounded, and fillMaxHeight
+                // then collapses to 0, which is why the bars never showed.
+                if (fill.value > 0.001f) {
                     Box(
                         Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(fill)
-                            .background(colors.primary.copy(alpha = if (leading) 0.55f else 0.28f)),
+                            .matchParentSize()
+                            .fillMaxWidth(fill.value.coerceIn(0f, 1f))
+                            .background(colors.primary.copy(alpha = if (leading || chosen) 0.38f else 0.20f)),
                     )
                 }
                 Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         option.text,
                         style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurface,
                         fontWeight = if (leading || chosen) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier.weight(1f),
                     )
@@ -144,7 +152,7 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
                             Icon(VibeIcons.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                         }
-                        Text("$percent%", style = MaterialTheme.typography.labelLarge)
+                        Text("$percent%", style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
                     }
                 }
             }
