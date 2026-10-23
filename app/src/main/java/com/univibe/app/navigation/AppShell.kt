@@ -30,6 +30,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.univibe.app.app.AppContainer
 import androidx.compose.runtime.mutableStateOf
@@ -113,6 +114,17 @@ import com.univibe.app.features.settings.ChangePasswordScreen
 import com.univibe.app.features.settings.DeleteAccountScreen
 import com.univibe.app.features.settings.FaqScreen
 import com.univibe.app.features.settings.GuidelinesScreen
+import com.univibe.app.features.settings.TutorialsScreen
+import com.univibe.app.guide.GuideHost
+import com.univibe.app.guide.GuideWelcome
+import com.univibe.app.guide.NAVIGATION_TOUR_ID
+import com.univibe.app.guide.TutorialRegistry
+import com.univibe.app.guide.registerNavigationTour
+import com.univibe.app.guide.rememberGuideController
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.launch
 import com.univibe.app.features.settings.HelpScreen
 import com.univibe.app.features.settings.EventNoticesScreen
 import com.univibe.app.features.settings.NotificationActivityScreen
@@ -203,8 +215,10 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSlideOut(from: 
 }
 
 @Composable
-fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit) {
+fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit, userId: String) {
     val navController = rememberNavController()
+    remember { registerNavigationTour() }
+    val guide = rememberGuideController(userId)
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barItems = remember { TopLevelDestination.entries.map { it.toBarItem() } }
@@ -243,6 +257,20 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
         }
     }
     val open: (String) -> Unit = { route -> navController.navigate(route) { launchSingleTop = true } }
+    // The guided tour opens tabs the same way the bottom bar does, so Back and saved tab state behave normally.
+    val goToTab: (String) -> Unit = { route ->
+        if (TopLevelDestination.entries.any { it.route == route }) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        } else open(route)
+    }
+    SideEffect { guide.navigate = goToTab }
+    val welcomeSeen by remember(userId) { AppContainer.guideStore.welcomeSeen(userId) }.collectAsStateWithLifecycle(initialValue = null)
+    var welcomeDismissed by rememberSaveable { mutableStateOf(false) }
+    val guideScope = rememberCoroutineScope()
     val back: () -> Unit = { navController.popBackStack() }
     val unreadNotifications by AppContainer.notificationRepository.unreadCount.collectAsStateWithLifecycle()
     // Keep the bell badge in step with the server (does nothing in the offline demo).
@@ -577,7 +605,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onBack = back,
                             onFaq = { open(SettingsRoutes.FAQ) }, onReport = { open(SettingsRoutes.REPORT) },
                             onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onLegal = { open(SettingsRoutes.LEGAL) },
+                            onTutorials = { open(SettingsRoutes.TUTORIALS) },
                         )
+                    }
+                    subScreen(SettingsRoutes.TUTORIALS) {
+                        TutorialsScreen(userId, onBack = back, onStart = { tutorial, from ->
+                            goToTab(tutorial.entryRoute)
+                            guide.start(tutorial, from)
+                        })
                     }
                     subScreen(SettingsRoutes.LEGAL) { LegalScreen(onBack = back, onNavigate = open) }
                     subScreen(SettingsRoutes.CAMPUS) { CampusScreen(onBack = back, onNavigate = open) }
@@ -599,6 +634,20 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(140)),
             ) {
                 VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab)
+            }
+
+            // Guided tour and first-time welcome. Both draw nothing when idle, and Back closes either one.
+            GuideHost(guide, Modifier.zIndex(10f))
+            if (welcomeSeen == false && !welcomeDismissed) {
+                val finishWelcome = {
+                    welcomeDismissed = true
+                    guideScope.launch { runCatching { AppContainer.guideStore.markWelcomeSeen(userId) } }
+                }
+                GuideWelcome(
+                    onStartTour = { finishWelcome(); TutorialRegistry.get(NAVIGATION_TOUR_ID)?.let { guide.start(it) } },
+                    onFinished = { finishWelcome() },
+                    modifier = Modifier.zIndex(20f),
+                )
             }
         }
     }

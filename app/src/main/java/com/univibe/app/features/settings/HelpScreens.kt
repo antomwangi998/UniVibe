@@ -56,10 +56,12 @@ import com.univibe.app.ui.theme.Spacing
 private const val SUPPORT_EMAIL = LegalContact.EMAIL
 
 @Composable
-fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGuidelines: () -> Unit, onLegal: () -> Unit) {
+fun HelpScreen(onBack: () -> Unit, onFaq: () -> Unit, onReport: () -> Unit, onGuidelines: () -> Unit, onLegal: () -> Unit, onTutorials: () -> Unit) {
     SettingsPage("Help & support", onBack) {
         item {
             SettingsGroup {
+                SettingsNavRow(VibeIcons.Help, "Help and tutorials", onTutorials, subtitle = "Guided tours of UniVibe")
+                RowDivider()
                 SettingsNavRow(VibeIcons.Comment, "Frequently asked questions", onFaq)
                 RowDivider()
                 SettingsNavRow(VibeIcons.Bug, "Report a problem", onReport, subtitle = "Opens your email app")

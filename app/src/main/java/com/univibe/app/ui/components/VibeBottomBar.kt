@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import com.univibe.app.guide.guideTarget
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -79,7 +80,7 @@ fun VibeBottomBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 items.forEach { item ->
-                    BarItem(item, item.route == selectedRoute, { onSelect(item.route) }, Modifier.weight(1f))
+                    BarItem(item, item.route == selectedRoute, { onSelect(item.route) }, Modifier.weight(1f).guideTarget(com.univibe.app.guide.tabTargetId(item.route)))
                 }
             }
         }

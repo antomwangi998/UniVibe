@@ -138,6 +138,7 @@ import com.univibe.app.ui.components.EventFeedCard
 import com.univibe.app.ui.components.shareEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.features.events.RsvpOption
+import com.univibe.app.guide.guideTarget
 
 /** Feed positions (0-based) after which a suggestions row appears: 5th post, and 20th post. */
 private const val SUGGEST_FIRST_AFTER = 4
@@ -207,7 +208,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     UniVibeLockup(Modifier.weight(1f))
-                    NotificationBell(unreadNotifications, onOpenNotifications)
+                    NotificationBell(unreadNotifications, onOpenNotifications, Modifier.guideTarget("home.bell"))
                 }
             }
             if (state.visibleStories.isNotEmpty()) item(key = "stories") {
