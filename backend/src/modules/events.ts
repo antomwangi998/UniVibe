@@ -622,13 +622,14 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
       return reply.status(204).send();
     });
 
-    // Deleting is only for events nobody else joined; otherwise cancel.
+    // Deleting is only for events nobody else joined, or that are already cancelled; otherwise cancel.
     app.delete('/events/:eventId', async (req, reply) => {
       const me = await ctx.auth(req);
       const id = param(req);
       await withTx(pool, async (client) => {
-        await manageable(me, id, client);
-        const others = await client.query("select 1 from event_registrations where event_id = $1 and status = 'registered' and user_id <> $2 limit 1", [id, me.id]);
+        const row = await manageable(me, id, client);
+        // A cancelled event can always be removed: everyone was already told, and keeping it only clutters the host's list.
+        const others = row.status === 'cancelled' ? { rowCount: 0 } : await client.query("select 1 from event_registrations where event_id = $1 and status = 'registered' and user_id <> $2 limit 1", [id, me.id]);
         if (others.rowCount) throw new HttpError(409, 'has_registrations', 'People have registered. Cancel the event instead.');
         await client.query("delete from notifications where entity_type = 'event' and entity_id = $1", [id]);
         await client.query('delete from events where id = $1', [id]);
