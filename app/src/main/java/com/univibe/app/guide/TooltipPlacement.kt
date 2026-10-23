@@ -24,8 +24,8 @@ fun placeTooltip(safe: Rect, target: Rect?, tip: IntSize, gap: Int, margin: Int)
     val y = when {
         below + tip.height <= safe.bottom - margin -> below
         above >= safe.top + margin -> above
-        target.center.y < (safe.top + safe.bottom) / 2f -> maxY
-        else -> minY
+        target.center.y < (safe.top + safe.bottom) / 2f -> maxY.toFloat()
+        else -> minY.toFloat()
     }
     return IntOffset(x, y.roundToInt().coerceIn(minY, maxY))
 }
