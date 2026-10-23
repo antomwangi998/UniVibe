@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.data.repository.DiscoverRepository
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -31,6 +32,9 @@ import com.univibe.app.ui.components.UNDO_WINDOW_MS
 
 const val MAX_POST_LENGTH = PostLimits.MAX_TEXT
 
+/** Two rows of six: one early in the feed, one much further down. */
+const val SUGGESTION_LIMIT = 12
+
 data class HomeUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
@@ -57,13 +61,17 @@ data class HomeUiState(
     val endReached: Boolean = false,
     /** The event announcement whose RSVP sheet is open. */
     val rsvpPost: Post? = null,
+    /** Students you might follow, best match first. Shown a few at a time between posts, never on every screenful. */
+    val suggestions: List<Student> = emptyList(),
 ) {
+    val visibleSuggestions: List<Student> get() = suggestions.filter { it.id !in blocked }
     val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
     val visibleStories: List<Student> get() = stories.filter { it.id !in blocked }
 }
 
 class HomeViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
+    private val discover: DiscoverRepository = AppContainer.discoverRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
     private val privacy: PrivacyRepository = AppContainer.privacyRepository,
     private val events: EventRepository = AppContainer.eventRepository,
@@ -105,12 +113,36 @@ class HomeViewModel(
                         endReached = if (onlyFirstPage) page.size < PAGE_SIZE else cur.endReached,
                     )
                 }
+                // Quiet refreshes keep the row the student is looking at; it only reshuffles on a fresh load or pull.
+                if (!silent || _state.value.suggestions.isEmpty()) loadSuggestions()
             } catch (e: Exception) {
                 _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your feed. Check your connection and try again.") }
             }
         }
+    }
+
+    /** Who to suggest: the same eligible people as Discover (never someone already followed, passed on or blocked). */
+    private fun loadSuggestions() {
+        viewModelScope.launch {
+            runCatching { discover.getCandidates() }.onSuccess { list ->
+                val best = list.sortedByDescending { it.shared.size + if (it.sameCourse) 1 else 0 }.take(SUGGESTION_LIMIT)
+                _state.update { it.copy(suggestions = best) }
+            }
+        }
+    }
+
+    /** Follow from the feed is Discover's "connect": the server follows them and remembers it. */
+    fun followSuggestion(id: String) {
+        _state.update { s -> s.copy(suggestions = s.suggestions.filter { it.id != id }) }
+        viewModelScope.launch { runCatching { discover.recordDecision(id, true) } }
+    }
+
+    /** The X on a suggestion: the server remembers the pass, so they do not come back here or in Discover. */
+    fun dismissSuggestion(id: String) {
+        _state.update { s -> s.copy(suggestions = s.suggestions.filter { it.id != id }) }
+        viewModelScope.launch { runCatching { discover.recordDecision(id, false) } }
     }
 
     /** Fetches the next page when the student nears the bottom. Does nothing while loading or at the end. */

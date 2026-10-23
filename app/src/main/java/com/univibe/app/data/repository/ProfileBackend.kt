@@ -22,6 +22,9 @@ interface ProfileBackend {
     suspend fun setFollowing(id: String, following: Boolean)
     suspend fun followers(): List<FollowEntry>
     suspend fun following(): List<FollowEntry>
+    /** Another student's lists (the server hides blocked people and unknown students). */
+    suspend fun followersOf(id: String): List<FollowEntry>
+    suspend fun followingOf(id: String): List<FollowEntry>
 }
 
 class RemoteProfileBackend(private val api: AuthedApi) : ProfileBackend {
@@ -53,12 +56,14 @@ class RemoteProfileBackend(private val api: AuthedApi) : ProfileBackend {
 
     override suspend fun followers(): List<FollowEntry> = entries(api.send("GET", "/me/followers"))
     override suspend fun following(): List<FollowEntry> = entries(api.send("GET", "/me/following"))
+    override suspend fun followersOf(id: String): List<FollowEntry> = entries(api.send("GET", "/students/$id/followers"))
+    override suspend fun followingOf(id: String): List<FollowEntry> = entries(api.send("GET", "/students/$id/following"))
 
     private fun entries(body: String): List<FollowEntry> {
         val array = JSONArray(body)
         return (0 until array.length()).map { i ->
             val o = array.getJSONObject(i)
-            FollowEntry(parseStudent(o.getJSONObject("student")), o.optBoolean("isFollowing", false))
+            FollowEntry(parseStudent(o.getJSONObject("student")), o.optBoolean("isFollowing", false), o.optBoolean("isMe", false))
         }
     }
 }

@@ -1,5 +1,9 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.SecureProfilePhotoViewer
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.FollowButton
 import com.univibe.app.ui.components.VibeIcons
@@ -84,7 +88,10 @@ fun FullProfileScreen(
     onEditProfile: () -> Unit,
     onOpenCommunity: (String) -> Unit,
     onOpenComments: (String) -> Unit,
+    onOpenFollowers: (String) -> Unit = {},
+    onOpenFollowing: (String) -> Unit = {},
 ) {
+    var showPhoto by remember { mutableStateOf(false) }
     val viewModel = keyedViewModel("full-profile-$studentId") { FullProfileViewModel(studentId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -101,6 +108,7 @@ fun FullProfileScreen(
     }
 
     val student = profile.student
+    if (showPhoto) SecureProfilePhotoViewer(student.name, student.avatarUrl, student.accent) { showPhoto = false }
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
         VibePullToRefresh(refreshing = s.refreshing, onRefresh = viewModel::pullRefresh, modifier = Modifier.weight(1f)) { LazyColumn(
@@ -119,7 +127,10 @@ fun FullProfileScreen(
                         avatar = {
                             Box {
                                 Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
-                                    Box(contentAlignment = Alignment.Center) { StudentAvatar(student.name, size = 104.dp, accent = student.accent, imagePath = student.avatarUrl) }
+                                    Box(
+                                        Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = "View profile photo") { showPhoto = true },
+                                        contentAlignment = Alignment.Center,
+                                    ) { StudentAvatar(student.name, size = 104.dp, accent = student.accent, imagePath = student.avatarUrl) }
                                 }
                                 // Only when the server says this student is verified.
                                 if (student.verified) {
@@ -142,8 +153,8 @@ fun FullProfileScreen(
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Stat(profile.posts.toString(), "Posts", Modifier.weight(1f))
-                    Stat(compactCount(profile.followers), "Followers", Modifier.weight(1f))
-                    Stat(compactCount(profile.following), "Following", Modifier.weight(1f))
+                    Stat(compactCount(profile.followers), "Followers", Modifier.weight(1f)) { onOpenFollowers(student.id) }
+                    Stat(compactCount(profile.following), "Following", Modifier.weight(1f)) { onOpenFollowing(student.id) }
                 }
             }
             item {
@@ -262,8 +273,9 @@ fun FullProfileScreen(
 }
 
 @Composable
-private fun Stat(value: String, label: String, modifier: Modifier) {
-    Surface(modifier = modifier, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+private fun Stat(value: String, label: String, modifier: Modifier, onClick: (() -> Unit)? = null) {
+    val tap = if (onClick != null) Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button, onClickLabel = "See $label", onClick = onClick) else Modifier
+    Surface(modifier = modifier.then(tap), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.padding(vertical = Spacing.sm + 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, style = MaterialTheme.typography.titleMedium)
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

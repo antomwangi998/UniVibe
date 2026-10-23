@@ -573,7 +573,8 @@ data class Community(
 
 data class ReportItem(val id: String, val excerpt: String, val authorName: String, val reason: String)
 
-data class FollowEntry(val student: Student, val isFollowing: Boolean)
+/** [isMe] marks the signed-in student's own row in someone else's list: it gets no Follow button. */
+data class FollowEntry(val student: Student, val isFollowing: Boolean, val isMe: Boolean = false)
 
 data class ProfileUpdate(
     val name: String,

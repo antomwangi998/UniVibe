@@ -244,6 +244,8 @@ data class FollowListUiState(val loading: Boolean = true, val refreshing: Boolea
 
 class FollowListViewModel(
     private val kind: FollowKind,
+    /** Null: the signed-in student's own list. Otherwise that student's list. */
+    private val studentId: String? = null,
     private val repository: ProfileRepository = AppContainer.profileRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FollowListUiState())
@@ -257,7 +259,12 @@ class FollowListViewModel(
         viewModelScope.launch {
             if (pull) _state.update { it.copy(refreshing = true) }
             try {
-                val list = if (kind == FollowKind.Followers) repository.getFollowers() else repository.getFollowing()
+                val list = when {
+                    studentId != null && kind == FollowKind.Followers -> repository.getFollowersOf(studentId)
+                    studentId != null -> repository.getFollowingOf(studentId)
+                    kind == FollowKind.Followers -> repository.getFollowers()
+                    else -> repository.getFollowing()
+                }
                 _state.update { it.copy(loading = false, refreshing = false, error = null, entries = list) }
             } catch (e: Exception) {
                 // A failed pull keeps the list that is already on screen.

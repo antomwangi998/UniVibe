@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats.stories
 
+import com.univibe.app.ui.components.withSentenceCaps
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -298,7 +299,7 @@ private fun ReplyBar(item: StoryItem, text: String, sending: Boolean, vm: StoryV
         BasicTextField(
             value = text, onValueChange = vm::setReply, enabled = !sending,
             textStyle = TextStyle(color = Color.White, fontSize = 16.sp), cursorBrush = SolidColor(Color.White), maxLines = 3,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send).withSentenceCaps(),
             keyboardActions = KeyboardActions(onSend = { vm.sendReply() }),
             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 .border(1.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(24.dp))

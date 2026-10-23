@@ -89,6 +89,8 @@ object AppRoutes {
     const val SAVED = "profile/saved"
     const val FOLLOWERS = "profile/followers"
     const val FOLLOWING = "profile/following"
+    const val STUDENT_FOLLOWERS = "student/{studentId}/followers"
+    const val STUDENT_FOLLOWING = "student/{studentId}/following"
 
     fun chat(id: String) = "chats/$id"
     fun storyView(authorId: String) = "story/view/$authorId"
@@ -99,6 +101,8 @@ object AppRoutes {
     fun eventAttendees(id: String) = "events/$id/attendees"
     fun moderationEvent(id: String) = "moderation/events/$id"
     fun student(id: String) = "student/$id"
+    fun studentFollowers(id: String) = "student/$id/followers"
+    fun studentFollowing(id: String) = "student/$id/following"
     fun community(id: String) = "communities/$id"
     fun communityEdit(id: String) = "community/$id/edit"
     fun manageChannels(communityId: String) = "community/$communityId/manage-channels"
