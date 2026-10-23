@@ -55,4 +55,8 @@ object PushPolicy {
         val isMessage = event.channel == PushChannel.DirectMessages || event.channel == PushChannel.GroupMessages
         return if (isMessage && !showMessagePreview) event.copy(body = "New message") else event
     }
+
+    /** Previews on and the message text was fetched: show who sent it and what it says. */
+    fun withPreview(event: PushEvent, preview: MessagePreview?): PushEvent =
+        if (preview == null) event else event.copy(title = preview.title, body = preview.body)
 }

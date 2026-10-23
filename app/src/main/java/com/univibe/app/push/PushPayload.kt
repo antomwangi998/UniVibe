@@ -9,7 +9,7 @@ enum class PushChannel(val id: String) {
     Security("security_alerts"),
 }
 
-/** What to show for one push. Built only from ids and generic labels the server sent; never from message text. */
+/** What to show for one push. Built only from ids and generic labels the server sent; never from message text (previews are fetched separately). */
 data class PushEvent(
     val channel: PushChannel,
     val title: String,
@@ -18,6 +18,8 @@ data class PushEvent(
     val tag: String,
     /** A `univibe://` link. The app's own screens re-check access, so a stale or forged id just shows "not found". */
     val deepLink: String,
+    /** Set for message alerts: the conversation whose newest message can be previewed. */
+    val conversationId: String? = null,
 )
 
 /**
@@ -47,6 +49,7 @@ object PushPayload {
             body = OPEN_TO_READ,
             tag = "c:$conversation",
             deepLink = "${SCHEME}chats/$conversation",
+            conversationId = conversation,
         )
     }
 

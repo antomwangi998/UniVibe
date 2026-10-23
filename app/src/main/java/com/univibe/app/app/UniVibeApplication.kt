@@ -177,6 +177,12 @@ object AppContainer {
     /** The server connection, when the app runs against a real backend (null in offline demo mode). */
     private val api: AuthedApi? get() = authRepository as? AuthedApi
 
+    /** The newest message of a conversation as alert text, or null (offline demo, signed out, no connection). */
+    suspend fun messagePreview(conversationId: String): com.univibe.app.push.MessagePreview? {
+        val authed = api ?: return null
+        return com.univibe.app.push.MessagePreviewLoader.load(authed, conversationId, accountOf(authRepository.session.value)?.id)
+    }
+
     /** The live connection (wss://.../api/v1/ws), only when the app talks to a real server. */
     private val chatSocket: ChatSocket? by lazy {
         val authed = api ?: return@lazy null

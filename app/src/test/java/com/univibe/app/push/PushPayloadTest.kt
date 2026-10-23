@@ -72,3 +72,27 @@ class PushPayloadTest {
         assertFalse((e.title + e.body).contains("secret"))
     }
 }
+
+class MessagePreviewFormatTest {
+    @Test fun directChatShowsSenderAndText() {
+        val p = MessagePreviewFormat.compose(false, null, "Ashley Wangeci", "  see you\nat 5  ", emptyList())
+        assertEquals("Ashley Wangeci", p.title)
+        assertEquals("see you at 5", p.body)
+    }
+
+    @Test fun groupShowsGroupNameAndSenderPrefix() {
+        val p = MessagePreviewFormat.compose(true, "I-RISE", "Joy Anne", "Workshop moved", emptyList())
+        assertEquals("I-RISE", p.title)
+        assertEquals("Joy Anne: Workshop moved", p.body)
+    }
+
+    @Test fun mediaOnlyMessagesGetALabel() {
+        assertEquals("Sent a photo", MessagePreviewFormat.compose(false, null, "A", "", listOf("image")).body)
+        assertEquals("Voice message", MessagePreviewFormat.compose(false, null, "A", "", listOf("audio")).body)
+    }
+
+    @Test fun longTextIsClipped() {
+        val body = MessagePreviewFormat.compose(false, null, "A", "x".repeat(500), emptyList()).body
+        assertEquals(MessagePreviewFormat.MAX_BODY, body.length)
+    }
+}
