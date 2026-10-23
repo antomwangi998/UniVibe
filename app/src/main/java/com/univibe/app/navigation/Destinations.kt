@@ -51,6 +51,7 @@ object SettingsRoutes {
     const val ACCESSIBILITY_INTERACTION = "settings/accessibility/interaction"
     const val HELP = "settings/help"
     const val FAQ = "settings/help/faq"
+    const val TUTORIALS = "settings/help/tutorials"
     const val REPORT = "settings/help/report"
     const val GUIDELINES = "settings/help/guidelines"
     const val ABOUT = "settings/help/about"

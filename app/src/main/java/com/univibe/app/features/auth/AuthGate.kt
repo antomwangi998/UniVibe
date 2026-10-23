@@ -66,7 +66,7 @@ fun AuthGate(
             is AuthState.OnboardingRequired -> OnboardingScreen(user = s.user)
             is AuthState.GoogleRegistrationRequired -> GoogleRegistrationScreen()
             is AuthState.GoogleLinkRequired -> GoogleLinkScreen()
-            is AuthState.Authenticated -> AppShell(themeMode, onThemeModeChange, onLogOut = sessionViewModel::logOut)
+            is AuthState.Authenticated -> AppShell(themeMode, onThemeModeChange, onLogOut = sessionViewModel::logOut, userId = s.user.id)
         }
     }
 }

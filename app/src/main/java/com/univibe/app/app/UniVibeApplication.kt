@@ -267,6 +267,9 @@ object AppContainer {
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
 
+    /** Where the welcome screen and guided-tour progress are kept (on this phone, per account). */
+    val guideStore: com.univibe.app.guide.GuideProgressStore by lazy { com.univibe.app.guide.GuidePreferences(app) }
+
     /** Privacy choices and blocking. Real server: stored and enforced there. Offline preview build: this device only. */
     val privacyRepository: PrivacyRepository by lazy { api?.let { RemotePrivacyRepository(it, settingsRepository) } ?: LocalPrivacyRepository(settingsRepository) }
 
