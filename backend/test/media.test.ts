@@ -18,7 +18,9 @@ describe('looksLike (what a file really is, not what it says it is)', () => {
     expect(looksLike('image/png', bytes(0xff, 0xd8, 0xff, 0xe0))).toBe(false);
     expect(looksLike('video/mp4', bytes(0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0))).toBe(false);
     expect(looksLike('image/jpeg', new Uint8Array())).toBe(false);
-    expect(looksLike('application/pdf', text('%PDF-1.7'))).toBe(false);
+    // A PDF is a real document type now, so only a mislabelled one is rejected.
+    expect(looksLike('application/pdf', text('<html>'))).toBe(false);
+    expect(looksLike('image/jpeg', text('%PDF-1.7'))).toBe(false);
   });
 });
 
