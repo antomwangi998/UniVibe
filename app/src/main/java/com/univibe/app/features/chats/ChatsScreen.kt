@@ -2,6 +2,7 @@
 
 package com.univibe.app.features.chats
 
+import com.univibe.app.guide.guideTarget
 import com.univibe.app.ui.components.VibePullToRefresh
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -132,7 +133,7 @@ fun ChatsScreen(
 
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Chats", actions = {
-            VibeIconButton(VibeIcons.Camera, "Add to your story", onAddStory)
+            VibeIconButton(VibeIcons.Camera, "Add to your story", onAddStory, Modifier.guideTarget("chats.camera"))
             VibeIconButton(VibeIcons.PersonAdd, "New group", onNewGroup)
         })
         VibeTextField(
@@ -153,6 +154,7 @@ fun ChatsScreen(
         )
         // Notes sit between the search field and the filters. The row is compact and never replaces the conversation list.
         NotesRow(
+            modifier = Modifier.guideTarget("chats.notes"),
             state = notes,
             // With a Story running, my avatar offers a short choice; without one it goes straight to the Note, as before.
             onAddNote = { if (onOpenStory != null && notes.myStory != null) myMenuOpen = true else notesViewModel.onAddNoteClick() },

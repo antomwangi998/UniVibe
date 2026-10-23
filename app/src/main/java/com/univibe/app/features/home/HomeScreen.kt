@@ -197,6 +197,9 @@ fun HomeScreen(
             }
         }
 
+        // The first ordinary post (not an event card) carries the tour's pointers to its action bar and menu.
+        val firstPostId = remember(state.visiblePosts) { state.visiblePosts.firstOrNull { it.event == null }?.id }
+
         VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -215,7 +218,7 @@ fun HomeScreen(
                 Box(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)) { StoriesRow(state.visibleStories) }
             }
             item(key = "composer") {
-                Box(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)) {
+                Box(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs).guideTarget("home.composer")) {
                     Composer(
                         fullName = state.me?.name.orEmpty(),
                         avatarUrl = state.me?.avatarUrl,
@@ -274,6 +277,7 @@ fun HomeScreen(
                         onVote = { index -> viewModel.vote(post.id, index) },
                         onRepost = { viewModel.toggleRepost(post.id) },
                         onSeen = { viewModel.noteSeen(post.id) },
+                        guideTargets = post.id == firstPostId,
                     )
                     // "Suggested for you": only on the campus feed, once near the top and once much further down.
                     if (state.filter == FeedFilter.Campus) {
@@ -570,7 +574,7 @@ private fun Composer(
         }
 
         Row(
-            Modifier.fillMaxWidth().padding(top = Spacing.xs),
+            Modifier.fillMaxWidth().padding(top = Spacing.xs).guideTarget("home.composerActions"),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             if (supportsMedia) {
@@ -764,7 +768,7 @@ private fun FeedFilterButton(filter: FeedFilter, onClick: () -> Unit, modifier: 
 @Composable
 private fun FeedToolbar(filter: FeedFilter, onOpenFilters: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-        FeedFilterButton(filter, onOpenFilters)
+        FeedFilterButton(filter, onOpenFilters, Modifier.guideTarget("home.filter"))
     }
 }
 

@@ -92,7 +92,8 @@ fun GuideHost(controller: GuideController, modifier: Modifier = Modifier) {
     )
 
     // A target that is not on screen (scrolled away, hidden bar, feature missing) shows the card in the middle instead of failing.
-    val raw = GuideTargets.boundsOf(step.targetId)
+    val windowSafe = safe.translate(origin)
+    val raw = GuideTargets.boundsOf(step.targetId)?.takeIf { it.overlaps(windowSafe) }
     val padPx = with(density) { 8.dp.toPx() }
     val spot: Rect? = raw?.translate(-origin)?.let { r ->
         if (step.shape == GuideShape.Circle) {

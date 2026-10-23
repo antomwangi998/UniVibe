@@ -1,5 +1,6 @@
 package com.univibe.app.ui.components
 
+import com.univibe.app.guide.guideTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -68,6 +69,8 @@ fun CampusPostCard(
     onSeen: () -> Unit = {},
     /** Null makes any poll read-only (results shown, no voting). */
     onVote: ((Int) -> Unit)? = null,
+    /** Lets the guided tour point at this card's action bar and menu button. Only one card on screen sets it. */
+    guideTargets: Boolean = false,
 ) {
     // Event announcements are drawn by EventFeedCard (Home). Other lists don't have event actions yet, so they skip them
     // rather than show an empty post.
@@ -95,7 +98,7 @@ fun CampusPostCard(
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs, top = Spacing.sm + 4.dp)) {
             post.community?.let { PostCommunityHeader(it, post.announcement) }
-            AuthorRow(post, onAuthorClick, onMore)
+            AuthorRow(post, onAuthorClick, onMore, guideTargets)
         }
         Box(Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onDoubleTap = { doubleTapLike.value() }) }) {
         Column {
@@ -128,7 +131,8 @@ fun CampusPostCard(
         // The action bar always sits below the content, in its own row, so nothing can clip or overlap it.
         // Four equal slots (reply, repost, like, views) spread across the width, then save and share pinned to the end.
         Row(
-            Modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.xs),
+            Modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.xs)
+                .then(if (guideTargets) Modifier.guideTarget("post.actions") else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
@@ -175,7 +179,7 @@ private fun ViewsStat(count: Int) {
 }
 
 @Composable
-private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit) {
+private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit, guideTargets: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Row(
             Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthorClick),
@@ -209,6 +213,7 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit)
             icon = VibeIcons.More,
             contentDescription = "More options",
             onClick = onMore,
+            modifier = if (guideTargets) Modifier.guideTarget("post.more") else Modifier,
         )
     }
 }
