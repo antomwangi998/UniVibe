@@ -38,7 +38,7 @@ object PrivacyPolicy {
         )),
         LegalSection(4, "What we do not collect", listOf(
             c("4.1", "Not collected.", "UniVibe does not currently collect or ask for:"),
-            b("your precise or background location (event venues on a map are places organisers entered, not your location);"),
+            b("your location in the background, or your location at any time you haven't asked us to use it. We only look at where you are when you tap \"Send location\" in a chat or \"Use my location\" on a map, and only while the app is open;"),
             b("your phone contacts or camera, or your microphone at any time other than while you are recording a voice message you chose to send;"),
             b("identity documents, student cards or government ID numbers;"),
             b("payment details (UniVibe is free and has no payments);"),

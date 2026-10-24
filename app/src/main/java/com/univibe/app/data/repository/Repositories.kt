@@ -255,6 +255,10 @@ interface MessageRepository {
     suspend fun sendFile(chatId: String, text: String, file: com.univibe.app.data.media.PickedFile, replyTo: ReplyRef? = null): Unit =
         throw UnsupportedOperationException("Sharing files isn't available.")
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
+    /** Sends one fixed place ("my current location"). */
+    suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef? = null): Unit =
+        throw UnsupportedOperationException("Sharing a location isn't available yet.")
+
     suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")
     suspend fun deleteMessage(chatId: String, messageId: String)

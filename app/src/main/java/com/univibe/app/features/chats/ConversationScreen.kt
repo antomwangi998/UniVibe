@@ -245,6 +245,12 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
             onSend = { caption -> viewModel.sendFile(f, caption); pendingFile = null },
         )
     }
+    var showShareLocation by rememberSaveable { mutableStateOf(false) }
+    if (showShareLocation) ShareLocationSheet(
+        recipient = s.chat?.title ?: "They",
+        onSend = { lat, lng -> showShareLocation = false; viewModel.sendLocation(lat, lng) },
+        onDismiss = { showShareLocation = false },
+    )
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -692,7 +698,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                     } else {
                         MessageComposerCard(
                             s = s, showMic = showMic, focus = composerFocus,
-                            onInput = viewModel::onInput, onPhoto = pickPhoto, onCamera = takePhoto, onFile = pickFile,
+                            onInput = viewModel::onInput, onPhoto = pickPhoto, onCamera = takePhoto, onFile = pickFile, onLocation = { showShareLocation = true },
                             onAction = { if (showMic) onMic() else viewModel.send() },
                             holding = recordingStartedAt != null && holdMode, holdMs = recordedMs, holdLevel = recordLevel,
                             onHoldStart = ::onMicHold, onHoldEnd = ::onHoldEnd, onHoldLock = { holdMode = false },
@@ -763,6 +769,7 @@ private fun MessageComposerCard(
     onPhoto: () -> Unit,
     onCamera: () -> Unit,
     onFile: () -> Unit,
+    onLocation: () -> Unit,
     onAction: () -> Unit,
     onImeSend: () -> Unit,
     holding: Boolean = false,
@@ -800,6 +807,7 @@ private fun MessageComposerCard(
                     DropdownMenuItem(text = { Text("Photos") }, leadingIcon = { Icon(VibeIcons.Photo, contentDescription = null) }, onClick = { attachMenu = false; onPhoto() })
                     DropdownMenuItem(text = { Text("Camera") }, leadingIcon = { Icon(VibeIcons.Camera, contentDescription = null) }, onClick = { attachMenu = false; onCamera() })
                     DropdownMenuItem(text = { Text("File") }, leadingIcon = { Icon(VibeIcons.File, contentDescription = null) }, onClick = { attachMenu = false; onFile() })
+                    DropdownMenuItem(text = { Text("Location") }, leadingIcon = { Icon(VibeIcons.Place, contentDescription = null) }, onClick = { attachMenu = false; onLocation() })
                 }
             }
             Box(Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = Spacing.xs, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
@@ -1170,6 +1178,7 @@ private fun MessageItem(
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         m.eventId?.let { id -> com.univibe.app.features.events.SharedEventCard(id) }
+                        m.location?.let { SharedLocationCard(it, Modifier.padding(bottom = 6.dp)) }
                         val tail: @Composable ColumnScope.() -> Unit = {
                             if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
                             m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }

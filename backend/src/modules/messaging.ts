@@ -23,7 +23,16 @@ export const sendSchema = z.object({
   clientId: z.string().min(1).max(64).optional(),
   replyToId: z.string().uuid().optional(),
   mediaIds: z.array(z.string().uuid()).max(4).default([]),
+  /** "Send current location": one fixed point. Rounded to about 10 m before it is stored. */
+  location: z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    label: z.string().trim().max(80).nullable().default(null),
+  }).strict().optional(),
 }).strict();
+
+/** About 10 m. Nobody needs more than that to find a person, and an exact position is never stored. */
+const roundCoordinate = (n: number) => Math.round(n * 1e4) / 1e4;
 
 export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
@@ -35,6 +44,8 @@ export interface MessageView {
   story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
   /** A shared event. Only the id travels in the message; each reader's app asks for the event itself, so people who may not see it get "not available". */
   eventId: string | null;
+  /** A shared place (fixed point). Null for every other kind of message. */
+  location: { latitude: number; longitude: number; label: string | null } | null;
   linkPreview: { url: string; host: string; title: string | null; description: string | null; siteName: string | null; imageUrl: string | null; imageWidth: number | null; imageHeight: number | null } | null;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
@@ -100,6 +111,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       forwarded: Boolean(r.forwarded),
       story: !deleted && r.story_kind ? { id: (r.story_id as string | null) ?? null, kind: r.story_kind as 'photo' | 'video' | 'text', available: Boolean(r.story_live) } : null,
       eventId: deleted ? null : (r.event_id as string | null) ?? null,
+      location: deleted || r.location_lat == null ? null : { latitude: Number(r.location_lat), longitude: Number(r.location_lng), label: (r.location_label as string | null) ?? null },
       // Shown only while the stored address is still the first one in the text (an edit can change it).
       linkPreview: (() => {
         const p = deleted ? undefined : previewOf.get(r.id as string);
@@ -115,6 +127,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
 
 const MESSAGE_SELECT = `
   select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded, m.event_id,
+         m.location_lat, m.location_lng, m.location_label,
          r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content,
          m.story_id, m.story_kind, (sr.id is not null) as story_live
     from messages m left join messages r on r.id = m.reply_to_id
@@ -136,7 +149,9 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
 export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean; story?: { id: string; kind: 'photo' | 'video' | 'text' }; eventId?: string } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
-  if (!input.content && !input.mediaIds.length && !opts.eventId) throw new HttpError(400, 'validation', 'Write a message, attach a photo or a file, or record a voice message.');
+  if (!input.content && !input.mediaIds.length && !opts.eventId && !input.location) throw new HttpError(400, 'validation', 'Write a message, attach a photo or a file, or record a voice message.');
+  if (input.location && input.mediaIds.length) throw new HttpError(422, 'validation', 'A location is sent on its own.');
+  const place = input.location ? { lat: roundCoordinate(input.location.latitude), lng: roundCoordinate(input.location.longitude), label: input.location.label } : null;
 
   const { id, created } = await withTx(ctx.pool, async (client) => {
     const member = await membership(client, conversationId, me.id);
@@ -161,9 +176,9 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       if (!ok.rowCount) throw new HttpError(422, 'validation', 'The message you are replying to is not in this conversation.');
     }
     const inserted = await client.query<{ id: string; seq: string }>(
-      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind, event_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind, event_id, location_lat, location_lng, location_label) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        on conflict (conversation_id, sender_id, client_id) where client_id is not null do nothing returning id, seq`,
-      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null, opts.eventId ?? null],
+      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null, opts.eventId ?? null, place?.lat ?? null, place?.lng ?? null, place?.label ?? null],
     );
     if (!inserted.rowCount) {
       const existing = await client.query<{ id: string }>(
@@ -358,7 +373,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                     and x.sender_id is distinct from $1 and x.status = 'active') as unread,
                 lm.id as lm_id, lm.sender_id as lm_sender, lm.content as lm_content, lm.status as lm_status, lm.created_at as lm_created,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'image') as lm_media,
-                (lm.event_id is not null) as lm_event,
+                (lm.event_id is not null) as lm_event, (lm.location_lat is not null) as lm_location,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'audio') as lm_audio,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'document') as lm_docs,
                 (select su.full_name from users su where su.id = lm.sender_id) as lm_sender_name,
@@ -399,7 +414,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           presence: r.card_id ? presence.get(r.card_id) ?? null : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
-          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, documentCount: r.lm_status === 'active' ? Number(r.lm_docs) : 0, senderName: r.lm_sender_name ?? null,
+          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), hasLocation: r.lm_status === 'active' && Boolean(r.lm_location), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, documentCount: r.lm_status === 'active' ? Number(r.lm_docs) : 0, senderName: r.lm_sender_name ?? null,
           delivery: r.lm_delivery ?? null } : null,
         }))),
         nextCursor: more && last ? Buffer.from(JSON.stringify({ t: last.cursor_t, id: last.id })).toString('base64url') : null,

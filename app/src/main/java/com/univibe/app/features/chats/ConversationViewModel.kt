@@ -124,7 +124,7 @@ data class ConversationUiState(
 }
 
 fun replyPreview(m: Message): String =
-    if (m.text.isBlank() && m.file != null) "File: ${m.file.name}" else if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else m.text.take(120)
+    if (m.text.isBlank() && m.file != null) "File: ${m.file.name}" else if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else if (m.text.isBlank() && m.location != null) "Location" else m.text.take(120)
 
 fun canEditMessage(m: Message, now: Long = System.currentTimeMillis()): Boolean =
     m.isMine && m.text.isNotBlank() && now - m.timeMillis <= EDIT_WINDOW_MILLIS
@@ -279,6 +279,17 @@ class ConversationViewModel(
         viewModelScope.launch {
             try { messages.sendFile(chatId, caption, file, reply) }
             catch (e: Exception) { _state.update { it.copy(failedFile = FileToSend(file, caption)) }; fail(e, "Couldn't send the file.") }
+        }
+    }
+
+    fun sendLocation(latitude: Double, longitude: Double) {
+        if (!_state.value.canPost) return
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { messages.sendLocation(chatId, latitude, longitude, reply) }
+            catch (e: Exception) { fail(e, "Couldn't send your location.") }
         }
     }
 

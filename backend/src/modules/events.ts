@@ -32,6 +32,8 @@ const base = {
   eventType: z.enum(EVENT_TYPES),
   venueName: z.string().trim().min(2).max(80),
   venueAddress: z.string().trim().max(200).nullable(),
+  latitude: z.number().min(-90).max(90).nullable(),
+  longitude: z.number().min(-180).max(180).nullable(),
   onlineUrl: https.nullable(),
   externalRegistrationUrl: https.nullable(),
   registrationDeadline: when.nullable(),
@@ -45,7 +47,7 @@ const base = {
 const createSchema = z.object({
   ...base,
   description: base.description.default(''), eventType: base.eventType.default('in_person'),
-  venueName: base.venueName.optional(), venueAddress: base.venueAddress.default(null), onlineUrl: base.onlineUrl.default(null),
+  venueName: base.venueName.optional(), venueAddress: base.venueAddress.default(null), latitude: base.latitude.default(null), longitude: base.longitude.default(null), onlineUrl: base.onlineUrl.default(null),
   externalRegistrationUrl: base.externalRegistrationUrl.default(null), registrationDeadline: base.registrationDeadline.default(null),
   timezone: base.timezone.default(null), capacity: base.capacity.default(null),
   visibility: base.visibility.optional(), attendeesVisible: base.attendeesVisible.default(true), coverMediaId: base.coverMediaId.default(null),
@@ -88,6 +90,11 @@ function validateTimes(startsAt: Date, endsAt: Date, opts: { creating: boolean; 
 }
 
 interface Shape { eventType: string; venueName?: string | null; onlineUrl?: string | null; registrationDeadline?: Date | null; endsAt: Date }
+
+/** A map position is a pair: both numbers or neither. */
+function assertCoordinatePair(lat: number | null | undefined, lng: number | null | undefined) {
+  if ((lat == null) !== (lng == null)) throw new HttpError(422, 'validation', 'A map position needs both latitude and longitude.');
+}
 
 /** Rules that depend on several fields together. Run on the merged result for edits. */
 function validateShape(x: Shape) {
@@ -156,7 +163,7 @@ export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Re
   const joined = r.my_status === 'registered';
   return {
     id: r.id as string, organizer: await toCard(ctx, r as unknown as CardRow), title: r.title, description: r.description,
-    category: r.category, eventType: r.event_type, venueName: r.venue_name, venueAddress: r.venue_address,
+    category: r.category, eventType: r.event_type, venueName: r.venue_name, venueAddress: r.venue_address, latitude: r.latitude ?? null, longitude: r.longitude ?? null,
     // The join link is for the organizer and people who registered; everyone else who can see the event cannot.
     onlineUrl: isOrganizer || joined ? r.online_url : null, hasOnlineLink: r.online_url !== null,
     externalRegistrationUrl: r.external_registration_url, registrationDeadline: r.registration_deadline, timezone: r.timezone,
@@ -293,6 +300,7 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
     app.post('/events', async (req, reply) => {
       const me = await ctx.auth(req);
       const b = createSchema.parse(req.body ?? {});
+      assertCoordinatePair(b.latitude, b.longitude);
       ctx.limit(`event:${me.id}`, 10, 3600);
       const starts = new Date(b.startsAt), ends = new Date(b.endsAt);
       const deadline = b.registrationDeadline ? new Date(b.registrationDeadline) : null;
@@ -321,11 +329,11 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
           if (open >= MAX_UPCOMING_PER_ORGANIZER) throw new HttpError(409, 'too_many_events', `You can have up to ${MAX_UPCOMING_PER_ORGANIZER} upcoming events.`);
         }
         const id = (await client.query<{ id: string }>(
-          `insert into events (organizer_id, university_id, community_id, title, description, category, event_type, venue_name, venue_address, online_url,
+          `insert into events (organizer_id, university_id, community_id, title, description, category, event_type, venue_name, venue_address, latitude, longitude, online_url,
                                external_registration_url, registration_deadline, timezone, cover_media_id, starts_at, ends_at, capacity, visibility,
                                attendees_visible, status, create_key)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) returning id`,
-          [me.id, me.universityId, b.communityId, b.title, b.description, b.category, b.eventType, venueName, b.venueAddress, b.onlineUrl,
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) returning id`,
+          [me.id, me.universityId, b.communityId, b.title, b.description, b.category, b.eventType, venueName, b.venueAddress, b.latitude, b.longitude, b.onlineUrl,
             b.externalRegistrationUrl, deadline, b.timezone, b.coverMediaId, starts, ends, b.capacity, visibility, b.attendeesVisible, b.status, b.createKey])).rows[0].id;
         await audit(client, id, me.id, 'create', { status: b.status, communityId: b.communityId });
         if (b.status === 'published') {
@@ -422,6 +430,7 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
       const me = await ctx.auth(req);
       const id = param(req);
       const b = patchSchema.parse(req.body ?? {});
+      if (b.latitude !== undefined || b.longitude !== undefined) assertCoordinatePair(b.latitude, b.longitude);
       await withTx(pool, async (client) => {
         await manageable(me, id, client);
         const row = (await client.query('select * from events where id = $1 for update', [id])).rows[0];
@@ -450,7 +459,7 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
           if (b.capacity < going) throw new HttpError(422, 'validation', `${going} people are already going, so capacity cannot be lower.`);
         }
         if (b.coverMediaId) await coverOk(me, b.coverMediaId);
-        const cols: Record<string, string> = { title: 'title', description: 'description', category: 'category', eventType: 'event_type', venueName: 'venue_name', venueAddress: 'venue_address',
+        const cols: Record<string, string> = { title: 'title', description: 'description', category: 'category', eventType: 'event_type', venueName: 'venue_name', venueAddress: 'venue_address', latitude: 'latitude', longitude: 'longitude',
           onlineUrl: 'online_url', externalRegistrationUrl: 'external_registration_url', registrationDeadline: 'registration_deadline', timezone: 'timezone',
           startsAt: 'starts_at', endsAt: 'ends_at', capacity: 'capacity', visibility: 'visibility', attendeesVisible: 'attendees_visible', coverMediaId: 'cover_media_id' };
         const dates = new Set(['startsAt', 'endsAt', 'registrationDeadline']);
@@ -464,6 +473,7 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
         const same = (a: unknown, b2: unknown) => (a ?? null) === (b2 ?? null);
         const important = startMoved || endMoved
           || (b.venueName !== undefined && !same(b.venueName, row.venue_name)) || (b.venueAddress !== undefined && !same(b.venueAddress, row.venue_address))
+          || (b.latitude !== undefined && !same(b.latitude, row.latitude)) || (b.longitude !== undefined && !same(b.longitude, row.longitude))
           || (b.eventType !== undefined && b.eventType !== row.event_type) || (b.onlineUrl !== undefined && !same(b.onlineUrl, row.online_url));
         // Reminders are relative to the start, so a new start clears the sent ones and they are worked out again.
         if (startMoved) await client.query('delete from event_reminders where event_id = $1', [id]);

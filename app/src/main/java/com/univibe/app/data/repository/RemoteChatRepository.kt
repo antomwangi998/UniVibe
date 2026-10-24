@@ -173,6 +173,7 @@ class RemoteChatRepository(
             voice > 0 -> LastKind.Voice
             photos > 0 -> LastKind.Photo
             docs > 0 -> LastKind.File
+            last.optBoolean("hasLocation", false) && text == null -> LastKind.Location
             else -> LastKind.Text
         }
         val preview = when (kind) {
@@ -181,6 +182,7 @@ class RemoteChatRepository(
             LastKind.Voice -> "Voice message"
             LastKind.Photo -> text ?: if (photos > 1) "$photos photos" else "Photo"
             LastKind.File -> text ?: "Document"
+            LastKind.Location -> "Location"
             LastKind.Text -> text ?: if (last?.optBoolean("hasEvent", false) == true) "Event" else ""
         }
         val memberArr = o.optJSONArray("members")

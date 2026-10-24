@@ -84,6 +84,7 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     var venueSheet by remember { mutableStateOf(false) }
+    var pinPicker by remember { mutableStateOf(false) }
     val pickCover = com.univibe.app.ui.components.rememberPhotoPicker("event") { viewModel.setCover(it) }
 
     LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
@@ -161,8 +162,16 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                     if (s.needsVenue && s.customVenue) {
                         VibeTextField(
                             s.venueName, viewModel::setCustomVenueName, label = "Venue name", isError = s.venueName.isNotEmpty() && !s.venueOk,
-                            supportingText = "No map is shown for venues that aren't on the campus list.",
+                            supportingText = "What people see as the place name.",
                         )
+                    }
+                    if (s.needsVenue) {
+                        PickerRow(VibeIcons.Place, "Map pin", if (s.venueLat != null) "Pinned. Tap to move it" else "Not set. Tap to drop a pin") { pinPicker = true }
+                        Text(
+                            "A pin shows a map on the event and lets people open it in Maps.",
+                            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                        )
+                        if (s.venueLat != null) TextButton(onClick = viewModel::clearPin) { Text("Remove pin") }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -204,6 +213,11 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
         }
     }
 
+    if (pinPicker) com.univibe.app.ui.components.MapPickerDialog(
+        initialLat = s.venueLat, initialLng = s.venueLng, title = "Pin the venue", confirmLabel = "Use this spot",
+        onDismiss = { pinPicker = false },
+        onPicked = { lat, lng -> viewModel.setPin(lat, lng); pinPicker = false },
+    )
     if (venueSheet) {
         VibeBottomSheet(onDismiss = { venueSheet = false }) {
             Text("Choose a venue", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm))

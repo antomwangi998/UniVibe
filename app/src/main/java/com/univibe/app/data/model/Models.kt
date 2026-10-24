@@ -174,7 +174,7 @@ data class LinkPreview(
 /** [waveform] is 0..100 bar heights from the sender's phone; empty for older messages, which then show even bars. */
 data class VoiceNote(val source: String, val durationMs: Int, val waveform: List<Int> = emptyList())
 
-enum class LastKind { None, Text, Photo, Voice, File, Deleted }
+enum class LastKind { None, Text, Photo, Voice, File, Location, Deleted }
 
 enum class Delivery { None, Sent, Delivered, Read }
 
@@ -433,6 +433,9 @@ data class Comment(
 
 enum class MessageStatus { Sending, Sent, Delivered, Seen }
 
+/** A place sent in a chat. The server keeps it rounded to about 10 m. */
+data class SharedLocation(val latitude: Double, val longitude: Double, val label: String? = null)
+
 data class Message(
     val id: String,
     val chatId: String,
@@ -461,6 +464,8 @@ data class Message(
     val file: FileAttachment? = null,
     /** A shared event. Only the id travels in the message; the card is loaded for this reader, who may not be allowed to see it. */
     val eventId: String? = null,
+    /** A shared place (one fixed point), when this message is one. */
+    val location: SharedLocation? = null,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }

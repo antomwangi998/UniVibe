@@ -142,8 +142,10 @@ class EventFormViewModel(
 
     fun pickVenue(v: Venue) = _state.update { it.copy(venueName = v.name, venueLat = v.latitude, venueLng = v.longitude, customVenue = false) }
     fun useCustomVenue() = _state.update { if (it.customVenue) it else it.copy(venueName = "", venueLat = null, venueLng = null, customVenue = true) }
-    /** A typed venue has no map position, so the map section is hidden for it. */
-    fun setCustomVenueName(v: String) = _state.update { it.copy(venueName = v, venueLat = null, venueLng = null) }
+    /** Typing a name keeps any pin already dropped; the pin is set and removed on its own. */
+    fun setCustomVenueName(v: String) = _state.update { it.copy(venueName = v) }
+    fun setPin(latitude: Double, longitude: Double) = _state.update { it.copy(venueLat = latitude, venueLng = longitude) }
+    fun clearPin() = _state.update { it.copy(venueLat = null, venueLng = null) }
 
     fun setLimit(on: Boolean) = _state.update { it.copy(limitPlaces = on) }
     fun setCapacityText(v: String) = _state.update { it.copy(capacityText = v.filter { c -> c.isDigit() }.take(4)) }
