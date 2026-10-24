@@ -4,6 +4,7 @@ import com.univibe.app.data.model.FileAttachment
 import com.univibe.app.data.media.PickedFile
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
+import com.univibe.app.data.model.SharedLocation
 import com.univibe.app.data.model.LinkPreview
 import com.univibe.app.data.model.VoiceNote
 import com.univibe.app.data.model.Reaction
@@ -314,6 +315,26 @@ class RemoteMessageRepository(
         }
     }
 
+    override suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef?) {
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, replyTo = replyTo,
+            location = SharedLocation(latitude, longitude))
+        s.messages.update { it + local }
+        try {
+            val body = JSONObject().put("clientId", clientId)
+                .put("location", JSONObject().put("latitude", latitude).put("longitude", longitude))
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
     override suspend fun sendFile(chatId: String, text: String, file: PickedFile, replyTo: ReplyRef?) {
         val clean = text.trim()
         val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
@@ -497,6 +518,10 @@ class RemoteMessageRepository(
             forwarded = o.optBoolean("forwarded", false),
             edited = !o.isNull("editedAt"),
             eventId = o.strOrNull("eventId"),
+            location = o.optJSONObject("location")?.let { l ->
+                val lat = l.optDouble("latitude", Double.NaN); val lng = l.optDouble("longitude", Double.NaN)
+                if (lat.isNaN() || lng.isNaN()) null else SharedLocation(lat, lng, l.strOrNull("label"))
+            },
             file = file,
             linkPreview = o.optJSONObject("linkPreview")?.let { l ->
                 l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }

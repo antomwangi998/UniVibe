@@ -79,7 +79,7 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
  * Campus events from the UniVibe server: real events, real registrations, capacity enforced by the server.
  *
  * What the server does not have, and so is not faked here:
- *  - A venue directory and map positions: venues are plain text, so [getVenues] is empty and no map is shown.
+ *  - A venue directory: [getVenues] is empty. Organizers drop a pin on the map instead, and that position is what the map shows.
  *  - Hosting for a community: communities are not on the server yet, so a draft that asks for it is refused.
  */
 class RemoteEventRepository(private val api: AuthedApi, private val uploader: MediaUploader? = null) : EventRepository {
@@ -183,6 +183,8 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
             host = event.hostName,
             hostAccent = accentFor(o.getJSONObject("organizer").optString("id", event.id)),
             capacity = if (o.isNull("capacity")) null else o.optInt("capacity"),
+            latitude = o.optDouble("latitude", Double.NaN).takeIf { !it.isNaN() },
+            longitude = o.optDouble("longitude", Double.NaN).takeIf { !it.isNaN() },
             eventType = o.optString("eventType", "in_person"),
             onlineUrl = if (o.isNull("onlineUrl")) null else o.optString("onlineUrl").ifBlank { null },
             registrationDeadlineMillis = if (o.isNull("registrationDeadline")) null else millis(o.getString("registrationDeadline")),
@@ -228,6 +230,10 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
             .put("registrationDeadline", d.registrationDeadlineMillis?.let { Instant.ofEpochMilli(it).toString() } ?: JSONObject.NULL)
             .put("timezone", d.timezone ?: JSONObject.NULL)
         if (d.eventType != "online" || d.venue.isNotBlank()) o.put("venueName", d.venue)
+        // The map pin travels with the venue. Online events and typed-only venues send null, which clears an old pin on edit.
+        val pinned = d.eventType != "online" && d.latitude != null && d.longitude != null
+        o.put("latitude", if (pinned) d.latitude else JSONObject.NULL)
+        o.put("longitude", if (pinned) d.longitude else JSONObject.NULL)
         if (creating) {
             o.put("communityId", d.hostCommunityId ?: JSONObject.NULL)
             o.put("status", if (d.asDraft) "draft" else "published")
