@@ -12,6 +12,7 @@ import { groupRoutes } from './modules/groups';
 import { noteRoutes } from './modules/notes';
 import { storyRoutes } from './modules/stories';
 import { moderationRoutes } from './modules/moderation';
+import { adminRoutes } from './modules/admin';
 import { notificationRoutes } from './modules/notifications';
 import { privacyRoutes } from './modules/privacy';
 import { searchRoutes } from './modules/search';
@@ -36,6 +37,7 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(wsRoutes(ctx, hub));
     await app.register(eventRoutes(ctx, hub));
     await app.register(moderationRoutes(ctx));
+    await app.register(adminRoutes(ctx));
     await app.register(searchRoutes(ctx));
     await app.register(sessionRoutes(ctx));
     await app.register(accountStatusRoutes(ctx));

@@ -14,6 +14,7 @@ import { registerPeopleRoutes } from './people';
 import { registerPostRoutes } from './posts';
 import { apiV1 } from './routes';
 import { publicEventRoutes } from './modules/public_events';
+import { adminPageRoutes } from './admin_ui/page';
 import { releaseOwnedCommunities } from './modules/communities';
 import { Hub } from './realtime';
 import * as sec from './security';
@@ -609,6 +610,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(apiV1(v1ctx, deps.hub ?? new Hub()), { prefix: '/api/v1' });
   // Public, no sign-in: the share-link page (/e/<id>) and its JSON preview. Public events only; see public_events.ts.
   void app.register(publicEventRoutes(v1ctx));
+  // The admin dashboard page (see admin_ui/). It holds no data; the API decides what a signed-in account may see.
+  void app.register(adminPageRoutes());
 
   return app;
 }
