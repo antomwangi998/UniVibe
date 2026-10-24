@@ -62,4 +62,8 @@ a.kpi-link { display:block; color:inherit; } a.kpi-link:hover { border-color:var
   .main { padding:14px 14px 40px; } .who { display:none; }
 }
 @media (prefers-reduced-motion: reduce) { .side, .menu-open .side { transition:none; } }
+.hbar { display:grid; grid-template-columns:110px 1fr 36px; gap:8px; align-items:center; margin:6px 0; }
+.hb { background:#000; border:1px solid var(--line); border-radius:999px; height:10px; overflow:hidden; display:block; } .hbf { display:block; height:100%; background:var(--teal); }
+.custom { margin-left:6px; padding:3px 8px; border:1px solid var(--line); border-radius:999px; } .custom.on { border-color:var(--deep); }
+.kpi .small.ok { color:var(--teal); } summary { cursor:pointer; } details ul { margin:8px 0 0; padding-left:18px; }
 `;
