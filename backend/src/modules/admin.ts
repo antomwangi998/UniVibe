@@ -31,6 +31,58 @@ async function series(pool: Pool, sql: string): Promise<{ day: string; n: number
   return rows;
 }
 
+/**
+ * Analytics metrics. Every table, column and condition below is a fixed string in this file; the only things that
+ * come from the request are two dates, and those are passed as query parameters, never joined into the SQL.
+ * Days are UTC days, so a "day" means the same thing no matter where the server runs.
+ */
+const METRICS: Record<string, { table: string; ts: string; where: string }> = {
+  signups: { table: 'users', ts: 'created_at', where: 'true' },
+  verified: { table: 'users', ts: 'email_verified_at', where: 'true' },
+  posts: { table: 'posts', ts: 'created_at', where: "status = 'active'" },
+  comments: { table: 'comments', ts: 'created_at', where: "status = 'active'" },
+  messages: { table: 'messages', ts: 'created_at', where: "status = 'active'" },
+  communities: { table: 'communities', ts: 'created_at', where: 'true' },
+  joins: { table: 'community_members', ts: 'joined_at', where: 'true' },
+  events: { table: 'events', ts: 'created_at', where: 'true' },
+  rsvps: { table: 'event_registrations', ts: 'registered_at', where: "status = 'registered'" },
+  reports: { table: 'reports', ts: 'created_at', where: 'true' },
+};
+
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)), 'Not a real date.');
+const rangeSchema = z.object({ days: z.coerce.number().int().refine((n) => [7, 30, 90].includes(n)).optional(), from: ymd.optional(), to: ymd.optional() }).strict();
+const DAY = 86_400_000;
+const MAX_RANGE_DAYS = 366;
+const utcDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/** Turns ?days=30 or ?from=&to= into an inclusive UTC date range, plus the equally long period just before it. */
+export function resolveRange(query: unknown, now = new Date()) {
+  const q = rangeSchema.safeParse(query);
+  if (!q.success) throw new HttpError(400, 'bad_request', 'Pick 7, 30 or 90 days, or a valid from and to date.');
+  const today = new Date(`${utcDay(now)}T00:00:00Z`);
+  let from: Date; let to: Date;
+  if (q.data.from || q.data.to) {
+    if (!q.data.from || !q.data.to) throw new HttpError(400, 'bad_request', 'Give both a start and an end date.');
+    from = new Date(`${q.data.from}T00:00:00Z`); to = new Date(`${q.data.to}T00:00:00Z`);
+    if (to > today) to = today;
+    if (from > to) throw new HttpError(400, 'bad_request', 'The start date is after the end date.');
+  } else {
+    const n = q.data.days ?? 30;
+    to = today; from = new Date(today.getTime() - (n - 1) * DAY);
+  }
+  const length = Math.round((to.getTime() - from.getTime()) / DAY) + 1;
+  if (length > MAX_RANGE_DAYS) throw new HttpError(400, 'bad_request', `Choose at most ${MAX_RANGE_DAYS} days.`);
+  const prevTo = new Date(from.getTime() - DAY); const prevFrom = new Date(prevTo.getTime() - (length - 1) * DAY);
+  return { from: utcDay(from), to: utcDay(to), prevFrom: utcDay(prevFrom), prevTo: utcDay(prevTo), length };
+}
+
+const DAILY = (m: { table: string; ts: string; where: string }) =>
+  `select to_char(d, 'YYYY-MM-DD') as day, coalesce(c.n, 0)::int as n
+     from generate_series($1::date, $2::date, interval '1 day') d
+     left join (select (${m.ts} at time zone 'utc')::date as day, count(*) as n from ${m.table}
+                 where ${m.where} and ${m.ts} >= $1::date and ${m.ts} < $2::date + 1 group by 1) c on c.day = d::date
+    order by d`;
+
 /** Keeps a search word from acting as a pattern. */
 const likeOf = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
@@ -175,6 +227,44 @@ export function adminRoutes(ctx: Ctx) {
       return {
         items: page.items.map((r) => ({ id: r.id, action: r.action, targetType: r.target_type, targetId: r.target_id, details: r.details, at: r.created_at, actor: r.actor_name ? { name: r.actor_name, handle: r.actor_handle } : null })),
         nextCursor: page.nextCursor,
+      };
+    });
+    // ---- 5. analytics: activity inside a chosen period, compared with the period just before it
+    app.get('/admin/analytics', async (req) => {
+      await requireAdmin(req);
+      const r = resolveRange(req.query);
+      const daily: Record<string, { day: string; n: number }[]> = {};
+      const totals: Record<string, { current: number; previous: number }> = {};
+      for (const [name, m] of Object.entries(METRICS)) {
+        const rows = (await pool.query<{ day: string; n: number }>(DAILY(m), [r.from, r.to])).rows;
+        const prev = (await pool.query<{ n: number }>(
+          `select count(*)::int as n from ${m.table} where ${m.where} and ${m.ts} >= $1::date and ${m.ts} < $2::date + 1`, [r.prevFrom, r.prevTo])).rows[0].n;
+        daily[name] = rows;
+        totals[name] = { current: rows.reduce((a, x) => a + x.n, 0), previous: prev };
+      }
+      // "Active" = signed in or kept a session alive that day (refresh_tokens rows are created at both).
+      const active = (await pool.query<{ day: string; n: number }>(
+        `select to_char(d, 'YYYY-MM-DD') as day, coalesce(c.n, 0)::int as n
+           from generate_series($1::date, $2::date, interval '1 day') d
+           left join (select (created_at at time zone 'utc')::date as day, count(distinct user_id) as n from refresh_tokens
+                       where created_at >= $1::date and created_at < $2::date + 1 group by 1) c on c.day = d::date order by d`, [r.from, r.to])).rows;
+      const activeDistinct = async (a: string, b: string) => (await pool.query<{ n: number }>(
+        'select count(distinct user_id)::int as n from refresh_tokens where created_at >= $1::date and created_at < $2::date + 1', [a, b])).rows[0].n;
+      const reasons = (await pool.query<{ reason: string; n: number }>(
+        'select reason, count(*)::int as n from reports where created_at >= $1::date and created_at < $2::date + 1 group by 1 order by n desc', [r.from, r.to])).rows;
+      const review = (await pool.query<{ reviewed: number; hours: number | null }>(
+        `select count(*)::int as reviewed, round((avg(extract(epoch from (reviewed_at - created_at))) / 3600)::numeric, 1)::float as hours
+           from reports where created_at >= $1::date and created_at < $2::date + 1 and reviewed_at is not null`, [r.from, r.to])).rows[0];
+      const state = (await pool.query(
+        `select count(*) filter (where deactivated_at is null)::int as users,
+                count(*) filter (where deactivated_at is null and email_verified_at is not null)::int as verified,
+                count(*) filter (where suspended_until > now())::int as suspended
+           from users`)).rows[0];
+      return {
+        range: r, daily, totals,
+        active: { daily: active, distinct: { current: await activeDistinct(r.from, r.to), previous: await activeDistinct(r.prevFrom, r.prevTo) } },
+        reports: { byReason: reasons, reviewed: review.reviewed, avgHoursToFirstReview: review.hours },
+        accounts: state,
       };
     });
   };
