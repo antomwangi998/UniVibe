@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.FileAttachment
 import com.univibe.app.data.media.PickedFile
+import com.univibe.app.data.model.LiveShare
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
 import com.univibe.app.data.model.SharedLocation
@@ -315,6 +316,29 @@ class RemoteMessageRepository(
         }
     }
 
+    override suspend fun sendLiveLocation(chatId: String, latitude: Double, longitude: Double, minutes: Int, replyTo: ReplyRef?): LiveShareStarted {
+        val body = JSONObject().put("clientId", UUID.randomUUID().toString())
+            .put("location", JSONObject().put("latitude", latitude).put("longitude", longitude).put("liveMinutes", minutes))
+        replyTo?.let { body.put("replyToId", it.messageId) }
+        val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+        merge(chatId, listOf(sent))
+        val ends = runCatching { java.time.Instant.parse(sent.getJSONObject("live").getString("endsAt")).toEpochMilli() }
+            .getOrDefault(System.currentTimeMillis() + minutes * 60_000L)
+        return LiveShareStarted(sent.getString("id"), ends)
+    }
+
+    override suspend fun updateLiveLocation(messageId: String, latitude: Double, longitude: Double): Boolean =
+        try {
+            api.send("PUT", "/api/v1/messages/${enc(messageId)}/live", JSONObject().put("latitude", latitude).put("longitude", longitude))
+            true
+        } catch (e: ApiException) {
+            if (e.status == 409) false else throw e
+        }
+
+    override suspend fun stopLiveLocation(messageId: String) {
+        api.send("DELETE", "/api/v1/messages/${enc(messageId)}/live", ok = setOf(200, 204))
+    }
+
     override suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef?) {
         val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
         val s = state(chatId)
@@ -521,6 +545,9 @@ class RemoteMessageRepository(
             location = o.optJSONObject("location")?.let { l ->
                 val lat = l.optDouble("latitude", Double.NaN); val lng = l.optDouble("longitude", Double.NaN)
                 if (lat.isNaN() || lng.isNaN()) null else SharedLocation(lat, lng, l.strOrNull("label"))
+            },
+            live = o.optJSONObject("live")?.let { l ->
+                runCatching { LiveShare(java.time.Instant.parse(l.getString("endsAt")).toEpochMilli(), l.optBoolean("active", false)) }.getOrNull()
             },
             file = file,
             linkPreview = o.optJSONObject("linkPreview")?.let { l ->

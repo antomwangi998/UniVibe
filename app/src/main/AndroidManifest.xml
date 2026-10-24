@@ -10,10 +10,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Asked for only when someone taps "Send location" in a chat or "Use my location" on the venue map: one position,
-         while the app is open. Nothing runs in the background. -->
+         while the app is open. Only a live share the person starts keeps going, with a notification and a Stop button. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- Live location: a visible, stoppable notification while a share is running. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:name=".app.UniVibeApplication"
@@ -53,6 +56,11 @@
         </provider>
 
         <!-- Receives FCM data messages and token changes. Not exported: only Firebase may call it. -->
+        <service
+            android:name=".features.chats.LiveLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <service
             android:name=".push.UniVibeMessagingService"
             android:exported="false">
