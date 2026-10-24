@@ -7,6 +7,7 @@ import { HttpError } from '../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { jobStats } from '../jobs';
 import { audit } from './moderation';
+import { can, type Capability } from '../permissions';
 
 /**
  * The admin dashboard's data. Numbers and account state only: nothing here returns message text, and nobody but an
@@ -96,16 +97,28 @@ const unsuspendSchema = z.object({ note: z.string().trim().max(500).default(''),
 export function adminRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
-    const requireAdmin = async (req: Parameters<Ctx['auth']>[0]): Promise<AuthUser> => {
+    // Asked once per route. Anyone without the capability is told "not found" so the routes do not advertise themselves.
+    // A moderator reaching for an administrator route is worth a record, at most once a minute per person.
+    const lastDenied = new Map<string, number>();
+    const need = async (req: Parameters<Ctx['auth']>[0], cap: Capability): Promise<AuthUser> => {
       const me = await ctx.auth(req);
-      if (me.role !== 'admin') throw new HttpError(404, 'not_found', 'Not found.');
+      if (!can(me.role, cap)) {
+        if (me.role === 'moderator') {
+          const now = Date.now();
+          if (now - (lastDenied.get(me.id) ?? 0) > 60_000) {
+            lastDenied.set(me.id, now);
+            await audit(pool, me.id, 'admin_access_denied', null, null, { capability: cap, path: req.url.split('?')[0].slice(0, 120) }).catch(() => {});
+          }
+        }
+        throw new HttpError(404, 'not_found', 'Not found.');
+      }
       ctx.limit(`admin:${me.id}`, 120, 60);
       return me;
     };
 
     // ---- 1. overview: how big, how active, how busy the safety queue is
     app.get('/admin/overview', async (req) => {
-      await requireAdmin(req);
+      await need(req, 'overview.view');
       const totals = (await pool.query(
         `select
            (select count(*) from users where deactivated_at is null)::int as users,
@@ -126,7 +139,7 @@ export function adminRoutes(ctx: Ctx) {
 
     // ---- 2. people: find an account, see its state, suspend or restore it
     app.get('/admin/users', async (req) => {
-      await requireAdmin(req);
+      await need(req, 'users.view');
       const q = z.object({ q: z.string().trim().min(2).max(80), limit: z.coerce.number().int().min(1).max(50).default(25) }).parse(req.query);
       const { rows } = await pool.query(
         `select u.id, u.full_name, u.handle, u.email, u.university_id, u.role, u.created_at, u.email_verified_at, u.suspended_until, u.deactivated_at
@@ -136,7 +149,7 @@ export function adminRoutes(ctx: Ctx) {
     });
 
     app.get('/admin/users/:id', async (req) => {
-      await requireAdmin(req);
+      await need(req, 'users.view');
       const id = idParam((req.params as { id: string }).id);
       const u = (await pool.query(
         `select u.id, u.full_name, u.handle, u.email, u.university_id, u.role, u.created_at, u.email_verified_at, u.suspended_until, u.deactivated_at,
@@ -169,7 +182,7 @@ export function adminRoutes(ctx: Ctx) {
       });
 
     app.post('/admin/users/:id/suspend', async (req) => {
-      const me = await requireAdmin(req);
+      const me = await need(req, 'users.suspend');
       const id = idParam((req.params as { id: string }).id);
       const b = suspendSchema.parse(req.body ?? {});
       await settle(me, id, async (client) => {
@@ -181,7 +194,7 @@ export function adminRoutes(ctx: Ctx) {
     });
 
     app.post('/admin/users/:id/unsuspend', async (req) => {
-      const me = await requireAdmin(req);
+      const me = await need(req, 'users.suspend');
       const id = idParam((req.params as { id: string }).id);
       const b = unsuspendSchema.parse(req.body ?? {});
       await settle(me, id, async (client) => {
@@ -194,7 +207,7 @@ export function adminRoutes(ctx: Ctx) {
 
     // ---- 3. system: is anything stuck or failing
     app.get('/admin/health', async (req) => {
-      await requireAdmin(req);
+      await need(req, 'system.view');
       const one = async (sql: string) => (await pool.query(sql)).rows[0];
       const tokens = await one('select count(*) filter (where revoked_at is null)::int as active, count(*) filter (where revoked_at is not null)::int as revoked from device_tokens');
       const media = await one("select count(*) filter (where status = 'pending')::int as pending, count(*)::int as total from media");
@@ -214,7 +227,7 @@ export function adminRoutes(ctx: Ctx) {
 
     // ---- 4. audit trail, with who did it
     app.get('/admin/audit', async (req) => {
-      await requireAdmin(req);
+      await need(req, 'audit.view');
       const q = pageSchema.parse(req.query);
       const cur = decodeCursor(q.cursor);
       const { rows } = await pool.query(
@@ -231,7 +244,7 @@ export function adminRoutes(ctx: Ctx) {
     });
     // ---- 5. analytics: activity inside a chosen period, compared with the period just before it
     app.get('/admin/analytics', async (req) => {
-      await requireAdmin(req);
+      await need(req, 'analytics.view');
       const r = resolveRange(req.query);
       const daily: Record<string, { day: string; n: number }[]> = {};
       const totals: Record<string, { current: number; previous: number }> = {};

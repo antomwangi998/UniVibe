@@ -1,3 +1,4 @@
+import { can, capabilitiesOf } from '../permissions';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
@@ -57,7 +58,7 @@ export function moderationRoutes(ctx: Ctx) {
 
     const requireModerator = async (req: Parameters<Ctx['auth']>[0]): Promise<AuthUser> => {
       const me = await ctx.auth(req);
-      if (me.role !== 'moderator' && me.role !== 'admin') throw new HttpError(403, 'forbidden', 'This is only available to moderators.');
+      if (!can(me.role, 'reports.review')) throw new HttpError(403, 'forbidden', 'This is only available to moderators.');
       return me;
     };
 
@@ -184,7 +185,7 @@ export function moderationRoutes(ctx: Ctx) {
     }
 
     // Lets the app ask once whether to show moderator tools. 403 for everyone else.
-    app.get('/moderation/access', async (req) => { await requireModerator(req); return { allowed: true }; });
+    app.get('/moderation/access', async (req) => { const me = await requireModerator(req); return { allowed: true, role: me.role, capabilities: capabilitiesOf(me.role) }; });
 
     const eventActionSchema = z.object({ note: z.string().trim().max(500).default(''), userMessage: z.string().trim().max(300).default('') }).strict();
     for (const hide of [true, false]) {
@@ -248,7 +249,7 @@ export function moderationRoutes(ctx: Ctx) {
 
     app.get('/moderation/audit-logs', async (req) => {
       const me = await ctx.auth(req);
-      if (me.role !== 'admin') throw new HttpError(403, 'forbidden', 'This is only available to administrators.');
+      if (!can(me.role, 'audit.view')) throw new HttpError(403, 'forbidden', 'This is only available to administrators.');
       const q = pageSchema.parse(req.query);
       const cur = decodeCursor(q.cursor);
       const { rows } = await pool.query(

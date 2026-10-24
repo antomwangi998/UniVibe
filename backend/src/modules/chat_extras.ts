@@ -1,3 +1,4 @@
+import { can } from '../permissions';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { blockedBetween } from '../access';
@@ -269,7 +270,7 @@ export function chatExtraRoutes(ctx: Ctx, hub: Hub) {
     // ---- operations: queue depth, failures and lag (admins only; everyone else sees "not found")
     app.get('/admin/jobs', async (req) => {
       const me = await ctx.auth(req);
-      if (me.role !== 'admin') throw new HttpError(404, 'not_found', 'Not found.');
+      if (!can(me.role, 'system.view')) throw new HttpError(404, 'not_found', 'Not found.');
       return jobStats(pool);
     });
   };
