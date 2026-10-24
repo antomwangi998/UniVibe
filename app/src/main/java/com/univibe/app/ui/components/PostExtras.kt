@@ -46,6 +46,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -115,11 +117,19 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
             val fill = remember { Animatable(target) }
             LaunchedEffect(target) { fill.animateTo(target, tween(durationMillis = 600, easing = FastOutSlowInEasing)) }
             val shape = RoundedCornerShape(14.dp)
+            val fillColor = colors.primary.copy(alpha = if (leading || chosen) 0.38f else 0.20f)
             Box(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .clip(shape)
+                    // Drawn behind the text at exactly this option's share of the width. Drawing (rather than a child
+                    // Box) keeps it independent of the row's height, which is unbounded inside a feed, and the
+                    // animation only redraws instead of recomposing every frame.
+                    .drawBehind {
+                        val width = size.width * fill.value.coerceIn(0f, 1f)
+                        if (width > 0.5f) drawRect(fillColor, size = Size(width, size.height))
+                    }
                     .border(if (chosen) 1.5.dp else 1.dp, if (chosen) colors.primary else colors.outlineVariant, shape)
                     .then(if (canVote && onVote != null) Modifier.clickable(role = Role.Button) { onVote(index) } else Modifier)
                     .semantics {
@@ -129,16 +139,6 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                // matchParentSize, not fillMaxHeight: inside a feed the row's height is unbounded, and fillMaxHeight
-                // then collapses to 0, which is why the bars never showed.
-                if (fill.value > 0.001f) {
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .fillMaxWidth(fill.value.coerceIn(0f, 1f))
-                            .background(colors.primary.copy(alpha = if (leading || chosen) 0.38f else 0.20f)),
-                    )
-                }
                 Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         option.text,
