@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.data.repository.LiveShareStarted
 import com.univibe.app.data.repository.MAX_MESSAGE_PHOTOS
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -124,7 +125,7 @@ data class ConversationUiState(
 }
 
 fun replyPreview(m: Message): String =
-    if (m.text.isBlank() && m.file != null) "File: ${m.file.name}" else if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else if (m.text.isBlank() && m.location != null) "Location" else m.text.take(120)
+    if (m.text.isBlank() && m.file != null) "File: ${m.file.name}" else if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else if (m.text.isBlank() && (m.location != null || m.live != null)) "Location" else m.text.take(120)
 
 fun canEditMessage(m: Message, now: Long = System.currentTimeMillis()): Boolean =
     m.isMine && m.text.isNotBlank() && now - m.timeMillis <= EDIT_WINDOW_MILLIS
@@ -290,6 +291,18 @@ class ConversationViewModel(
         viewModelScope.launch {
             try { messages.sendLocation(chatId, latitude, longitude, reply) }
             catch (e: Exception) { fail(e, "Couldn't send your location.") }
+        }
+    }
+
+    /** Starts a live share and, once the server has it, lets the screen start the service that keeps it fresh. */
+    fun shareLive(latitude: Double, longitude: Double, minutes: Int, onStarted: (LiveShareStarted) -> Unit) {
+        if (!_state.value.canPost) return
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { onStarted(messages.sendLiveLocation(chatId, latitude, longitude, minutes, reply)) }
+            catch (e: Exception) { fail(e, "Couldn't start sharing your location.") }
         }
     }
 

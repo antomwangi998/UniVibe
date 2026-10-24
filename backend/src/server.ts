@@ -6,6 +6,7 @@ import { createConsoleMailer, createResendMailer } from './email';
 import { JobWorker, purgeOldRecords } from './jobs';
 import { RateLimiter } from './limiter';
 import { purgeExpiredNotes } from './modules/notes';
+import { purgeLiveLocations } from './modules/messaging';
 import { purgeExpiredStories } from './modules/stories';
 import { deliveryHandlers } from './modules/delivery';
 import { createFcmSender, disabledPushSender, type PushSender } from './push';
@@ -50,6 +51,7 @@ async function main() {
     void run();
     setInterval(run, ms).unref();
   };
+  every('live-location-purge', 5 * 60 * 1000, () => purgeLiveLocations(pool));
   every('event-reminders', 5 * 60 * 1000, () => sendEventReminders(jobs));
   every('event-retention', 6 * 3600 * 1000, () => purgeExpiredEvents(jobs));
 

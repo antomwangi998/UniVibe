@@ -433,6 +433,9 @@ data class Comment(
 
 enum class MessageStatus { Sending, Sent, Delivered, Seen }
 
+/** A place shared live. [active] turns false when sharing stops or runs out; the message then has no position. */
+data class LiveShare(val endsAtMillis: Long, val active: Boolean)
+
 /** A place sent in a chat. The server keeps it rounded to about 10 m. */
 data class SharedLocation(val latitude: Double, val longitude: Double, val label: String? = null)
 
@@ -466,6 +469,8 @@ data class Message(
     val eventId: String? = null,
     /** A shared place (one fixed point), when this message is one. */
     val location: SharedLocation? = null,
+    /** Set when the place is shared live (a position that keeps updating for a while). */
+    val live: LiveShare? = null,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }

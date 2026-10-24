@@ -241,6 +241,8 @@ interface CommentRepository {
     suspend fun reportComment(commentId: String, reason: String)
 }
 
+data class LiveShareStarted(val messageId: String, val endsAtMillis: Long)
+
 interface MessageRepository {
     fun messages(chatId: String): Flow<List<Message>>
     fun typing(chatId: String): Flow<Boolean>
@@ -258,6 +260,15 @@ interface MessageRepository {
     /** Sends one fixed place ("my current location"). */
     suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef? = null): Unit =
         throw UnsupportedOperationException("Sharing a location isn't available yet.")
+
+    /** Starts sharing a live position for [minutes]. The phone then keeps it fresh with [updateLiveLocation]. */
+    suspend fun sendLiveLocation(chatId: String, latitude: Double, longitude: Double, minutes: Int, replyTo: ReplyRef? = null): LiveShareStarted =
+        throw UnsupportedOperationException("Live location isn't available yet.")
+
+    /** False when the share has already ended (stopped, ran out, or replaced by a newer one). */
+    suspend fun updateLiveLocation(messageId: String, latitude: Double, longitude: Double): Boolean = false
+
+    suspend fun stopLiveLocation(messageId: String) {}
 
     suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")

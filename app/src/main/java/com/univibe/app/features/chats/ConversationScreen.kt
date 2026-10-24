@@ -246,9 +246,14 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         )
     }
     var showShareLocation by rememberSaveable { mutableStateOf(false) }
+    val appContext = LocalContext.current
     if (showShareLocation) ShareLocationSheet(
         recipient = s.chat?.title ?: "They",
         onSend = { lat, lng -> showShareLocation = false; viewModel.sendLocation(lat, lng) },
+        onSendLive = { lat, lng, minutes ->
+            showShareLocation = false
+            viewModel.shareLive(lat, lng, minutes) { started -> LiveLocationService.start(appContext, started.messageId, started.endsAtMillis) }
+        },
         onDismiss = { showShareLocation = false },
     )
     val context = LocalContext.current
@@ -1178,7 +1183,8 @@ private fun MessageItem(
                         }
                         m.voice?.let { v -> VoiceBubble(v, sending = m.status == MessageStatus.Sending, progress = uploadProgress) }
                         m.eventId?.let { id -> com.univibe.app.features.events.SharedEventCard(id) }
-                        m.location?.let { SharedLocationCard(it, Modifier.padding(bottom = 6.dp)) }
+                        if (m.live != null) LiveLocationCard(m, Modifier.padding(bottom = 6.dp))
+                        else m.location?.let { SharedLocationCard(it, Modifier.padding(bottom = 6.dp)) }
                         val tail: @Composable ColumnScope.() -> Unit = {
                             if (m.text.isNotBlank()) Text(messageText(m.text, mine), style = MaterialTheme.typography.bodyLarge)
                             m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onLongPress, modifier = Modifier.padding(top = 6.dp)) }
