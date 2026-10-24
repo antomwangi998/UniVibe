@@ -47,6 +47,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -118,12 +121,31 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
             val fill = remember { Animatable(target) }
             LaunchedEffect(target) { fill.animateTo(target, tween(durationMillis = 600, easing = FastOutSlowInEasing)) }
             val shape = RoundedCornerShape(14.dp)
-            // No borders: a soft track, a deep-teal fill for the leading option and a quieter teal for the rest.
+            // No borders: a soft track, the Follow-button teal for the leading option, a quieter teal for the rest.
+            // The leader's text flips to the button's own text colour where the fill sits behind it (see the overlay).
             val dark = colors.background.luminance() < 0.5f
             val trackColor = colors.surfaceContainerHigh
             val fillColor = when {
-                leading -> if (dark) Color(0xFF0F766E) else colors.primaryContainer
+                leading -> colors.primary
                 else -> if (dark) Color(0xFF134E4A) else colors.primaryContainer.copy(alpha = 0.55f)
+            }
+            val optionRow: @Composable (Color, Color) -> Unit = { textColor, iconColor ->
+                Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        option.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                        fontWeight = if (leading || chosen) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (showResults) {
+                        if (chosen) {
+                            Icon(VibeIcons.CheckCircle, contentDescription = null, tint = iconColor, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text("$percent%", style = MaterialTheme.typography.labelLarge, color = textColor)
+                    }
+                }
             }
             Box(
                 Modifier
@@ -146,21 +168,19 @@ fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        option.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurface,
-                        fontWeight = if (leading || chosen) FontWeight.SemiBold else FontWeight.Normal,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (showResults) {
-                        if (chosen) {
-                            Icon(VibeIcons.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text("$percent%", style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
-                    }
+                optionRow(colors.onSurface, colors.primary)
+                if (leading && fill.value > 0.001f) {
+                    // Same row again in the button's text colour, shown only over the filled part, so the text stays
+                    // readable on both the fill and the track in light and dark mode.
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .clearAndSetSemantics { }
+                            .drawWithContent {
+                                clipRect(right = size.width * fill.value.coerceIn(0f, 1f)) { this@drawWithContent.drawContent() }
+                            },
+                        contentAlignment = Alignment.CenterStart,
+                    ) { optionRow(colors.onPrimary, colors.onPrimary) }
                 }
             }
         }
