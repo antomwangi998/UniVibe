@@ -6,7 +6,7 @@ export const ADMIN_JS = String.raw`
   var S = { access: null, refresh: null, user: null, isAdmin: false, page: '', timer: null, shell: false, bound: false, menuOpen: false, openReports: 0 };
   var root = document.getElementById('app');
 
-  // ---------- tiny helpers (everything is built with textContent, never innerHTML)
+  // ---------- tiny helpers (everything is built with textContent, never raw HTML strings)
   function h(tag, attrs) {
     var el = document.createElement(tag);
     attrs = attrs || {};
@@ -119,6 +119,7 @@ export const ADMIN_JS = String.raw`
   // ---------- navigation: one list drives the sidebar, the page header and the breadcrumbs
   var ICONS = {
     overview: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
+    analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     reports: 'M5 3v18M5 4h12l-2 4 2 4H5',
     people: 'M16 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6',
     system: 'M3 12h4l3-8 4 16 3-8h4',
@@ -134,12 +135,13 @@ export const ADMIN_JS = String.raw`
   // admin: true means administrators only (the API enforces this too; hiding a link is just courtesy)
   var PAGES = {
     overview: { title: 'Overview', group: 'Monitor', admin: true, desc: 'Counts and 14-day activity across UniVibe. Counts only, never message text.', view: function (r) { viewOverview(); } },
+    analytics: { title: 'Analytics', group: 'Monitor', admin: true, desc: 'Growth and activity over a period you choose, compared with the period before it.', view: viewAnalytics },
     system: { title: 'System health', group: 'Monitor', admin: true, desc: 'Job queue, push devices, uploads and server status. Refreshes every 30 seconds.', view: function (r) { viewSystem(); } },
     reports: { title: 'Reports', group: 'Moderate', admin: false, desc: 'Review what students reported and decide what happens next.', view: viewReports },
     people: { title: 'People', group: 'Moderate', admin: true, desc: 'Find a student, review their history, suspend or reinstate an account.', view: viewUsers },
     audit: { title: 'Audit log', group: 'Records', admin: true, desc: 'Every privileged action: who did what, to what, and when.', view: function (r) { viewAudit(); } }
   };
-  var NAV = [['Monitor', ['overview', 'system']], ['Moderate', ['reports', 'people']], ['Records', ['audit']]];
+  var NAV = [['Monitor', ['overview', 'analytics', 'system']], ['Moderate', ['reports', 'people']], ['Records', ['audit']]];
   var ALIASES = { users: 'people', health: 'system' };
 
   function href(page, id, params) {
@@ -240,7 +242,7 @@ export const ADMIN_JS = String.raw`
     var inner = [h('div', { class: 'n' }, n == null ? '-' : n.toLocaleString()), h('div', { class: 'l' }, label)];
     return link ? h('a', { class: 'card kpi kpi-link ' + (tone || ''), href: link }, inner) : h('div', { class: 'card kpi ' + (tone || '') }, inner);
   }
-  function chart(title, rows) {
+  function chart(title, rows, span) {
     var W = 300, H = 90, pad = 14, max = Math.max.apply(null, rows.map(function (r) { return r.n; }).concat([1]));
     var bw = (W - 2 * 4) / rows.length;
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -259,7 +261,7 @@ export const ADMIN_JS = String.raw`
       tx.setAttribute('x', k === 0 ? 4 : W - 4); tx.setAttribute('y', H - 2); tx.setAttribute('text-anchor', k === 0 ? 'start' : 'end'); tx.textContent = p[1]; svg.appendChild(tx);
     });
     var total = rows.reduce(function (a, r) { return a + r.n; }, 0);
-    return h('div', { class: 'card' }, h('h3', null, title), h('div', { class: 'small muted' }, total.toLocaleString() + ' in 14 days'), svg);
+    return h('div', { class: 'card' }, h('h3', null, title), h('div', { class: 'small muted' }, total.toLocaleString() + ' in ' + (span || '14 days')), svg);
   }
   function viewOverview() {
     var out = h('div', null, 'Loading...'); body.appendChild(out);
@@ -272,6 +274,76 @@ export const ADMIN_JS = String.raw`
       out.appendChild(h('div', { class: 'charts' }, chart('New students per day', d.days.signups), chart('Posts per day', d.days.posts),
         chart('Messages per day', d.days.messages), chart('Events created per day', d.days.events), chart('Reports per day', d.days.reports)));
     }).catch(function (e) { fail(out, e); });
+  }
+
+  // ---------- analytics: activity in a chosen period, compared with the period just before
+  function delta(cur, prev) {
+    if (!prev) return cur ? 'new activity (none before)' : 'no change (none before)';
+    var p = Math.round(((cur - prev) / prev) * 100);
+    return (p > 0 ? '+' : '') + p + '% vs previous period (' + prev.toLocaleString() + ')';
+  }
+  function metric(label, tip, t, link) {
+    var up = t.current > t.previous;
+    var el = kpi(label, t.current, '', link);
+    el.appendChild(h('div', { class: 'small ' + (t.current === t.previous ? 'muted' : up ? 'ok' : 'muted') }, delta(t.current, t.previous)));
+    el.setAttribute('title', tip);
+    return el;
+  }
+  // The page's content-security policy forbids style attributes, so widths are set through the DOM instead.
+  function fill(pct) { var el = h('span', { class: 'hbf' }); el.style.width = pct + '%'; return el; }
+  function viewAnalytics(r) {
+    var p = r.params, custom = !!(p.from || p.to), days = custom ? null : (['7', '30', '90'].indexOf(p.days) >= 0 ? p.days : '30');
+    var bar = h('div', { class: 'row seg', role: 'navigation', 'aria-label': 'Period' });
+    [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days']].forEach(function (d) {
+      bar.appendChild(h('a', { class: 'tab' + (days === d[0] ? ' on' : ''), href: href('analytics', null, { days: d[0] }), 'aria-current': days === d[0] ? 'page' : false }, d[1]));
+    });
+    var from = h('input', { type: 'date', 'aria-label': 'From', value: p.from || '' }), to = h('input', { type: 'date', 'aria-label': 'To', value: p.to || '' });
+    var msg = h('span', { class: 'small err', role: 'alert' });
+    bar.appendChild(h('span', { class: 'row tight custom' + (custom ? ' on' : '') }, from, h('span', { class: 'muted small' }, 'to'), to,
+      h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+        if (!from.value || !to.value) { msg.textContent = 'Pick both dates.'; return; }
+        msg.textContent = ''; location.hash = href('analytics', null, { from: from.value, to: to.value });
+      } }, 'Apply'), msg));
+    var out = h('div', null, 'Loading...'); body.appendChild(bar); body.appendChild(out);
+    function load() {
+      clear(out); out.appendChild(h('p', { class: 'muted' }, 'Loading...'));
+      api('GET', '/admin/analytics' + (custom ? '?from=' + encodeURIComponent(p.from || '') + '&to=' + encodeURIComponent(p.to || '') : '?days=' + days)).then(function (d) {
+        clear(out); var t = d.totals, rg = d.range, sfx = rg.length + ' days';
+        out.appendChild(h('p', { class: 'muted small' }, rg.from + ' to ' + rg.to + ' (UTC days), compared with ' + rg.prevFrom + ' to ' + rg.prevTo + '.'));
+        out.appendChild(h('h3', null, 'Activity in this period'));
+        out.appendChild(h('div', { class: 'grid' },
+          metric('New students', 'Accounts created in the period.', t.signups, href('people')),
+          metric('Verified their email', 'Accounts whose email was verified in the period, whenever they signed up.', t.verified),
+          metric('Active students', 'Different people who signed in or kept a session alive in the period.', d.active.distinct),
+          metric('Posts', 'Active posts created.', t.posts), metric('Comments', 'Active comments created.', t.comments),
+          metric('Messages', 'Messages sent. Counts only, never text.', t.messages), metric('Communities created', 'New communities.', t.communities),
+          metric('Community joins', 'Memberships started.', t.joins), metric('Events created', 'New events.', t.events),
+          metric('Event sign-ups', 'Registrations that are still active.', t.rsvps),
+          metric('Reports received', 'Reports filed in the period.', t.reports, href('reports', null, { status: 'open' }))));
+        out.appendChild(h('div', { class: 'charts' }, chart('New students per day', d.daily.signups, sfx), chart('Active students per day', d.active.daily, sfx),
+          chart('Posts per day', d.daily.posts, sfx), chart('Comments per day', d.daily.comments, sfx), chart('Messages per day', d.daily.messages, sfx),
+          chart('Event sign-ups per day', d.daily.rsvps, sfx), chart('Community joins per day', d.daily.joins, sfx), chart('Reports per day', d.daily.reports, sfx)));
+        var rs = d.reports.byReason, max = Math.max.apply(null, rs.map(function (x) { return x.n; }).concat([1]));
+        out.appendChild(h('h3', null, 'Reports by reason'));
+        out.appendChild(h('div', { class: 'card' }, rs.length ? rs.map(function (x) {
+          return h('div', { class: 'hbar' }, h('span', { class: 'small' }, x.reason.replace('_', ' ')), h('span', { class: 'hb' }, fill(Math.max(2, Math.round((x.n / max) * 100)))), h('span', { class: 'small' }, x.n));
+        }) : h('p', { class: 'muted small' }, 'No reports in this period.')));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'Time to first review'),
+          h('div', { class: 'small' }, d.reports.avgHoursToFirstReview == null ? 'No reports in this period have been reviewed yet.'
+            : 'Average ' + d.reports.avgHoursToFirstReview + ' hours, across ' + d.reports.reviewed + ' reviewed reports filed in this period.'),
+          h('div', { class: 'small muted' }, 'Reports still waiting are not counted, so this can look better than it feels while the queue is long.')));
+        out.appendChild(h('h3', null, 'Right now (not tied to the period)'));
+        out.appendChild(h('div', { class: 'grid' }, kpi('Students', d.accounts.users), kpi('With verified email', d.accounts.verified),
+          kpi('Suspended now', d.accounts.suspended, d.accounts.suspended ? 'warn' : '')));
+        out.appendChild(h('details', { class: 'card small' }, h('summary', null, 'How these are counted'),
+          h('ul', null,
+            h('li', null, 'Days are UTC days. The comparison period is the same number of days immediately before the first day.'),
+            h('li', null, 'Active students: different people with a sign-in or a session refresh in the period. It is a sign-in measure, not time in the app.'),
+            h('li', null, 'Posts, comments and messages count only items that are currently active, so removed content is not included.'),
+            h('li', null, 'Retention, feature adoption and notification delivery are not shown because the app does not record what they need yet.'))));
+      }).catch(function (e) { fail(out, e); out.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: load }, 'Retry')); });
+    }
+    load();
   }
 
   // ---------- 2. reports queue
