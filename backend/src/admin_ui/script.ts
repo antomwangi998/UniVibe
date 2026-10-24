@@ -3,7 +3,7 @@ export const ADMIN_JS = String.raw`
 (function () {
   'use strict';
   var API = '/api/v1';
-  var S = { access: null, refresh: null, user: null, isAdmin: false, page: '', timer: null, shell: false, bound: false, menuOpen: false, openReports: 0 };
+  var S = { access: null, refresh: null, user: null, isAdmin: false, page: '', caps: [], role: '', timer: null, shell: false, bound: false, menuOpen: false, openReports: 0 };
   var root = document.getElementById('app');
 
   // ---------- tiny helpers (everything is built with textContent, never raw HTML strings)
@@ -104,10 +104,11 @@ export const ADMIN_JS = String.raw`
 
   // ---------- after sign in: find out what this account may do
   function start() {
-    return api('GET', '/moderation/access').then(function () {
-      return api('GET', '/admin/overview').then(function (d) { S.isAdmin = true; S.openReports = (d.reports && d.reports.open) || 0; }, function (e) {
-        if (e.status === 404) { S.isAdmin = false; return; } throw e;
-      });
+    return api('GET', '/moderation/access').then(function (a) {
+      S.caps = a.capabilities || []; S.role = a.role || '';
+      S.isAdmin = S.caps.indexOf('overview.view') >= 0;
+      if (!S.isAdmin) return;
+      return api('GET', '/admin/overview').then(function (d) { S.openReports = (d.reports && d.reports.open) || 0; }, function () {});
     }).then(function () {
       renderShell();
     }).catch(function (e) {
@@ -132,14 +133,14 @@ export const ADMIN_JS = String.raw`
     var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     p.setAttribute('d', ICONS[name]); svg.appendChild(p); return svg;
   }
-  // admin: true means administrators only (the API enforces this too; hiding a link is just courtesy)
+  // cap is the capability the server grants (see permissions.ts). The API enforces it too; hiding a link is just courtesy.
   var PAGES = {
-    overview: { title: 'Overview', group: 'Monitor', admin: true, desc: 'Counts and 14-day activity across UniVibe. Counts only, never message text.', view: function (r) { viewOverview(); } },
-    analytics: { title: 'Analytics', group: 'Monitor', admin: true, desc: 'Growth and activity over a period you choose, compared with the period before it.', view: viewAnalytics },
-    system: { title: 'System health', group: 'Monitor', admin: true, desc: 'Job queue, push devices, uploads and server status. Refreshes every 30 seconds.', view: function (r) { viewSystem(); } },
-    reports: { title: 'Reports', group: 'Moderate', admin: false, desc: 'Review what students reported and decide what happens next.', view: viewReports },
-    people: { title: 'People', group: 'Moderate', admin: true, desc: 'Find a student, review their history, suspend or reinstate an account.', view: viewUsers },
-    audit: { title: 'Audit log', group: 'Records', admin: true, desc: 'Every privileged action: who did what, to what, and when.', view: function (r) { viewAudit(); } }
+    overview: { title: 'Overview', group: 'Monitor', cap: 'overview.view', desc: 'Counts and 14-day activity across UniVibe. Counts only, never message text.', view: function (r) { viewOverview(); } },
+    analytics: { title: 'Analytics', group: 'Monitor', cap: 'analytics.view', desc: 'Growth and activity over a period you choose, compared with the period before it.', view: viewAnalytics },
+    system: { title: 'System health', group: 'Monitor', cap: 'system.view', desc: 'Job queue, push devices, uploads and server status. Refreshes every 30 seconds.', view: function (r) { viewSystem(); } },
+    reports: { title: 'Reports', group: 'Moderate', cap: 'reports.review', desc: 'Review what students reported and decide what happens next.', view: viewReports },
+    people: { title: 'People', group: 'Moderate', cap: 'users.view', desc: 'Find a student, review their history, suspend or reinstate an account.', view: viewUsers },
+    audit: { title: 'Audit log', group: 'Records', cap: 'audit.view', desc: 'Every privileged action: who did what, to what, and when.', view: function (r) { viewAudit(); } }
   };
   var NAV = [['Monitor', ['overview', 'analytics', 'system']], ['Moderate', ['reports', 'people']], ['Records', ['audit']]];
   var ALIASES = { users: 'people', health: 'system' };
@@ -159,7 +160,7 @@ export const ADMIN_JS = String.raw`
     var page = ALIASES[parts[0]] || parts[0] || '';
     return { page: page, id: parts[1] ? dec(parts[1]) : null, params: params };
   }
-  function allowed(id) { var p = PAGES[id]; return !!p && (!p.admin || S.isAdmin); }
+  function allowed(id) { var p = PAGES[id]; return !!p && (!p.cap || S.caps.indexOf(p.cap) >= 0); }
 
   var body, crumbsEl, titleEl, descEl, sideEl, menuBtn;
   function setMenu(open) {
@@ -210,7 +211,7 @@ export const ADMIN_JS = String.raw`
     root.appendChild(h('a', { class: 'skip', href: '#main', onclick: function (e) { e.preventDefault(); titleEl.focus(); } }, 'Skip to content'));
     root.appendChild(h('header', { class: 'top' }, h('div', { class: 'row tight' }, menuBtn, h('div', { class: 'brand' }, 'Uni', h('b', null, 'Vibe'), ' admin')),
       h('div', { class: 'row tight' }, h('span', { class: 'muted small who' }, (S.user && (S.user.fullName || S.user.name)) || ''),
-        h('span', { class: 'pill teal role' }, S.isAdmin ? 'admin' : 'moderator'), h('button', { class: 'btn ghost', type: 'button', onclick: signOut }, 'Sign out'))));
+        h('span', { class: 'pill teal role' }, S.role || 'staff'), h('button', { class: 'btn ghost', type: 'button', onclick: signOut }, 'Sign out'))));
     sideEl = h('nav', { class: 'side', id: 'side', 'aria-label': 'Main navigation' });
     NAV.forEach(function (g) {
       var ids = g[1].filter(allowed); if (!ids.length) return;

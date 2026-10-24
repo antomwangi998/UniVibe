@@ -1,3 +1,5 @@
+import { isStaff } from './permissions';
+import { audit } from './modules/moderation';
 import { randomInt, randomUUID } from 'crypto';
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
@@ -40,6 +42,7 @@ export interface AppDeps {
 
 export type UserRow = {
   id: string;
+  role: string;
   email: string;
   full_name: string;
   handle: string;
@@ -402,6 +405,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect.');
     }
     if (!(await sec.verifyPassword(user.password_hash, b.password))) {
+      // A wrong password on a staff account is a security event. The answer to the caller does not change.
+      if (isStaff(user.role)) await audit(pool, user.id, 'staff_login_failed', 'user', user.id, {}).catch(() => {});
       throw new HttpError(401, 'invalid_credentials', 'Email or password is incorrect.');
     }
     // Only said after the password is right, so it does not reveal which emails have accounts.
@@ -409,6 +414,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // Logging in is how a deactivated account comes back. Only reached after the password and email are confirmed.
     const reactivated = ((await pool.query('update users set deactivated_at = null where id = $1 and deactivated_at is not null', [user.id])).rowCount ?? 0) > 0;
     const session = await createSession((t, p) => pool.query(t, p), user.id, undefined, b.deviceName ?? '');
+    if (isStaff(user.role)) await audit(pool, user.id, 'staff_login', 'user', user.id, {}).catch(() => {});
     return { ...session, user: await toUser(user), reactivated };
   });
 
