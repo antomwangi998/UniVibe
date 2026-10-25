@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Folders that may be shared with another app through a one-time link (to open a file, or to hand a camera its target). -->
-<paths>
-    <files-path name="sent_files" path="chat-files/" />
-    <cache-path name="received_files" path="chat-files-dl/" />
-    <cache-path name="camera" path="camera/" />
-</paths>

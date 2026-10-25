@@ -23,6 +23,15 @@ export const CAPABILITIES = [
   'events.view',
   'system.view',      // jobs, devices, uploads, server status
   'audit.view',
+  // Monetization. Admin-only for now; the split lets a finance or ads role be added later with a row in GRANTS.
+  'campaigns.review', // approve, reject, pause and cancel advertiser campaigns
+  'advertisers.view', // advertiser and business directory, business review
+  'packages.manage',  // packages, prices and the payment destination
+  'payments.view',    // payment and refund records
+  'payments.confirm', // confirm a manual payment against the M-Pesa statement
+  'refunds.approve',  // approve or reject refunds and record the payout
+  'finance.view',     // revenue, costs and financial reports
+  'finance.export',   // CSV exports of financial data
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
