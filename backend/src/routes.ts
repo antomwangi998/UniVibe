@@ -21,6 +21,7 @@ import { accountStatusRoutes } from './modules/account_status';
 import { sessionRoutes } from './modules/sessions';
 import { wsRoutes } from './modules/ws';
 import { advertiserRoutes } from './modules/monetization/advertiser_routes';
+import { sponsoredRoutes } from './modules/monetization/sponsored_routes';
 import { monetizationAdminRoutes } from './modules/monetization/admin_routes';
 import { Hub } from './realtime';
 
@@ -52,5 +53,6 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(storyRoutes(ctx, hub));
     await app.register(advertiserRoutes(ctx));
     await app.register(monetizationAdminRoutes(ctx));
+    await app.register(sponsoredRoutes(ctx));
   };
 }

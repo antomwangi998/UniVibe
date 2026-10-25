@@ -55,6 +55,22 @@ class PushPayloadTest {
         assertEquals("univibe://notifications", security.deepLink)
     }
 
+    @Test fun promotionNoticesUseTheirOwnChannelAndFixedWording() {
+        val e = PushPayload.parse(mapOf("kind" to "notification", "type" to "promotion", "notificationId" to "n5", "promotionKind" to "payment_confirmed"))!!
+        assertEquals(PushChannel.Promotions, e.channel)
+        assertEquals("Promotions", e.title)
+        assertEquals("Your payment was confirmed. Your promotion is now in review.", e.body)
+        assertEquals("univibe://notifications", e.deepLink)
+    }
+
+    @Test fun anUnknownOrForgedPromotionKindGetsTheGenericLine() {
+        for (kind in listOf("brand_new_kind", "<script>", "")) {
+            val e = PushPayload.parse(mapOf("kind" to "notification", "type" to "promotion", "promotionKind" to kind))!!
+            assertEquals("There is an update about your promotion.", e.body)
+        }
+        assertEquals("There is an update about your promotion.", PushPayload.parse(mapOf("kind" to "notification", "type" to "promotion"))!!.body)
+    }
+
     @Test fun aMissingIdFallsBackToTheNotificationList() {
         val e = PushPayload.parse(mapOf("kind" to "notification", "type" to "like"))
         assertNotNull(e)
