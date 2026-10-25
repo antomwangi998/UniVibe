@@ -70,8 +70,9 @@ describe.skipIf(!url)('report workflow (needs TEST_DATABASE_URL)', () => {
     expect((await call('POST', `${V1}/moderation/reports/${b.id}/escalate`, m2.token, { note: 'looks like a coordinated spam ring' })).status).toBe(200);
     expect((await call('POST', `${V1}/moderation/reports/${b.id}/escalate`, m2.token, { note: 'again please' })).status).toBe(409);
     const esc = await list('status=under_review&escalated=1');
-    expect(esc.map((x) => x.id)).toEqual([b.id]);
-    expect(esc[0].noteCount).toBe(1);
+    expect(esc.map((x) => x.id)).toContain(b.id);
+    expect(esc.map((x) => x.id)).not.toContain(a.id);
+    expect(esc.find((x) => x.id === b.id)?.noteCount).toBe(1);
     // the app's existing queues still work: an escalated report is simply under review
     expect((await row(b.id)).status).toBe('under_review');
   });

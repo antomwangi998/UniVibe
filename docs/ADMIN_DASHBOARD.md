@@ -15,10 +15,13 @@ A sidebar groups the pages (a menu button opens it as a drawer on phones). Every
 | Moderate | Reports | moderator, admin | The reports queue with tabs Open, Under review, Escalated, Action taken and Dismissed, and a "handled by" filter (anyone, me, nobody yet). Take a report or release it, add private notes, escalate with a reason, dismiss with a reason, or act (remove or restore content, hide an event, suspend or restore a person). Each card shows who has it and how long it has waited; "Notes and history" shows notes, other reports on the same item, and past actions. A badge shows open reports (admins) |
 | Moderate | Trust & safety | admin | Waiting right now (by age, escalated, nobody yet), time to first look and to resolution (median and average), reports and actions per day, by reason, by kind of item, and items reported more than once |
 | Moderate | People | admin | The directory lists everyone, 25 at a time. Filter by Active, Suspended, Email not verified, Joined in last 7 days, Has open reports or Deactivated; by campus; sort by newest, oldest, name or last seen; search by name, @handle or email. Open a person for activity counts, last seen, staff notes and moderation history; suspend (1 to 30 days) or lift a suspension |
+| Manage | Communities | admin | Every community with owner, campus, visibility, status, members, posts, events and open reports. Filter by status, visibility, reported or campus; search by name; sort by newest, oldest, name or members. Open one for who runs it, rules, member counts by role, the last week of activity, reports and moderation history. Suspend or restore it with a reason |
+| Manage | Content | admin | Search posts or comments by words, status, campus, reported and dates. Remove or restore with a reason; the author is told and open reports about it are settled |
+| Manage | Events | admin | Every non-draft event with organizer, community, date, type, visibility, status and going count. Filter by upcoming or past, status, hidden, reported or campus. Hide or restore (on your own campus) |
 | Records | Audit log | admin | Every privileged action with who did it |
 
 Every view has its own address, so links, refresh and the browser Back button work:
-`#/overview`, `#/analytics?days=30` or `#/analytics?from=2026-10-01&to=2026-10-24`, `#/system`, `#/reports?status=open|under_review|escalated|action_taken|dismissed&assigned=me|unassigned`, `#/safety?days=30`, `#/people?q=name&status=suspended&university=lakeside&sort=name&page=2`, `#/people/<user id>`, `#/audit`.
+`#/overview`, `#/analytics?days=30` or `#/analytics?from=2026-10-01&to=2026-10-24`, `#/system`, `#/reports?status=open|under_review|escalated|action_taken|dismissed&assigned=me|unassigned`, `#/safety?days=30`, `#/people?q=name&status=suspended&university=lakeside&sort=name&page=2`, `#/people/<user id>`, `#/communities?status=suspended`, `#/communities/<id>`, `#/content?type=comment&reported=1`, `#/events?when=upcoming`, `#/audit`.
 Old `#/users` and `#/health` links still work. Opening a page you may not use sends you to your first allowed page.
 
 ## Who can do what
@@ -29,7 +32,7 @@ The server decides. `backend/src/permissions.ts` is the one list of capabilities
 |---|---|---|
 | `reports.review` (reports queue and its actions) | yes | yes |
 | `reports.assign` (give a report to someone else, or take one over) | no | yes |
-| `overview.view`, `analytics.view`, `users.view`, `users.suspend`, `users.note`, `system.view`, `audit.view` | no | yes |
+| `overview.view`, `analytics.view`, `users.view`, `users.suspend`, `users.note`, `communities.view`, `communities.suspend`, `content.view`, `content.moderate`, `events.view`, `system.view`, `audit.view` | no | yes |
 
 Anyone without the capability gets "not found" from `/admin/*`, so the routes do not advertise themselves.
 
@@ -108,3 +111,31 @@ suspended from the dashboard, and nobody can suspend themselves.
 ### Not built
 
 Severity (reports have no such field, so age and escalation stand in), an administrator picker for giving a report to a specific moderator from the dashboard (the API supports it; the dashboard offers Take over and Release), and reopening a resolved report.
+
+## Communities, content and events
+
+Everything here reads the existing tables; nothing is copied. Lists use server-side paging (25 at a time), reject unknown parameters with 400, and return `total` and `pages`.
+
+**Privacy.** Lists show previews of public content only. A followers-only post, a post or event inside a private community, and comments under them appear only after someone has reported them (the reports queue already shows moderators that much). Draft events never appear. Community member lists are never returned, only counts and the people who run it. Online join links and message text are never returned.
+
+**Communities.** The app already treated a `suspended` community as unavailable, but nothing could set it. Suspending now records the previous state (active or archived) and restoring puts it back. A reason is required. Open reports about the community are settled by the same decision, the owner sees a notice (with your optional message) in their account status, and the action is in the audit log.
+
+**Content.** Removing a post or comment needs a reason, only works on active items, and restoring only works on removed ones, so an author's own deletion is never undone. Reports still open about it are settled.
+
+**Events.** Hide and restore use the existing `/moderation/events/:id/hide|restore` routes, which only work on your own campus, so the button appears only there.
+
+### Endpoints added
+
+- `GET /admin/communities`, `GET /admin/communities/:id`, `POST /admin/communities/:id/suspend|restore` (`communities.view`, `communities.suspend`)
+- `GET /admin/content?type=post|comment`, `POST /admin/content/post|comment/:id/remove|restore` (`content.view`, `content.moderate`)
+- `GET /admin/events` (`events.view`)
+- `GET /moderation/access` also returns `universityId`.
+- Migration `045_community_suspension.sql` adds the suspension columns and two new moderation action types.
+
+### Fixed along the way
+
+Dates such as `2026-02-31` used to pass validation (JavaScript treats them as 3 March) and then crashed the database cast with a 500. Analytics and the new lists now reject them with 400.
+
+### Not built
+
+Cancelling or restoring a cancelled event from the dashboard (the existing lifecycle belongs to the organizer), listing community members, removing community channel messages, and bulk actions.

@@ -22,7 +22,8 @@ describe('analytics date ranges', () => {
   it('rejects half a range, reversed dates, impossible dates, unknown keys and ranges over a year', () => {
     expect(() => resolveRange({ from: '2026-10-01' }, now)).toThrow();
     expect(() => resolveRange({ from: '2026-10-10', to: '2026-10-01' }, now)).toThrow();
-    expect(() => resolveRange({ from: '2026-02-31', to: '2026-03-01' }, now)).toThrow();
+    expect(() => resolveRange({ from: '2026-02-31', to: '2026-03-05' }, now)).toThrow(/valid from and to/);
+    expect(() => resolveRange({ from: '2026-04-31', to: '2026-05-05' }, now)).toThrow();
     expect(() => resolveRange({ days: '7', sql: '1' }, now)).toThrow();
     expect(() => resolveRange({ from: '2024-01-01', to: '2026-10-01' }, now)).toThrow();
   });

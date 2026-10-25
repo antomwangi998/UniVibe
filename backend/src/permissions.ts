@@ -16,6 +16,11 @@ export const CAPABILITIES = [
   'users.view',       // search people, open an account
   'users.suspend',    // suspend or lift a suspension from the dashboard
   'users.note',       // leave a private staff note on an account
+  'communities.view',
+  'communities.suspend',
+  'content.view',     // search posts and comments
+  'content.moderate', // remove or restore a post or comment without waiting for a report
+  'events.view',
   'system.view',      // jobs, devices, uploads, server status
   'audit.view',
 ] as const;

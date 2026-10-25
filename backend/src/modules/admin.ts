@@ -7,7 +7,7 @@ import { HttpError } from '../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { jobStats } from '../jobs';
 import { audit } from './moderation';
-import { can, type Capability } from '../permissions';
+import { makeNeed, likeOf, ymd } from '../admin_guard';
 
 /**
  * The admin dashboard's data. Numbers and account state only: nothing here returns message text, and nobody but an
@@ -50,7 +50,6 @@ const METRICS: Record<string, { table: string; ts: string; where: string }> = {
   reports: { table: 'reports', ts: 'created_at', where: 'true' },
 };
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)), 'Not a real date.');
 const rangeSchema = z.object({ days: z.coerce.number().int().refine((n) => [7, 30, 90].includes(n)).optional(), from: ymd.optional(), to: ymd.optional() }).strict();
 const DAY = 86_400_000;
 const MAX_RANGE_DAYS = 366;
@@ -84,8 +83,6 @@ const DAILY = (m: { table: string; ts: string; where: string }) =>
                  where ${m.where} and ${m.ts} >= $1::date and ${m.ts} < $2::date + 1 group by 1) c on c.day = d::date
     order by d`;
 
-/** Keeps a search word from acting as a pattern. */
-const likeOf = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 // A reason is required for every suspension and every lifting of one; it is kept with the action and shown to staff.
 const reason = z.string().trim().min(3, 'Please give a reason (at least 3 characters).').max(500);
@@ -99,24 +96,7 @@ const unsuspendSchema = z.object({ note: reason, userMessage: z.string().trim().
 export function adminRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
-    // Asked once per route. Anyone without the capability is told "not found" so the routes do not advertise themselves.
-    // A moderator reaching for an administrator route is worth a record, at most once a minute per person.
-    const lastDenied = new Map<string, number>();
-    const need = async (req: Parameters<Ctx['auth']>[0], cap: Capability): Promise<AuthUser> => {
-      const me = await ctx.auth(req);
-      if (!can(me.role, cap)) {
-        if (me.role === 'moderator') {
-          const now = Date.now();
-          if (now - (lastDenied.get(me.id) ?? 0) > 60_000) {
-            lastDenied.set(me.id, now);
-            await audit(pool, me.id, 'admin_access_denied', null, null, { capability: cap, path: req.url.split('?')[0].slice(0, 120) }).catch(() => {});
-          }
-        }
-        throw new HttpError(404, 'not_found', 'Not found.');
-      }
-      ctx.limit(`admin:${me.id}`, 120, 60);
-      return me;
-    };
+    const need = makeNeed(ctx);
 
     // ---- 1. overview: how big, how active, how busy the safety queue is
     app.get('/admin/overview', async (req) => {
