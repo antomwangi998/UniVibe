@@ -17,6 +17,7 @@ import { MEDIA_LIMITS, cleanupPendingMedia, cleanupStorageGarbage } from './medi
 import { purgeUnusedMedia } from './media_cleanup';
 import { createR2Storage } from './storage';
 import { createGoogleVerifier, googleClientIds } from './google';
+import { sweepCampaigns } from './modules/monetization/service';
 
 async function main() {
   const config = loadConfig();
@@ -79,6 +80,8 @@ async function main() {
   every('purge-expired-stories', 15 * 60 * 1000, async () => app.log.info(await purgeExpiredStories(pool, storage ?? null), 'purged expired stories'));
   // Uploads nothing uses any more (abandoned composers, failed posts, replaced covers). Every 15 minutes; each run takes at most 2,000.
   if (storage) every('purge-unused-media', 15 * 60 * 1000, async () => app.log.info(await purgeUnusedMedia(pool, storage, { graceHours: config.MEDIA_ORPHAN_GRACE_HOURS }), 'purged unused media'));
+  // Campaign clock, promotions whose event stopped being promotable, and unpaid orders. Safe to run twice.
+  every('campaign-sweep', 60 * 1000, async () => app.log.info(await sweepCampaigns(pool), 'campaign sweep'));
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {

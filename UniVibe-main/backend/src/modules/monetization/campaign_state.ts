@@ -18,16 +18,17 @@ export type Actor = 'advertiser' | 'admin' | 'system';
 
 /** from -> to -> who may make that move. A move that is not listed here does not exist. */
 const TRANSITIONS: Record<CampaignStatus, Partial<Record<CampaignStatus, readonly Actor[]>>> = {
-  draft: { pending_payment: ['advertiser'], cancelled: ['advertiser', 'admin'] },
-  // Payment confirmed -> review. An unpaid order that is abandoned or expires is cancelled.
-  pending_payment: { pending_review: ['system', 'admin'], cancelled: ['advertiser', 'admin', 'system'] },
-  pending_review: { approved: ['admin'], rejected: ['admin'], cancelled: ['advertiser', 'admin'] },
+  draft: { pending_payment: ['advertiser'], pending_review: ['system'], cancelled: ['advertiser', 'admin'] },
+  // Payment confirmed -> review. An unpaid order that is abandoned or expires is cancelled by the system.
+  pending_payment: { pending_review: ['system'], cancelled: ['advertiser', 'admin', 'system'] },
+  // 'system' may cancel when the thing being promoted stops being eligible (for example the event was cancelled).
+  pending_review: { approved: ['admin'], rejected: ['admin'], cancelled: ['advertiser', 'admin', 'system'] },
   // Approval never starts a campaign by itself: the system moves it on once payment and schedule are checked again.
-  approved: { scheduled: ['system'], active: ['system'], cancelled: ['advertiser', 'admin'] },
-  scheduled: { active: ['system'], paused: ['advertiser', 'admin'], cancelled: ['advertiser', 'admin'] },
-  active: { paused: ['advertiser', 'admin'], completed: ['system', 'admin'], cancelled: ['admin', 'advertiser'] },
+  approved: { scheduled: ['system'], active: ['system'], completed: ['system'], cancelled: ['advertiser', 'admin', 'system'] },
+  scheduled: { active: ['system'], paused: ['advertiser', 'admin'], completed: ['system'], cancelled: ['advertiser', 'admin', 'system'] },
+  active: { paused: ['advertiser', 'admin'], completed: ['system', 'admin'], cancelled: ['advertiser', 'admin', 'system'] },
   // Resume goes to scheduled, active or completed depending on the clock (see resumeTarget).
-  paused: { scheduled: ['advertiser', 'admin', 'system'], active: ['advertiser', 'admin', 'system'], completed: ['system'], cancelled: ['advertiser', 'admin'] },
+  paused: { scheduled: ['advertiser', 'admin'], active: ['advertiser', 'admin'], completed: ['system', 'admin'], cancelled: ['advertiser', 'admin', 'system'] },
   // Rejected and cancelled campaigns that were paid for move to refund_pending; unpaid ones simply stay put.
   rejected: { refund_pending: ['system', 'admin'] },
   cancelled: { refund_pending: ['system', 'admin'] },
@@ -94,7 +95,7 @@ export function clockTarget(f: DeliveryFacts, now: Date): CampaignStatus | null 
   switch (f.status) {
     case 'approved':
       if (!ready) return null;
-      if (now >= f.endsAt) return 'completed' as CampaignStatus; // approved too late: nothing was delivered
+      if (now >= f.endsAt) return 'completed'; // approved too late: nothing was delivered
       return now >= f.startsAt ? 'active' : 'scheduled';
     case 'scheduled':
       if (!ready) return null;
