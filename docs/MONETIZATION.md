@@ -70,6 +70,16 @@ Endpoints: `GET /sponsored?placement=` , `POST /sponsored/impression`, `POST /sp
 - **Business owners** are now notified when a listing is approved, rejected, suspended, restored or verified (not when verification is removed).
 - Not covered: an in-app inbox entry only appears for the person who owns the listing or campaign; staff receive receipt alerts the same way.
 
+## Stage 8: advertiser analytics - written, pure calculations unit-tested, routes NOT run
+Endpoints: `GET /campaigns/:id/analytics?from=&to=` (owner only, others get 404), `GET /me/advertising/summary`, and for staff `GET /admin/monetization/campaigns/:id/analytics` (adds integrity signals).
+- **Metrics, as defined in the response and in `analytics_calc.ts`:** impressions, clicks, CTR (empty, not 0, when nothing was shown), reach (students, counted without names), by placement, by day (zero-filled), delivery status with the plain-language reasons a campaign is not running, payment and refund amounts.
+- **Conversions:** only *RSVP after click* for event promotions: a student tapped the ad, then RSVPed within 7 days. It shows the two are connected; it does not claim the ad caused it. Purchases are not measured, and the API says so.
+- **Not tracked, so not reported:** event detail views, business profile views and offer interactions are not recorded anywhere in the app today. Adding them needs new tracking in those screens (stage 8b).
+- **Data sources:** raw `campaign_events` for the last days, `campaign_daily` roll-ups for older days (see `mergeDaily`). Reach over a window is exact while raw events exist (about 85 days) and an approximate sum of daily reach after that; the response says which.
+- **Integrity signals (staff only):** unusually high CTR, clicks concentrated in one student, few distinct clickers, more views per student than the daily cap allows, and a single-hour burst. They only fire with enough data, name no one, and are prompts for review, not verdicts.
+- **Privacy:** advertisers never see who viewed or clicked, only totals. Up to 5,000 sign-ups and 20,000 clickers are matched inside the server to count RSVPs after clicks; the matching result is a single number.
+- **Ranges:** whole UTC days, at most 92 days, reversed or impossible dates are refused with a 422.
+
 ## Not implemented yet
-Advertiser reporting endpoints (stage 8), admin dashboard pages (9), financial reports, CSV export and cost tracking (10), logo/cover/creative image upload, Daraja, subscriptions, Android screens for businesses, campaigns, payment and receipts, and Discover and business-directory sponsored UI on Android.
-Tests: `campaign-state` and `sponsored-token` (run under Node with a stand-in runner); `monetization.integration`, `sponsored.integration` and the new push case in `push-reactions.integration` (need Postgres, not run); `SponsoredCardTest.kt` and the new cases in `PushPayloadTest.kt` (need Gradle, not run).
+Advertiser portal screens on Android, including analytics charts (stage 8b), event-view and business-view tracking, admin dashboard pages (9), financial reports, CSV export and cost tracking (10), logo/cover/creative image upload, Daraja, subscriptions, and Discover and business-directory sponsored UI on Android.
+Tests: `campaign-state`, `sponsored-token`, `analytics-calc` (40 tests, run under Node with a stand-in runner); `monetization.integration`, `sponsored.integration` (including analytics) and the push case in `push-reactions.integration` need Postgres and have not run; `SponsoredCardTest.kt` and `PushPayloadTest.kt` need Gradle and have not run.

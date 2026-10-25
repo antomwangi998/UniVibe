@@ -7,6 +7,7 @@ import { HttpError } from '../../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../../http';
 import { notSuspended } from '../../access';
 import { audit } from '../moderation';
+import { type AnalyticsCampaign, loadAnalytics, rangeFor } from './analytics';
 import { resumeTarget } from './campaign_state';
 import { formatMoney } from './money';
 import { packageView } from './advertiser_routes';
@@ -309,6 +310,16 @@ export function monetizationAdminRoutes(ctx: Ctx) {
       if (!c) throw new HttpError(404, 'not_found', 'Not found.');
       const history = (await pool.query('select h.to_status, h.actor_kind, h.note, h.created_at, u.handle from campaign_status_history h left join users u on u.id = h.actor_id where h.campaign_id = $1 order by h.id', [id])).rows;
       return { campaign: c, history };
+    });
+
+    // Same figures the advertiser sees, plus signals that engagement may not be genuine. Aggregates only: no students are named.
+    app.get('/admin/monetization/campaigns/:id/analytics', async (req) => {
+      await need(req, 'campaigns.review');
+      const id = idParam((req.params as { id?: string }).id);
+      const q = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict().parse(req.query ?? {});
+      const c = (await pool.query<AnalyticsCampaign>('select * from campaigns where id = $1', [id])).rows[0];
+      if (!c) throw new HttpError(404, 'not_found', 'Not found.');
+      return loadAnalytics(pool, ctx.config.CODE_PEPPER, c, rangeFor(q.from, q.to, c), { integrity: true });
     });
 
     async function review(req: Parameters<Ctx['auth']>[0], action: 'approve' | 'reject' | 'pause' | 'resume' | 'cancel') {
