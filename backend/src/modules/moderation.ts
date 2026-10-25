@@ -205,7 +205,7 @@ export function moderationRoutes(ctx: Ctx) {
     }
 
     // Lets the app ask once whether to show moderator tools. 403 for everyone else.
-    app.get('/moderation/access', async (req) => { const me = await requireModerator(req); return { allowed: true, id: me.id, role: me.role, capabilities: capabilitiesOf(me.role) }; });
+    app.get('/moderation/access', async (req) => { const me = await requireModerator(req); return { allowed: true, id: me.id, universityId: me.universityId, role: me.role, capabilities: capabilitiesOf(me.role) }; });
 
     const eventActionSchema = z.object({ note: z.string().trim().max(500).default(''), userMessage: z.string().trim().max(300).default('') }).strict();
     for (const hide of [true, false]) {

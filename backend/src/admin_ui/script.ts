@@ -105,7 +105,7 @@ export const ADMIN_JS = String.raw`
   // ---------- after sign in: find out what this account may do
   function start() {
     return api('GET', '/moderation/access').then(function (a) {
-      S.caps = a.capabilities || []; S.role = a.role || ''; S.me = a.id || '';
+      S.caps = a.capabilities || []; S.role = a.role || ''; S.me = a.id || ''; S.universityId = a.universityId || '';
       S.isAdmin = S.caps.indexOf('overview.view') >= 0;
       if (!S.isAdmin) return;
       return api('GET', '/admin/overview').then(function (d) { S.openReports = (d.reports && d.reports.open) || 0; }, function () {});
@@ -122,6 +122,9 @@ export const ADMIN_JS = String.raw`
     overview: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
     analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     safety: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+    communities: 'M17 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM21 20v-2a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8',
+    content: 'M5 4h14v16H5zM8 9h8M8 13h8M8 17h5',
+    events: 'M4 6h16v14H4zM4 10h16M9 3v5M15 3v5',
     reports: 'M5 3v18M5 4h12l-2 4 2 4H5',
     people: 'M16 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6',
     system: 'M3 12h4l3-8 4 16 3-8h4',
@@ -142,9 +145,12 @@ export const ADMIN_JS = String.raw`
     safety: { title: 'Trust & safety', group: 'Moderate', cap: 'analytics.view', desc: 'How fast reports are handled, what is waiting, and what keeps being reported.', view: viewSafety },
     reports: { title: 'Reports', group: 'Moderate', cap: 'reports.review', desc: 'Review what students reported and decide what happens next.', view: viewReports },
     people: { title: 'People', group: 'Moderate', cap: 'users.view', desc: 'Find a student, review their history, suspend or reinstate an account.', view: viewUsers },
+    communities: { title: 'Communities', group: 'Manage', cap: 'communities.view', desc: 'Every community: who runs it, how active it is, and whether it has been reported.', view: viewCommunities },
+    content: { title: 'Content', group: 'Manage', cap: 'content.view', desc: 'Search posts and comments, and remove or restore them with a recorded reason.', view: viewContent },
+    events: { title: 'Events', group: 'Manage', cap: 'events.view', desc: 'Every event with its organizer, going count and status.', view: viewEvents },
     audit: { title: 'Audit log', group: 'Records', cap: 'audit.view', desc: 'Every privileged action: who did what, to what, and when.', view: function (r) { viewAudit(); } }
   };
-  var NAV = [['Monitor', ['overview', 'analytics', 'system']], ['Moderate', ['reports', 'safety', 'people']], ['Records', ['audit']]];
+  var NAV = [['Monitor', ['overview', 'analytics', 'system']], ['Moderate', ['reports', 'safety', 'people']], ['Manage', ['communities', 'content', 'events']], ['Records', ['audit']]];
   var ALIASES = { users: 'people', health: 'system' };
 
   function href(page, id, params) {
@@ -401,6 +407,152 @@ export const ADMIN_JS = String.raw`
       }).catch(function (e) { fail(out, e); out.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: load }, 'Retry')); });
     }
     load();
+  }
+
+  // ---------- manage: communities, content, events (shared pieces first)
+  function has(cap) { return S.caps.indexOf(cap) >= 0; }
+  function nav2(page, f, patch) { var n = Object.assign({}, f, patch); if (!('page' in (patch || {}))) n.page = ''; Object.keys(n).forEach(function (k) { if (n[k] === 'all') n[k] = ''; }); location.hash = href(page, null, n); }
+  function pagerFor(el, page, f, d) {
+    clear(el); if (d.pages <= 1) return;
+    var cur = d.page, link = function (n, label, off) { return off ? h('span', { class: 'muted small' }, label) : h('a', { class: 'btn ghost', href: href(page, null, Object.assign({}, f, { status: f.status === 'all' ? '' : f.status, page: n > 1 ? n : '' })) }, label); };
+    el.appendChild(link(cur - 1, 'Previous', cur <= 1)); el.appendChild(h('span', { class: 'small' }, 'Page ' + d.page + ' of ' + d.pages)); el.appendChild(link(cur + 1, 'Next', cur >= d.pages));
+  }
+  // A button that opens a reason box; nothing happens until the reason is given and confirmed.
+  function actionForm(label, danger, confirmText, run) {
+    var box = h('div'), open = false;
+    var btn = h('button', { class: 'btn ' + (danger ? 'danger' : 'ghost'), type: 'button' }, label);
+    var why = h('textarea', { placeholder: 'Reason (required, kept in the history)', 'aria-label': 'Reason', maxlength: 500 });
+    var msg = h('input', { type: 'text', maxlength: 300, placeholder: 'Message to the owner or author (optional, they see it)', 'aria-label': 'Message' });
+    var out = h('div', { class: 'small', role: 'status' }), go = h('button', { class: 'btn ' + (danger ? 'danger' : ''), type: 'button' }, 'Confirm: ' + label);
+    var panel = h('div', null, why, msg, h('div', { class: 'row' }, go, h('button', { class: 'btn ghost', type: 'button', onclick: function () { toggle(false); } }, 'Cancel')), out);
+    function toggle(v) { open = v; btn.setAttribute('aria-expanded', v ? 'true' : 'false'); clear(box); if (v) { box.appendChild(panel); why.focus(); } }
+    btn.setAttribute('aria-expanded', 'false'); btn.addEventListener('click', function () { toggle(!open); });
+    go.addEventListener('click', function () {
+      var r = why.value.trim(); if (r.length < 3) { out.textContent = 'Please give a reason first.'; out.className = 'small err'; why.focus(); return; }
+      if (!window.confirm(confirmText)) return;
+      go.disabled = true;
+      run({ note: r, userMessage: msg.value }).catch(function (e) { go.disabled = false; out.textContent = e.message; out.className = 'small err'; });
+    });
+    return h('div', null, btn, box);
+  }
+  function filterBar(page, f, spec) {
+    var row = h('div', { class: 'row' });
+    spec.forEach(function (s) { row.appendChild(pick(s[0], f[s[1]] || s[2][0][0], s[2], function (v) { nav2(page, f, (function (o) { o[s[1]] = v; return o; })({})); })); });
+    return row;
+  }
+  function searchBox(page, f, placeholder) {
+    var q = h('input', { type: 'search', placeholder: placeholder, 'aria-label': 'Search', value: f.q || '' });
+    function go() { var t = q.value.trim(); if (t && t.length < 2) return; nav2(page, f, { q: t }); }
+    q.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+    return h('div', { class: 'row' }, q, h('button', { class: 'btn', type: 'button', onclick: go }, 'Search'));
+  }
+  function uniPick(d, f, page) { return d.universities && d.universities.length > 1 ? pick('Campus', f.university || '', [['', 'All campuses']].concat(d.universities.map(function (u) { return [u.id, u.name]; })), function (v) { nav2(page, f, { university: v }); }) : null; }
+  function listShell(page, route, fields, apiPath, draw, searchHint, specs) {
+    var f = {}; fields.forEach(function (k) { f[k] = route.params[k] || ''; });
+    var results = h('div'), pager = h('div', { class: 'row pager' }), uniSlot = h('span');
+    if (searchHint) body.appendChild(searchBox(page, f, searchHint));
+    var bar = filterBar(page, f, specs); bar.appendChild(uniSlot); body.appendChild(bar); body.appendChild(results); body.appendChild(pager);
+    function load() {
+      clear(results); results.appendChild(h('p', { class: 'muted' }, 'Loading...'));
+      var qs = {}; fields.forEach(function (k) { if (f[k] && f[k] !== 'all') qs[k] = f[k]; });
+      api('GET', apiPath + href('', null, qs).slice(2)).then(function (d) {
+        clear(results); clear(uniSlot); var u = uniPick(d, f, page); if (u) uniSlot.appendChild(u);
+        results.appendChild(h('p', { class: 'muted small', role: 'status' }, d.total.toLocaleString() + (d.total === 1 ? ' result' : ' results')));
+        if (!d.items.length) results.appendChild(h('p', { class: 'muted' }, 'Nothing matches. Try a different search or filter.'));
+        d.items.forEach(function (x) { results.appendChild(draw(x, load, d)); });
+        pagerFor(pager, page, f, d);
+      }).catch(function (e) { fail(results, e); results.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: load }, 'Retry')); });
+    }
+    load();
+  }
+  var YESNO = function (label) { return [['', label], ['1', 'Yes']]; };
+
+  // ---- communities
+  function viewCommunities(r) {
+    if (r.id) return viewCommunity(r.id);
+    S.communitiesBack = location.hash || href('communities');
+    listShell('communities', r, ['q', 'status', 'visibility', 'university', 'reported', 'sort', 'page'], '/admin/communities', function (c) {
+      return h('div', { class: 'card' }, h('a', { class: 'link', href: href('communities', c.id) }, c.name),
+        h('div', { class: 'small muted' }, 'by ' + c.owner.name + ' (@' + c.owner.handle + ') - ' + c.university + ' - created ' + ago(c.createdAt)),
+        h('div', null, h('span', { class: 'pill' + (c.status === 'active' ? ' teal' : c.status === 'suspended' ? ' red' : '') }, c.status), h('span', { class: 'pill' }, c.visibility),
+          c.openReports ? h('span', { class: 'pill red' }, c.openReports + ' open report' + (c.openReports > 1 ? 's' : '')) : null),
+        h('div', { class: 'small muted' }, c.members + ' members - ' + c.posts + ' posts - ' + c.events + ' events'));
+    }, 'Community name (2+ letters)', [
+      ['Status', 'status', [['', 'Any status'], ['active', 'Active'], ['archived', 'Archived'], ['suspended', 'Suspended'], ['deleted', 'Deleted']]],
+      ['Visibility', 'visibility', [['', 'Public and private'], ['public', 'Public'], ['private', 'Private']]],
+      ['Reported', 'reported', YESNO('All')],
+      ['Sort by', 'sort', [['', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A to Z'], ['members', 'Most members']]]]);
+  }
+  function viewCommunity(id) {
+    var detail = h('div', null, 'Loading...'); body.appendChild(detail);
+    var back = S.communitiesBack || href('communities');
+    function open() {
+      api('GET', '/admin/communities/' + id).then(function (c) {
+        clear(detail); setHeader(c.name, c.category + ' - ' + c.visibility + ' - ' + c.university, [['Communities', back], [c.name]]);
+        var a = c.activity, mc = {}; c.memberCounts.forEach(function (x) { mc[x.status] = (mc[x.status] || 0) + x.n; });
+        detail.appendChild(h('div', { class: 'card' }, h('p', null, c.description),
+          h('div', null, h('span', { class: 'pill' + (c.status === 'active' ? ' teal' : c.status === 'suspended' ? ' red' : '') }, c.status), h('span', { class: 'pill' }, 'joining: ' + c.membershipPolicy.replace('_', ' ')),
+            h('span', { class: 'pill' }, 'posting: ' + c.postPermission), c.discoverable ? null : h('span', { class: 'pill' }, 'hidden from discovery')),
+          c.suspension ? h('p', { class: 'small err' }, 'Suspended ' + when(c.suspension.at) + (c.suspension.by ? ' by ' + c.suspension.by : '')) : null,
+          c.rules.length ? h('details', { class: 'small' }, h('summary', null, 'Rules (' + c.rules.length + ')'), h('ol', null, c.rules.map(function (x) { return h('li', null, x); }))) : null));
+        detail.appendChild(h('div', { class: 'grid' }, kpi('Members', c.members), kpi('Joined, last 7 days', a.joinsLast7Days), kpi('Posts', a.posts), kpi('Posts, last 7 days', a.postsLast7Days),
+          kpi('Channels', a.channels), kpi('Channel messages, 7 days', a.channelMessagesLast7Days), kpi('Upcoming events', a.upcomingEvents), kpi('Join requests waiting', a.pendingRequests),
+          kpi('Open reports', c.reports.open, c.reports.open ? 'bad' : '', c.reports.open ? href('reports', null, { status: 'open' }) : ''), kpi('All reports', c.reports.total)));
+        detail.appendChild(h('div', { class: 'card' }, h('h3', null, 'Who runs it'),
+          c.staff.map(function (s) { return h('div', { class: 'small' }, h('a', { class: 'link', href: href('people', s.id) }, s.name + ' (@' + s.handle + ')'), ' - ' + s.role); }),
+          h('p', { class: 'muted small' }, 'Ordinary members are counted, not listed. Message text is never shown here.')));
+        if (has('communities.suspend') && c.status !== 'deleted') {
+          var run = function (kind) { return function (b) { return api('POST', '/admin/communities/' + id + '/' + kind, b).then(open); }; };
+          detail.appendChild(h('div', { class: 'card' }, h('h3', null, c.status === 'suspended' ? 'Restore this community' : 'Suspend this community'),
+            h('p', { class: 'muted small' }, c.status === 'suspended' ? 'It goes back to how it was before the suspension.' : 'Members lose access and it disappears from discovery until restored. Open reports about it are settled.'),
+            c.status === 'suspended' ? actionForm('Restore', false, 'Restore ' + c.name + '?', run('restore')) : actionForm('Suspend', true, 'Suspend ' + c.name + '? Its members will lose access.', run('suspend'))));
+        }
+        detail.appendChild(h('div', { class: 'card' }, h('h3', null, 'Moderation history'), c.history.length ? h('div', { class: 'scroll' }, h('table', null, c.history.map(function (x) { return h('tr', null, h('td', null, when(x.at)), h('td', null, x.action.replace('_', ' ')), h('td', null, x.by || ''), h('td', null, x.note || '')); }))) : h('p', { class: 'muted small' }, 'None.')));
+      }).catch(function (e) { fail(detail, e); detail.appendChild(h('div', { class: 'row' }, h('button', { class: 'btn ghost', type: 'button', onclick: open }, 'Retry'), h('a', { class: 'link', href: back }, 'Back to Communities'))); });
+    }
+    open();
+  }
+
+  // ---- content
+  function viewContent(r) {
+    var type = r.params.type === 'comment' ? 'comment' : 'post';
+    var seg = h('div', { class: 'row seg', role: 'navigation', 'aria-label': 'Kind' });
+    [['post', 'Posts'], ['comment', 'Comments']].forEach(function (t) { seg.appendChild(h('a', { class: 'tab' + (type === t[0] ? ' on' : ''), href: href('content', null, { type: t[0] }), 'aria-current': type === t[0] ? 'page' : false }, t[1])); });
+    body.appendChild(seg);
+    var from = h('input', { type: 'date', 'aria-label': 'From', value: r.params.from || '' }), to = h('input', { type: 'date', 'aria-label': 'To', value: r.params.to || '' });
+    var rt = Object.assign({}, r, { params: Object.assign({}, r.params, { type: type }) });
+    body.appendChild(h('div', { class: 'row' }, h('span', { class: 'muted small' }, 'Between'), from, h('span', { class: 'muted small' }, 'and'), to,
+      h('button', { class: 'btn ghost', type: 'button', onclick: function () { nav2('content', { type: type, q: r.params.q, status: r.params.status, reported: r.params.reported, university: r.params.university, sort: r.params.sort }, { from: from.value, to: to.value }); } }, 'Apply dates')));
+    listShell('content', rt, ['type', 'q', 'status', 'university', 'reported', 'from', 'to', 'sort', 'page'], '/admin/content', function (x, reload) {
+      var removed = x.status === 'removed';
+      var run = function (kind) { return function (b) { return api('POST', '/admin/content/' + type + '/' + x.id + '/' + kind, b).then(reload); }; };
+      return h('div', { class: 'card' }, h('div', null, h('span', { class: 'pill' + (removed ? ' red' : ' teal') }, x.status), x.community ? h('span', { class: 'pill' }, x.community) : null,
+        x.openReports ? h('span', { class: 'pill red' }, x.openReports + ' open report' + (x.openReports > 1 ? 's' : '')) : (x.totalReports ? h('span', { class: 'pill' }, x.totalReports + ' past') : null)),
+        h('div', { class: 'quote' }, x.preview),
+        h('div', { class: 'small muted' }, h('a', { class: 'link', href: href('people', x.author.id) }, x.author.name + ' (@' + x.author.handle + ')'), ' - ' + x.university + ' - ' + ago(x.createdAt)),
+        has('content.moderate') ? (removed ? actionForm('Restore', false, 'Restore this ' + type + '?', run('restore')) : actionForm('Remove', true, 'Remove this ' + type + '? The author is told.', run('remove'))) : null);
+    }, 'Words in the text (2+ letters)', [
+      ['Status', 'status', [['', 'Active and removed'], ['active', 'Active'], ['removed', 'Removed']]], ['Reported', 'reported', YESNO('All')],
+      ['Sort by', 'sort', [['', 'Newest first'], ['oldest', 'Oldest first']]]]);
+    body.appendChild(h('p', { class: 'muted small' }, 'Shows what any student on campus can read, plus anything that has been reported. Followers-only posts and private-community posts appear only once reported.'));
+  }
+
+  // ---- events
+  function viewEvents(r) {
+    listShell('events', r, ['q', 'when', 'status', 'hidden', 'reported', 'university', 'community', 'organizer', 'sort', 'page'], '/admin/events', function (e, reload) {
+      var mine = e.university === S.universityId;
+      var run = function (kind) { return function (b) { return api('POST', '/moderation/events/' + e.id + '/' + kind, b).then(reload); }; };
+      return h('div', { class: 'card' }, h('div', null, h('span', { class: 'pill' + (e.status === 'published' ? ' teal' : '') }, e.status), e.hidden ? h('span', { class: 'pill red' }, 'hidden') : null,
+        h('span', { class: 'pill' }, e.type.replace('_', ' ')), h('span', { class: 'pill' }, e.visibility), e.openReports ? h('span', { class: 'pill red' }, e.openReports + ' open report' + (e.openReports > 1 ? 's' : '')) : null),
+        h('div', null, h('b', null, e.title)),
+        h('div', { class: 'small muted' }, when(e.startsAt) + (e.venue ? ' - ' + e.venue : ' - online') + ' - ' + e.registered + ' going'),
+        h('div', { class: 'small muted' }, 'by ', h('a', { class: 'link', href: href('people', e.organizer.id) }, e.organizer.name + ' (@' + e.organizer.handle + ')'), e.community ? ' - in ' + e.community.name : '', ' - ' + e.university),
+        mine && has('reports.review') ? (e.hidden ? actionForm('Restore', false, 'Make this event visible again?', run('restore')) : actionForm('Hide', true, 'Hide this event from students?', run('hide')))
+          : h('div', { class: 'small muted' }, 'Events from other campuses can only be hidden by that campus\'s moderators.'));
+    }, 'Event title (2+ letters)', [
+      ['When', 'when', [['', 'Any date'], ['upcoming', 'Upcoming'], ['past', 'Past']]], ['Status', 'status', [['', 'Any status'], ['published', 'Published'], ['cancelled', 'Cancelled'], ['completed', 'Completed']]],
+      ['Hidden', 'hidden', YESNO('Hidden or not')], ['Reported', 'reported', YESNO('All')],
+      ['Sort by', 'sort', [['', 'Newest first'], ['soonest', 'Soonest first'], ['latest', 'Latest first']]]]);
   }
 
   // ---------- 2. reports queue
