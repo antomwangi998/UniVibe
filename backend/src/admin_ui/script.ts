@@ -1,4 +1,6 @@
 // The dashboard's script. Written without template literals so it can sit inside String.raw safely.
+import { MONETIZATION_JS } from './monetization';
+
 export const ADMIN_JS = String.raw`
 (function () {
   'use strict';
@@ -797,6 +799,7 @@ export const ADMIN_JS = String.raw`
     load(null);
   }
 
+${MONETIZATION_JS}
   // ---------- go
   var saved = null; try { saved = sessionStorage.getItem('uv_admin_rt'); } catch (e) {}
   if (saved) { S.refresh = saved; refreshSession().then(function (ok) { if (!ok) return renderLogin(); return fetch('/me', { headers: { Authorization: 'Bearer ' + S.access } }).then(function (r) { return r.json(); }).then(function (u) { S.user = u; return start(); }).catch(function () { return start(); }); }); }

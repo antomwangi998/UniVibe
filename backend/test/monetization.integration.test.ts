@@ -223,4 +223,23 @@ describe.skipIf(!url)('monetization (needs TEST_DATABASE_URL)', () => {
     expect((await call('GET', `${V1}/admin/monetization/ad-reports`, org.token)).status).toBe(404);
     expect((await call('GET', `${V1}/admin/monetization/ad-reports`, admin.token)).status).toBe(200);
   });
+
+  it('the revenue overview keeps payment volume, refunds and earned revenue apart', async () => {
+    const { admin, packageId } = await setup(40000);
+    const org = await h.student();
+    const c = await campaign(org.token, packageId, await event(org.token));
+    const co = await call('POST', `${V1}/campaigns/${c}/checkout`, org.token);
+    await call('POST', `${V1}/orders/${co.body.order.id}/payment`, org.token, { receipt: receipt() });
+    const before = (await call('GET', `${V1}/admin/monetization/overview`, admin.token)).body;
+    const pay = (await call('GET', `${V1}/admin/monetization/payments?status=awaiting_verification`, admin.token)).body.items.find((i: { orderReference: string }) => i.orderReference === co.body.order.reference);
+    await call('POST', `${V1}/admin/monetization/payments/${pay.id}/confirm`, admin.token, { receivedMinor: 40000 });
+    const after = (await call('GET', `${V1}/admin/monetization/overview`, admin.token)).body;
+    expect(after.payments.receivedMinor - before.payments.receivedMinor).toBe(40000);
+    // Paid but not yet reviewed or started: held as deferred, nothing recognised from it.
+    expect(after.revenue.deferredMinor - before.revenue.deferredMinor).toBe(40000);
+    expect(after.revenue.recognisedMinor).toBe(before.revenue.recognisedMinor);
+    expect(after.costs).toBeNull();
+    // Only staff with the finance permission can see it.
+    expect((await call('GET', `${V1}/admin/monetization/overview`, org.token)).status).toBe(404);
+  });
 });

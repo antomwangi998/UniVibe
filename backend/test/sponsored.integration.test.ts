@@ -150,4 +150,44 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     const fresh = await h.student();
     expect((await feed(fresh.token)).body.items.some((x: { campaignId: string }) => x.campaignId === campaignId)).toBe(false);
   });
+
+  it('advertisers see their own recorded performance; nobody else does; staff also get integrity signals', async () => {
+    const { admin, org, campaignId, eventId } = await liveCampaign({ frequency: 5 });
+    const a = await h.student();
+    const b = await h.student();
+    for (const v of [a, b]) {
+      const t = (await feed(v.token)).body.items[0].impressionToken as string;
+      await call('POST', `${V1}/sponsored/impression`, v.token, { token: t });
+      if (v === a) await call('POST', `${V1}/sponsored/click`, v.token, { token: t });
+    }
+    await pool.query("insert into event_registrations (event_id, user_id, status) values ($1, $2, 'registered')", [eventId, a.id]);
+    const r = await call('GET', `${V1}/campaigns/${campaignId}/analytics`, org.token);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.totals).toMatchObject({ impressions: 2, clicks: 1, ctr: 0.5, reach: 2 });
+    expect(r.body.conversions).toEqual({ kind: 'rsvp_after_click', count: 1 });
+    expect(r.body.delivery.running).toBe(true);
+    expect(r.body.integrity).toBeUndefined(); // staff-only
+    expect(JSON.stringify(r.body)).not.toContain(a.id); // no student is named
+    // Someone else's campaign is not found; students cannot reach the staff view.
+    expect((await call('GET', `${V1}/campaigns/${campaignId}/analytics`, a.token)).status).toBe(404);
+    expect((await call('GET', `${V1}/admin/monetization/campaigns/${campaignId}/analytics`, org.token)).status).toBe(404);
+    expect((await call('GET', `${V1}/admin/monetization/campaigns/${campaignId}/analytics`, admin.token)).body.integrity.flags).toEqual([]);
+    // Date filtering: a window before the campaign shows nothing; bad windows are refused.
+    const past = await call('GET', `${V1}/campaigns/${campaignId}/analytics?from=2020-01-01&to=2020-01-10`, org.token);
+    expect(past.body.totals).toMatchObject({ impressions: 0, clicks: 0, ctr: null });
+    expect(past.body.daily).toHaveLength(10);
+    for (const bad of ['from=2026-02-30', 'from=2026-11-05&to=2026-11-01', 'from=2020-01-01&to=2026-01-01', 'from=nope']) {
+      expect((await call('GET', `${V1}/campaigns/${campaignId}/analytics?${bad}`, org.token)).status).toBe(bad === 'from=nope' ? 400 : 422);
+    }
+    const sum = await call('GET', `${V1}/me/advertising/summary`, org.token);
+    expect(sum.body).toMatchObject({ impressions: 2, clicks: 1, campaigns: { active: 1, total: 1 } });
+  });
+
+  it('a campaign that is not running says why', async () => {
+    const { org, campaignId } = await liveCampaign();
+    await pool.query("update campaigns set review_status = 'pending' where id = $1", [campaignId]);
+    const r = await call('GET', `${V1}/campaigns/${campaignId}/analytics`, org.token);
+    expect(r.body.delivery.running).toBe(false);
+    expect(r.body.delivery.reasonsNotRunning).toContain('The ad has not been approved.');
+  });
 });

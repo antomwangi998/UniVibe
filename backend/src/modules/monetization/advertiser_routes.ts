@@ -4,6 +4,7 @@ import type { AuthUser, Ctx } from '../../context';
 import { withTx } from '../../db';
 import { HttpError } from '../../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../../http';
+import { type AnalyticsCampaign, loadAnalytics, rangeFor } from './analytics';
 import { allowedNext, mayResume, resumeTarget } from './campaign_state';
 import { formatMoney, normalizeReceipt } from './money';
 import {
@@ -260,6 +261,40 @@ export function advertiserRoutes(ctx: Ctx) {
         if (isUnique(e)) throw new HttpError(409, 'already_promoted', 'This event already has an open promotion.');
         throw e;
       }
+    });
+
+    // ------------------------------------------------------------ analytics (an advertiser sees only their own campaigns)
+    const rangeQuery = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict();
+
+    app.get('/campaigns/:id/analytics', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`analytics:${me.id}`, 60, 60);
+      const id = idParam((req.params as { id?: string }).id);
+      const q = rangeQuery.parse(req.query ?? {});
+      const c = (await pool.query<AnalyticsCampaign>('select * from campaigns where id = $1 and advertiser_id = $2', [id, me.id])).rows[0];
+      if (!c) throw new HttpError(404, 'not_found', 'Not found.');
+      return loadAnalytics(pool, ctx.config.CODE_PEPPER, c, rangeFor(q.from, q.to, c));
+    });
+
+    /** One-glance totals across all of the person's campaigns. Lifetime figures; money is what was actually paid and refunded. */
+    app.get('/me/advertising/summary', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`analytics:${me.id}`, 60, 60);
+      const c = (await pool.query<{ active: number; waiting: number; total: number; impressions: string; clicks: string }>(
+        `select (count(*) filter (where status = 'active'))::int as active,
+                (count(*) filter (where status in ('pending_payment', 'pending_review', 'approved', 'scheduled')))::int as waiting,
+                count(*)::int as total, coalesce(sum(delivered_impressions), 0) as impressions, coalesce(sum(delivered_clicks), 0) as clicks
+           from campaigns where advertiser_id = $1`, [me.id])).rows[0];
+      const m = (await pool.query<{ paid: string; refunded: string }>(
+        `select coalesce(sum(amount_minor) filter (where status = 'paid'), 0) as paid, coalesce(sum(amount_minor) filter (where status = 'refunded'), 0) as refunded
+           from orders where advertiser_id = $1`, [me.id])).rows[0];
+      const i = Number(c.impressions);
+      const k = Number(c.clicks);
+      return {
+        campaigns: { active: c.active, waiting: c.waiting, total: c.total },
+        impressions: i, clicks: k, ctr: i > 0 ? k / i : null,
+        paidMinor: Number(m.paid), paid: formatMoney(Number(m.paid)), refundedMinor: Number(m.refunded), refunded: formatMoney(Number(m.refunded)),
+      };
     });
 
     /** Editing a draft. Anything already submitted for payment or review is fixed; cancel it and make a new one instead. */

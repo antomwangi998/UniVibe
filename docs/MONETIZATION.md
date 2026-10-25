@@ -70,6 +70,31 @@ Endpoints: `GET /sponsored?placement=` , `POST /sponsored/impression`, `POST /sp
 - **Business owners** are now notified when a listing is approved, rejected, suspended, restored or verified (not when verification is removed).
 - Not covered: an in-app inbox entry only appears for the person who owns the listing or campaign; staff receive receipt alerts the same way.
 
+## Stage 8: advertiser analytics - written, pure calculations unit-tested, routes NOT run
+Endpoints: `GET /campaigns/:id/analytics?from=&to=` (owner only, others get 404), `GET /me/advertising/summary`, and for staff `GET /admin/monetization/campaigns/:id/analytics` (adds integrity signals).
+- **Metrics, as defined in the response and in `analytics_calc.ts`:** impressions, clicks, CTR (empty, not 0, when nothing was shown), reach (students, counted without names), by placement, by day (zero-filled), delivery status with the plain-language reasons a campaign is not running, payment and refund amounts.
+- **Conversions:** only *RSVP after click* for event promotions: a student tapped the ad, then RSVPed within 7 days. It shows the two are connected; it does not claim the ad caused it. Purchases are not measured, and the API says so.
+- **Not tracked, so not reported:** event detail views, business profile views and offer interactions are not recorded anywhere in the app today. Adding them needs new tracking in those screens (stage 8b).
+- **Data sources:** raw `campaign_events` for the last days, `campaign_daily` roll-ups for older days (see `mergeDaily`). Reach over a window is exact while raw events exist (about 85 days) and an approximate sum of daily reach after that; the response says which.
+- **Integrity signals (staff only):** unusually high CTR, clicks concentrated in one student, few distinct clickers, more views per student than the daily cap allows, and a single-hour burst. They only fire with enough data, name no one, and are prompts for review, not verdicts.
+- **Privacy:** advertisers never see who viewed or clicked, only totals. Up to 5,000 sign-ups and 20,000 clickers are matched inside the server to count RSVPs after clicks; the matching result is a single number.
+- **Ranges:** whole UTC days, at most 92 days, reversed or impossible dates are refused with a 422.
+
+## Stage 9: admin Monetization Centre - screens smoke-tested against a fake page; backend NOT run
+A **Monetization** group in the existing dashboard (nothing existing was changed or removed). Code: `src/admin_ui/monetization.ts`, spliced into the dashboard script. Each page shows only to staff holding its capability, and the API checks the same capability on every call.
+| Page | Needs | What it does |
+|---|---|---|
+| Revenue | `finance.view` | Received, refunded, net collected, recognised, deferred; by campaign type and by month; counts needing attention; the rules for each figure |
+| Campaigns | `campaigns.review` | Review queue and status tabs; approve, reject, pause, resume, cancel with reasons; a detail page with performance, CTR, delivery status, engagement checks and history |
+| Payments | `payments.view` (`payments.confirm` to act) | Receipts waiting for your check; confirm with the amount actually received (and "refund any excess"), or reject with a reason |
+| Refunds | `payments.view` (`refunds.approve` to act) | Approve, decline, then record the M-Pesa reference once sent |
+| Packages and payment | `packages.manage` | Create packages, change prices (asks you to confirm, existing orders keep their price), hide or show; set the till or paybill number and switch payments on |
+| Businesses and ad reports | `advertisers.view` (`campaigns.review` to act) | Approve, reject, suspend, restore, verify business listings; resolve reported ads |
+- **Accounting rules used on the Revenue page** (also shown on the page): *received* = confirmed cash before refunds (payment volume); *refunded* = refunds actually paid out; *net collected* = received minus refunded; *recognised* = finished campaigns in full, running ones by days elapsed, a campaign cancelled without a refund in full, nothing for campaigns not yet started, unreviewed or awaiting refund; *deferred* = paid but not yet recognised. Costs and operating surplus are **not tracked yet**, so no surplus is shown.
+- **Not in this stage:** an advertiser directory beyond business listings (suspending an advertiser's account is done on the existing People page), the full financial reports, CSV exports and cost tracking (stage 10).
+- **Verification done:** the dashboard script compiles; a fake-page test (`admin-monetization-ui.test.ts`, 8 tests, run) opens every new page against canned API data and checks that confirming a payment sends the amount in cents. This does not check layout or styling: open `/admin` in a browser and look.
+- **Not verified:** the new revenue SQL and every admin route against Postgres.
+
 ## Not implemented yet
-Advertiser reporting endpoints (stage 8), admin dashboard pages (9), financial reports, CSV export and cost tracking (10), logo/cover/creative image upload, Daraja, subscriptions, Android screens for businesses, campaigns, payment and receipts, and Discover and business-directory sponsored UI on Android.
-Tests: `campaign-state` and `sponsored-token` (run under Node with a stand-in runner); `monetization.integration`, `sponsored.integration` and the new push case in `push-reactions.integration` (need Postgres, not run); `SponsoredCardTest.kt` and the new cases in `PushPayloadTest.kt` (need Gradle, not run).
+Financial reports, CSV export and cost tracking (stage 10), advertiser portal screens on Android including analytics charts (stage 8b), event-view and business-view tracking, logo/cover/creative image upload, Daraja, subscriptions, and Discover and business-directory sponsored UI on Android.
+Tests: `campaign-state`, `sponsored-token`, `analytics-calc` and `admin-monetization-ui` (48 tests, run under Node with a stand-in runner); the `*.integration` tests need Postgres and have not run; the Kotlin tests need Gradle and have not run.
