@@ -10,10 +10,12 @@ export type Role = 'user' | 'moderator' | 'admin';
 
 export const CAPABILITIES = [
   'reports.review',   // the reports queue and its actions
+  'reports.assign',   // give a report to someone else, or take one over
   'overview.view',
   'analytics.view',
   'users.view',       // search people, open an account
   'users.suspend',    // suspend or lift a suspension from the dashboard
+  'users.note',       // leave a private staff note on an account
   'system.view',      // jobs, devices, uploads, server status
   'audit.view',
 ] as const;

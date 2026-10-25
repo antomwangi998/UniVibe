@@ -22,6 +22,9 @@ const reportSchema = z.object({
   details: z.string().trim().max(500).default(''),
 }).strict();
 const reviewSchema = z.object({ status: z.enum(['under_review', 'dismissed']), note: z.string().trim().max(500).default('') }).strict();
+const assignSchema = z.object({ to: z.union([z.literal('me'), z.literal('none'), z.string().uuid()]) }).strict();
+const reportNoteSchema = z.object({ note: z.string().trim().min(1).max(1000) }).strict();
+const escalateSchema = z.object({ note: z.string().trim().min(3, 'Say why this needs an administrator (at least 3 characters).').max(500) }).strict();
 const actionSchema = z.object({
   action: z.enum(['remove_content', 'restore_content', 'suspend_user', 'unsuspend_user', 'hide_event', 'restore_event']),
   note: z.string().trim().max(500).default(''),
@@ -119,22 +122,26 @@ export function moderationRoutes(ctx: Ctx) {
 
     app.get('/moderation/reports', async (req) => {
       const me = await requireModerator(req);
-      const q = pageSchema.extend({ status: z.enum(['open', 'under_review', 'action_taken', 'dismissed']).default('open'), targetType: z.enum(TARGETS).optional() }).parse(req.query);
+      const q = pageSchema.extend({ status: z.enum(['open', 'under_review', 'action_taken', 'dismissed']).default('open'), targetType: z.enum(TARGETS).optional(), assigned: z.enum(['me', 'unassigned']).optional(), escalated: z.enum(['1']).optional() }).parse(req.query);
       const cur = decodeCursor(q.cursor);
       const { rows } = await pool.query(
-        `select r.id, r.target_type, r.target_id, r.reason, r.details, r.status, r.created_at, ${tsText('r.created_at')} as "cursorT", ${CARD_COLUMNS},
+        `select r.id, r.target_type, r.target_id, r.reason, r.details, r.status, r.created_at, r.escalated_at, r.first_reviewed_at, r.assigned_to, asg.full_name as assignee_name, ${tsText('r.created_at')} as "cursorT", ${CARD_COLUMNS},
+                (select count(*) from report_notes n where n.report_id = r.id)::int as note_count,
                 (select count(*) from reports x where x.target_type = r.target_type and x.target_id = r.target_id)::int as report_count
-           from reports r left join users u on u.id = r.reporter_id ${CARD_JOIN}
-          where r.university_id = $1 and r.status = $2 and ($6::text is null or r.target_type = $6) and ($3::timestamptz is null or (r.created_at, r.id) < ($3::timestamptz, $4::uuid))
+           from reports r left join users u on u.id = r.reporter_id left join users asg on asg.id = r.assigned_to ${CARD_JOIN}
+          where r.university_id = $1 and r.status = $2 and ($6::text is null or r.target_type = $6)
+            and ($7::text is null or ($7 = 'me' and r.assigned_to = $8::uuid) or ($7 = 'unassigned' and r.assigned_to is null))
+            and ($9::boolean is not true or r.escalated_at is not null) and ($3::timestamptz is null or (r.created_at, r.id) < ($3::timestamptz, $4::uuid))
           order by r.created_at desc, r.id desc limit $5`,
-        [me.universityId, q.status, cur?.t ?? null, cur?.id ?? null, q.limit + 1, q.targetType ?? null],
+        [me.universityId, q.status, cur?.t ?? null, cur?.id ?? null, q.limit + 1, q.targetType ?? null, q.assigned ?? null, me.id, q.escalated === '1' ? true : null],
       );
       const page = toPage(rows as (CardRow & { cursorT: string; id: string })[], q.limit);
       const items = await Promise.all(page.items.map(async (r) => {
-        const row = r as unknown as CardRow & { id: string; target_type: string; target_id: string; reason: string; details: string; status: string; created_at: Date; report_count: number };
+        const row = r as unknown as CardRow & { id: string; target_type: string; target_id: string; reason: string; details: string; status: string; created_at: Date; report_count: number; note_count: number; escalated_at: Date | null; first_reviewed_at: Date | null; assigned_to: string | null; assignee_name: string | null };
         return {
           id: row.id, targetType: row.target_type, targetId: row.target_id, reason: row.reason, details: row.details, status: row.status,
           createdAt: row.created_at, reportCount: row.report_count, preview: await preview(row),
+          assignedTo: row.assigned_to ? { id: row.assigned_to, name: row.assignee_name } : null, escalatedAt: row.escalated_at, firstReviewedAt: row.first_reviewed_at, noteCount: row.note_count,
           reporter: row.card_id ? await toCard(ctx, row) : null, // moderators only
         };
       }));
@@ -144,8 +151,16 @@ export function moderationRoutes(ctx: Ctx) {
     async function loadReport(me: AuthUser, id: string, client: Q = pool) {
       const r = (await client.query('select * from reports where id = $1 and university_id = $2 for update', [id, me.universityId])).rows[0];
       if (!r) throw new HttpError(404, 'not_found', 'Not found.');
-      return r as { id: string; target_type: string; target_id: string; status: string };
+      return r as { id: string; target_type: string; target_id: string; status: string; assigned_to: string | null; escalated_at: Date | null };
     }
+
+    /** A report someone else is handling is theirs until an administrator moves it, so two people do not decide it twice. */
+    async function assertNotTakenByOther(client: Q, me: AuthUser, report: { assigned_to: string | null }) {
+      if (!report.assigned_to || report.assigned_to === me.id || can(me.role, 'reports.assign')) return;
+      const who = (await client.query<{ full_name: string }>('select full_name from users where id = $1', [report.assigned_to])).rows[0]?.full_name ?? 'someone else';
+      throw new HttpError(409, 'conflict', who + ' is handling this report. Ask them or an administrator to reassign it.');
+    }
+    const unresolved = (status: string) => status === 'open' || status === 'under_review';
 
     app.post('/moderation/reports/:id/review', async (req) => {
       const me = await requireModerator(req);
@@ -154,8 +169,13 @@ export function moderationRoutes(ctx: Ctx) {
       return withTx(pool, async (client) => {
         const report = await loadReport(me, id, client);
         if (report.status === 'action_taken') throw new HttpError(409, 'conflict', 'This report was already resolved.');
+        if (report.status === b.status) throw new HttpError(409, 'conflict', b.status === 'dismissed' ? 'This report was already dismissed.' : 'This report is already under review.');
+        await assertNotTakenByOther(client, me, report);
         await client.query(
           `update reports set status = $2, reviewed_by = $3, resolution_note = $4, updated_at = now(),
+                 first_reviewed_at = coalesce(first_reviewed_at, now()),
+                 assigned_to = case when $2 = 'under_review' then coalesce(assigned_to, $3::uuid) else assigned_to end,
+                 assigned_at = case when $2 = 'under_review' and assigned_to is null then now() else assigned_at end,
                  reviewed_at = case when $2 = 'dismissed' then now() else reviewed_at end where id = $1`,
           [id, b.status, me.id, b.note]);
         await audit(client, me.id, `report.${b.status}`, 'report', id);
@@ -178,14 +198,14 @@ export function moderationRoutes(ctx: Ctx) {
       if (hide) {
         // The reports about a hidden event are settled by the same decision, as with every other action.
         await client.query(
-          `update reports set status = 'action_taken', reviewed_by = $1, resolution_note = $2, reviewed_at = now(), updated_at = now()
+          `update reports set status = 'action_taken', reviewed_by = $1, resolution_note = $2, reviewed_at = now(), updated_at = now(), first_reviewed_at = coalesce(first_reviewed_at, now())
             where target_type = 'event' and target_id = $3 and university_id = $4 and status in ('open', 'under_review')`,
           [me.id, note, eventId, me.universityId]);
       }
     }
 
     // Lets the app ask once whether to show moderator tools. 403 for everyone else.
-    app.get('/moderation/access', async (req) => { const me = await requireModerator(req); return { allowed: true, role: me.role, capabilities: capabilitiesOf(me.role) }; });
+    app.get('/moderation/access', async (req) => { const me = await requireModerator(req); return { allowed: true, id: me.id, role: me.role, capabilities: capabilitiesOf(me.role) }; });
 
     const eventActionSchema = z.object({ note: z.string().trim().max(500).default(''), userMessage: z.string().trim().max(300).default('') }).strict();
     for (const hide of [true, false]) {
@@ -205,6 +225,8 @@ export function moderationRoutes(ctx: Ctx) {
       const b = actionSchema.parse(req.body ?? {});
       return withTx(pool, async (client) => {
         const report = await loadReport(me, id, client);
+        // Follow-up actions from a settled report are an existing, intended workflow; only an open report can be someone else's.
+        if (unresolved(report.status)) await assertNotTakenByOther(client, me, report);
         const { target_type: type, target_id: targetId } = report;
         const record = (targetType: string, tid: string) =>
           client.query('insert into moderation_actions (report_id, moderator_id, action, target_type, target_id, note, user_message) values ($1, $2, $3, $4, $5, $6, $7)', [id, me.id, b.action, targetType, tid, b.note, b.userMessage]);
@@ -240,10 +262,94 @@ export function moderationRoutes(ctx: Ctx) {
         }
         // Everything open about the same target is settled by the same decision.
         await client.query(
-          `update reports set status = 'action_taken', reviewed_by = $1, resolution_note = $2, reviewed_at = now(), updated_at = now()
+          `update reports set status = 'action_taken', reviewed_by = $1, resolution_note = $2, reviewed_at = now(), updated_at = now(), first_reviewed_at = coalesce(first_reviewed_at, now())
             where target_type = $3 and target_id = $4 and university_id = $5 and status in ('open', 'under_review')`,
           [me.id, b.note, type, targetId, me.universityId]);
         return { id, status: 'action_taken' };
+      });
+    });
+
+    // ---- report workflow: detail, assignment, internal notes, escalation
+    app.get('/moderation/reports/:id', async (req) => {
+      const me = await requireModerator(req);
+      const id = idParam((req.params as { id: string }).id);
+      const r = (await pool.query(
+        `select r.*, rep.full_name as reporter_name, asg.full_name as assignee_name, esc.full_name as escalated_by_name, rev.full_name as reviewer_name
+           from reports r left join users rep on rep.id = r.reporter_id left join users asg on asg.id = r.assigned_to
+                left join users esc on esc.id = r.escalated_by left join users rev on rev.id = r.reviewed_by
+          where r.id = $1 and r.university_id = $2`, [id, me.universityId])).rows[0];
+      if (!r) throw new HttpError(404, 'not_found', 'Not found.');
+      // Message text is the most private thing a report can reach, so opening one is itself recorded.
+      if (r.target_type === 'message' || r.target_type === 'channel_message') await audit(pool, me.id, 'report.view_message', 'report', id).catch(() => {});
+      const notes = (await pool.query('select n.id, n.note, n.created_at, a.full_name as by from report_notes n left join users a on a.id = n.author_id where n.report_id = $1 order by n.created_at', [id])).rows;
+      const history = (await pool.query(
+        `select m.action, m.note, m.created_at, a.full_name as by from moderation_actions m left join users a on a.id = m.moderator_id
+          where m.target_type = $1 and m.target_id = $2 order by m.created_at desc limit 20`, [r.target_type, r.target_id])).rows;
+      const sameTarget = (await pool.query(
+        'select reason, count(*)::int as n from reports where target_type = $1 and target_id = $2 and university_id = $3 group by 1 order by n desc', [r.target_type, r.target_id, me.universityId])).rows;
+      return {
+        id, targetType: r.target_type, targetId: r.target_id, reason: r.reason, details: r.details, status: r.status, createdAt: r.created_at,
+        resolutionNote: r.resolution_note, resolvedAt: r.reviewed_at, resolvedBy: r.reviewer_name, firstReviewedAt: r.first_reviewed_at,
+        reporter: r.reporter_name, assignedTo: r.assigned_to ? { id: r.assigned_to, name: r.assignee_name } : null,
+        escalatedAt: r.escalated_at, escalatedBy: r.escalated_by_name, preview: await preview(r),
+        notes: notes.map((n) => ({ id: n.id, note: n.note, at: n.created_at, by: n.by })),
+        history: history.map((h) => ({ action: h.action, note: h.note, at: h.created_at, by: h.by })),
+        reportsOnThis: sameTarget,
+      };
+    });
+
+    app.post('/moderation/reports/:id/assign', async (req) => {
+      const me = await requireModerator(req);
+      const id = idParam((req.params as { id: string }).id);
+      const b = assignSchema.parse(req.body ?? {});
+      return withTx(pool, async (client) => {
+        const report = await loadReport(me, id, client);
+        if (!unresolved(report.status)) throw new HttpError(409, 'conflict', 'This report was already resolved.');
+        let to: string | null;
+        if (b.to === 'me' || b.to === 'none') {
+          await assertNotTakenByOther(client, me, report);
+          to = b.to === 'me' ? me.id : null;
+        } else {
+          if (!can(me.role, 'reports.assign')) throw new HttpError(403, 'forbidden', 'Only administrators can give a report to someone else.');
+          const who = (await client.query<{ role: string }>('select role from users where id = $1 and university_id = $2 and deactivated_at is null', [b.to, me.universityId])).rows[0];
+          if (!who || !can(who.role, 'reports.review')) throw new HttpError(422, 'validation', 'That person is not a moderator on this campus.');
+          to = b.to;
+        }
+        await client.query(
+          `update reports set assigned_to = $2::uuid, assigned_at = case when $2::uuid is null then null else now() end, updated_at = now(),
+                 status = case when $2::uuid is not null and status = 'open' then 'under_review' else status end,
+                 first_reviewed_at = case when $2::uuid is not null then coalesce(first_reviewed_at, now()) else first_reviewed_at end where id = $1`, [id, to]);
+        await audit(client, me.id, 'report.assign', 'report', id, { to });
+        return { id, assignedTo: to };
+      });
+    });
+
+    app.post('/moderation/reports/:id/notes', async (req) => {
+      const me = await requireModerator(req);
+      const id = idParam((req.params as { id: string }).id);
+      const b = reportNoteSchema.parse(req.body ?? {});
+      return withTx(pool, async (client) => {
+        await loadReport(me, id, client);
+        await client.query('insert into report_notes (report_id, author_id, note) values ($1, $2, $3)', [id, me.id, b.note]);
+        await audit(client, me.id, 'report.note', 'report', id, { length: b.note.length }); // the note stays out of the log
+        return { ok: true };
+      });
+    });
+
+    app.post('/moderation/reports/:id/escalate', async (req) => {
+      const me = await requireModerator(req);
+      const id = idParam((req.params as { id: string }).id);
+      const b = escalateSchema.parse(req.body ?? {});
+      return withTx(pool, async (client) => {
+        const report = await loadReport(me, id, client);
+        if (!unresolved(report.status)) throw new HttpError(409, 'conflict', 'This report was already resolved.');
+        if (report.escalated_at) throw new HttpError(409, 'conflict', 'This report is already escalated.');
+        await client.query(
+          `update reports set escalated_at = now(), escalated_by = $2, updated_at = now(), first_reviewed_at = coalesce(first_reviewed_at, now()),
+                 status = case when status = 'open' then 'under_review' else status end where id = $1`, [id, me.id]);
+        await client.query('insert into report_notes (report_id, author_id, note) values ($1, $2, $3)', [id, me.id, 'Escalated: ' + b.note]);
+        await audit(client, me.id, 'report.escalate', 'report', id);
+        return { id, escalated: true };
       });
     });
 

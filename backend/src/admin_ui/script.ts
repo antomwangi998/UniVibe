@@ -105,7 +105,7 @@ export const ADMIN_JS = String.raw`
   // ---------- after sign in: find out what this account may do
   function start() {
     return api('GET', '/moderation/access').then(function (a) {
-      S.caps = a.capabilities || []; S.role = a.role || '';
+      S.caps = a.capabilities || []; S.role = a.role || ''; S.me = a.id || '';
       S.isAdmin = S.caps.indexOf('overview.view') >= 0;
       if (!S.isAdmin) return;
       return api('GET', '/admin/overview').then(function (d) { S.openReports = (d.reports && d.reports.open) || 0; }, function () {});
@@ -121,6 +121,7 @@ export const ADMIN_JS = String.raw`
   var ICONS = {
     overview: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
     analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+    safety: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
     reports: 'M5 3v18M5 4h12l-2 4 2 4H5',
     people: 'M16 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6',
     system: 'M3 12h4l3-8 4 16 3-8h4',
@@ -138,11 +139,12 @@ export const ADMIN_JS = String.raw`
     overview: { title: 'Overview', group: 'Monitor', cap: 'overview.view', desc: 'Counts and 14-day activity across UniVibe. Counts only, never message text.', view: function (r) { viewOverview(); } },
     analytics: { title: 'Analytics', group: 'Monitor', cap: 'analytics.view', desc: 'Growth and activity over a period you choose, compared with the period before it.', view: viewAnalytics },
     system: { title: 'System health', group: 'Monitor', cap: 'system.view', desc: 'Job queue, push devices, uploads and server status. Refreshes every 30 seconds.', view: function (r) { viewSystem(); } },
+    safety: { title: 'Trust & safety', group: 'Moderate', cap: 'analytics.view', desc: 'How fast reports are handled, what is waiting, and what keeps being reported.', view: viewSafety },
     reports: { title: 'Reports', group: 'Moderate', cap: 'reports.review', desc: 'Review what students reported and decide what happens next.', view: viewReports },
     people: { title: 'People', group: 'Moderate', cap: 'users.view', desc: 'Find a student, review their history, suspend or reinstate an account.', view: viewUsers },
     audit: { title: 'Audit log', group: 'Records', cap: 'audit.view', desc: 'Every privileged action: who did what, to what, and when.', view: function (r) { viewAudit(); } }
   };
-  var NAV = [['Monitor', ['overview', 'analytics', 'system']], ['Moderate', ['reports', 'people']], ['Records', ['audit']]];
+  var NAV = [['Monitor', ['overview', 'analytics', 'system']], ['Moderate', ['reports', 'safety', 'people']], ['Records', ['audit']]];
   var ALIASES = { users: 'people', health: 'system' };
 
   function href(page, id, params) {
@@ -347,6 +349,60 @@ export const ADMIN_JS = String.raw`
     load();
   }
 
+  // ---------- trust and safety: what came in, how fast it is handled, what is still waiting
+  function hbars(rows, label) {
+    var max = Math.max.apply(null, rows.map(function (x) { return x.n; }).concat([1]));
+    return rows.map(function (x) { return h('div', { class: 'hbar' }, h('span', { class: 'small' }, label(x)), h('span', { class: 'hb' }, fill(Math.max(2, Math.round((x.n / max) * 100)))), h('span', { class: 'small' }, x.n)); });
+  }
+  function hours(t, what) {
+    if (!t.n) return 'No ' + what + ' in this period yet.';
+    return 'Median ' + t.median + ' h, average ' + t.avg + ' h, across ' + t.n + ' report' + (t.n > 1 ? 's' : '') + '.';
+  }
+  function viewSafety(r) {
+    var p = r.params, custom = !!(p.from || p.to), days = custom ? null : (['7', '30', '90'].indexOf(p.days) >= 0 ? p.days : '30');
+    var bar = h('div', { class: 'row seg', role: 'navigation', 'aria-label': 'Period' });
+    [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days']].forEach(function (d) {
+      bar.appendChild(h('a', { class: 'tab' + (days === d[0] ? ' on' : ''), href: href('safety', null, { days: d[0] }), 'aria-current': days === d[0] ? 'page' : false }, d[1]));
+    });
+    var from = h('input', { type: 'date', 'aria-label': 'From', value: p.from || '' }), to = h('input', { type: 'date', 'aria-label': 'To', value: p.to || '' }), msg = h('span', { class: 'small err', role: 'alert' });
+    bar.appendChild(h('span', { class: 'row tight custom' + (custom ? ' on' : '') }, from, h('span', { class: 'muted small' }, 'to'), to,
+      h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+        if (!from.value || !to.value) { msg.textContent = 'Pick both dates.'; return; }
+        location.hash = href('safety', null, { from: from.value, to: to.value });
+      } }, 'Apply'), msg));
+    var out = h('div'); body.appendChild(bar); body.appendChild(out);
+    function load() {
+      clear(out); out.appendChild(h('p', { class: 'muted' }, 'Loading...'));
+      api('GET', '/admin/trust-safety' + (custom ? '?from=' + encodeURIComponent(p.from || '') + '&to=' + encodeURIComponent(p.to || '') : '?days=' + days)).then(function (d) {
+        clear(out); var w = d.waiting, sfx = d.range.length + ' days';
+        out.appendChild(h('p', { class: 'muted small' }, d.range.from + ' to ' + d.range.to + ' (UTC days).'));
+        out.appendChild(h('h3', null, 'Waiting right now'));
+        out.appendChild(h('div', { class: 'grid' }, kpi('Unresolved reports', w.total, w.total ? 'warn' : '', href('reports', null, { status: 'open' })), kpi('Nobody has them yet', w.unassigned, '', href('reports', null, { status: 'open', assigned: 'unassigned' })),
+          kpi('Escalated', w.escalated, w.escalated ? 'bad' : '', href('reports', null, { status: 'escalated' })), kpi('Older than 3 days', w.overThreeDays, w.overThreeDays ? 'bad' : '')));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'How long they have waited'), hbars([{ k: 'Under a day', n: w.underDay }, { k: '1 to 3 days', n: w.oneToThreeDays }, { k: 'Over 3 days', n: w.overThreeDays }], function (x) { return x.k; })));
+        out.appendChild(h('h3', null, 'In this period'));
+        out.appendChild(h('div', { class: 'grid' }, kpi('Reports received', d.received), kpi('Moderation actions', d.actionsByType.reduce(function (a, x) { return a + x.n; }, 0))));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'Speed'),
+          h('div', { class: 'small' }, h('b', null, 'First look: '), hours(d.firstReview, 'reports looked at')),
+          h('div', { class: 'small' }, h('b', null, 'Resolved: '), hours(d.resolution, 'resolved reports')),
+          h('div', { class: 'small ' + (d.stillWaitingFromPeriod ? 'err' : 'muted') }, d.stillWaitingFromPeriod + ' report' + (d.stillWaitingFromPeriod === 1 ? '' : 's') + ' from this period ' + (d.stillWaitingFromPeriod === 1 ? 'is' : 'are') + ' still unresolved and not counted in the times above.')));
+        out.appendChild(h('div', { class: 'charts' }, chart('Reports per day', d.daily.reports, sfx), chart('Moderation actions per day', d.daily.actions, sfx)));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'By reason'), d.byReason.length ? hbars(d.byReason, function (x) { return x.reason.replace('_', ' '); }) : h('p', { class: 'muted small' }, 'No reports in this period.')));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'By what was reported'), d.byTarget.length ? hbars(d.byTarget, function (x) { return x.targetType.replace('_', ' '); }) : h('p', { class: 'muted small' }, 'No reports in this period.')));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'Actions taken'), d.actionsByType.length ? hbars(d.actionsByType, function (x) { return x.action.replace('_', ' '); }) : h('p', { class: 'muted small' }, 'No actions in this period.')));
+        out.appendChild(h('div', { class: 'card' }, h('h3', null, 'Reported more than once'),
+          h('p', { class: 'small' }, d.repeated.targets + ' item' + (d.repeated.targets === 1 ? ' was' : 's were') + ' reported by two or more people.'),
+          d.repeated.top.length ? hbars(d.repeated.top, function (x) { return x.targetType.replace('_', ' '); }) : null));
+        out.appendChild(h('details', { class: 'card small' }, h('summary', null, 'How these are counted'), h('ul', null,
+          h('li', null, 'First look is the moment a report was first taken, marked under review, escalated or decided. Resolved is when it was dismissed or acted on.'),
+          h('li', null, 'Times only cover reports filed in the period, and the still-unresolved ones are listed separately, so a long queue cannot hide behind a fast average.'),
+          h('li', null, 'Reports have no severity field, so urgency is shown by age and escalation instead.'),
+          h('li', null, 'Reporters who file the same item twice are counted once (the app blocks duplicates), so "more than once" means different people.'))));
+      }).catch(function (e) { fail(out, e); out.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: load }, 'Retry')); });
+    }
+    load();
+  }
+
   // ---------- 2. reports queue
   var REPORT_ACTIONS = [['remove_content', 'Remove post / comment / channel message'], ['restore_content', 'Restore removed content'], ['hide_event', 'Hide event'], ['restore_event', 'Restore event'], ['suspend_user', 'Suspend the person'], ['unsuspend_user', 'Lift suspension']];
   function previewText(p) {
@@ -355,108 +411,192 @@ export const ADMIN_JS = String.raw`
     return p.text || p.title || p.content || p.name || JSON.stringify(p).slice(0, 400);
   }
   function viewReports(r) {
-    var STATUSES = [['open', 'Open'], ['under_review', 'Under review'], ['action_taken', 'Action taken'], ['dismissed', 'Dismissed']];
+    var STATUSES = [['open', 'Open'], ['under_review', 'Under review'], ['escalated', 'Escalated'], ['action_taken', 'Action taken'], ['dismissed', 'Dismissed']];
     var status = STATUSES.some(function (s) { return s[0] === r.params.status; }) ? r.params.status : 'open';
+    var assigned = r.params.assigned === 'me' || r.params.assigned === 'unassigned' ? r.params.assigned : '';
+    var live = status === 'open' || status === 'under_review' || status === 'escalated';
     var bar = h('div', { class: 'row seg', role: 'navigation', 'aria-label': 'Report status' }), list = h('div'), more = h('div');
-    body.appendChild(bar); body.appendChild(list); body.appendChild(more);
-    function drawBar() {
-      clear(bar);
-      STATUSES.forEach(function (s) {
-        bar.appendChild(h('a', { class: 'tab' + (status === s[0] ? ' on' : ''), href: href('reports', null, { status: s[0] }), 'aria-current': status === s[0] ? 'page' : false }, s[1]));
-      });
-    }
+    var who = live ? pick('Handled by', assigned, [['', 'Anyone'], ['me', 'Me'], ['unassigned', 'Nobody yet']], function (v) { location.hash = href('reports', null, { status: status, assigned: v }); }) : null;
+    body.appendChild(bar); if (who) body.appendChild(h('div', { class: 'row' }, who)); body.appendChild(list); body.appendChild(more);
+    STATUSES.forEach(function (s) {
+      bar.appendChild(h('a', { class: 'tab' + (status === s[0] ? ' on' : ''), href: href('reports', null, { status: s[0], assigned: assigned }), 'aria-current': status === s[0] ? 'page' : false }, s[1]));
+    });
     function load(cursor) {
       if (!cursor) clear(list); clear(more);
-      api('GET', '/moderation/reports?status=' + status + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')).then(function (d) {
-        if (!d.items.length && !cursor) list.appendChild(h('p', { class: 'muted' }, status === 'open' ? 'Nothing waiting. All clear.' : 'No reports with this status.'));
-        d.items.forEach(function (r) { list.appendChild(reportCard(r)); });
+      var qs = '?status=' + (status === 'escalated' ? 'under_review&escalated=1' : status) + (assigned && live ? '&assigned=' + assigned : '') + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+      api('GET', '/moderation/reports' + qs).then(function (d) {
+        if (!d.items.length && !cursor) list.appendChild(h('p', { class: 'muted' }, status === 'open' && !assigned ? 'Nothing waiting. All clear.' : 'No reports match.'));
+        d.items.forEach(function (x) { list.appendChild(reportCard(x, function () { load(null); })); });
         if (d.nextCursor) more.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: function () { load(d.nextCursor); } }, 'Load more'));
       }).catch(function (e) { fail(list, e); list.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: function () { load(null); } }, 'Retry')); });
     }
-    drawBar(); load(null);
+    load(null);
   }
-  function reportCard(r) {
-    var note = h('textarea', { placeholder: 'Internal note (not shown to the person)' });
-    var msg = h('input', { type: 'text', maxlength: 300, placeholder: 'Message to the person (optional, they see it)', style: false });
-    var days = h('input', { type: 'number', min: 1, max: 30, value: 7, style: false });
-    var sel = h('select');
+  function reportCard(r, reload) {
+    var live = r.status === 'open' || r.status === 'under_review', canAssign = S.caps.indexOf('reports.assign') >= 0;
+    var note = h('textarea', { placeholder: 'Reason (required to dismiss, escalate or act; kept in the history)', 'aria-label': 'Reason', maxlength: 500 });
+    var msg = h('input', { type: 'text', maxlength: 300, placeholder: 'Message to the person (optional, they see it)', 'aria-label': 'Message to the person', style: false });
+    var days = h('input', { type: 'number', min: 1, max: 30, value: 7, 'aria-label': 'Days', style: false });
+    var sel = h('select', { 'aria-label': 'Action' });
     REPORT_ACTIONS.forEach(function (a) { sel.appendChild(h('option', { value: a[0] }, a[1])); });
-    var out = h('div', { class: 'small' });
+    var out = h('div', { class: 'small', role: 'status' });
     var card = h('div', { class: 'card' });
+    function bad(text) { out.textContent = text; out.className = 'small err'; }
     function done(text) { clear(card); card.appendChild(h('div', { class: 'ok', role: 'status' }, text)); refreshBadge(); }
+    function reason() { var v = note.value.trim(); if (v.length < 3) { bad('Please give a reason first.'); note.focus(); return null; } return v; }
+    function post(path, b, okText) { return api('POST', '/moderation/reports/' + r.id + '/' + path, b).then(function () { if (okText) done(okText); else { refreshBadge(); reload(); } }).catch(function (e) { bad(e.message); }); }
     function review(st) {
-      api('POST', '/moderation/reports/' + r.id + '/review', { status: st, note: note.value }).then(function () { done(st === 'dismissed' ? 'Dismissed.' : 'Marked under review.'); }).catch(function (e) { out.textContent = e.message; out.className = 'small err'; });
+      var why = st === 'dismissed' ? reason() : note.value.trim(); if (st === 'dismissed' && !why) return;
+      if (st === 'dismissed' && !window.confirm('Dismiss this report? Nothing will happen to the reported item.')) return;
+      post('review', { status: st, note: why || '' }, st === 'dismissed' ? 'Dismissed.' : 'Marked under review.');
     }
     function act() {
-      var b = { action: sel.value, note: note.value, userMessage: msg.value };
+      var why = reason(); if (!why) return;
+      var label = sel.options[sel.selectedIndex].text;
+      if (!window.confirm(label + '? This applies to everything open about the same item.')) return;
+      var b = { action: sel.value, note: why, userMessage: msg.value };
       if (sel.value === 'suspend_user') b.days = Math.max(1, Math.min(30, parseInt(days.value, 10) || 7));
-      api('POST', '/moderation/reports/' + r.id + '/action', b).then(function () { done('Done: ' + sel.options[sel.selectedIndex].text + '.'); }).catch(function (e) { out.textContent = e.message; out.className = 'small err'; });
+      post('action', b, 'Done: ' + label + '.');
     }
+    function escalate() {
+      var why = reason(); if (!why) return;
+      if (!window.confirm('Escalate to an administrator?')) return;
+      post('escalate', { note: why });
+    }
+    var mine = r.assignedTo && S.me && r.assignedTo.id === S.me;
     card.appendChild(h('div', null, h('span', { class: 'pill red' }, r.reason.replace('_', ' ')), h('span', { class: 'pill' }, r.targetType),
-      r.reportCount > 1 ? h('span', { class: 'pill amber' }, r.reportCount + ' reports on this') : null, h('span', { class: 'muted small' }, ago(r.createdAt))));
+      r.escalatedAt ? h('span', { class: 'pill amber' }, 'escalated') : null,
+      r.reportCount > 1 ? h('span', { class: 'pill amber' }, r.reportCount + ' reports on this') : null,
+      live ? h('span', { class: 'pill' + (r.assignedTo ? ' teal' : '') }, r.assignedTo ? 'with ' + (mine ? 'you' : r.assignedTo.name || 'a moderator') : 'nobody yet') : null,
+      h('span', { class: 'muted small' }, ago(r.createdAt))));
     card.appendChild(h('div', { class: 'quote' }, previewText(r.preview)));
     if (r.details) card.appendChild(h('div', { class: 'small' }, h('span', { class: 'muted' }, 'Reporter says: '), r.details));
     if (r.reporter) card.appendChild(h('div', { class: 'small muted' }, 'Reported by ' + (r.reporter.name || r.reporter.fullName || 'a student')));
-    if (r.status === 'open' || r.status === 'under_review') {
+    if (live) {
+      var take = !mine ? h('button', { class: 'btn ghost', type: 'button', onclick: function () { post('assign', { to: 'me' }); } }, r.assignedTo ? 'Take over' : 'Take it') : null;
+      var release = (mine || (canAssign && r.assignedTo)) ? h('button', { class: 'btn ghost', type: 'button', onclick: function () { post('assign', { to: 'none' }); } }, 'Release') : null;
+      card.appendChild(h('div', { class: 'row' }, take, release));
       card.appendChild(note); card.appendChild(msg);
       card.appendChild(h('div', { class: 'row' }, sel, h('span', { class: 'muted small' }, 'days (suspend):'), days, h('button', { class: 'btn danger', type: 'button', onclick: act }, 'Apply')));
       card.appendChild(h('div', { class: 'row' }, r.status === 'open' ? h('button', { class: 'btn ghost', type: 'button', onclick: function () { review('under_review'); } }, 'Mark under review') : null,
+        !r.escalatedAt ? h('button', { class: 'btn ghost', type: 'button', onclick: escalate }, 'Escalate') : null,
         h('button', { class: 'btn ghost', type: 'button', onclick: function () { review('dismissed'); } }, 'Dismiss')));
     } else card.appendChild(h('div', { class: 'small muted' }, 'Status: ' + r.status.replace('_', ' ')));
     card.appendChild(out);
+    card.appendChild(reportDetails(r, reload));
     return card;
+  }
+  // Notes, other reports on the same item, and what was done before. Loaded only when opened.
+  function reportDetails(r, reload) {
+    var box = h('details', { class: 'small' }, h('summary', null, 'Notes and history' + (r.noteCount ? ' (' + r.noteCount + ' notes)' : ''))), inner = h('div'), loaded = false;
+    box.appendChild(inner);
+    function draw() {
+      clear(inner); inner.appendChild(h('p', { class: 'muted' }, 'Loading...'));
+      api('GET', '/moderation/reports/' + r.id).then(function (d) {
+        clear(inner);
+        if (d.reportsOnThis.length) inner.appendChild(h('p', { class: 'muted' }, 'All reports on this item: ' + d.reportsOnThis.map(function (x) { return x.n + ' ' + x.reason.replace('_', ' '); }).join(', ') + '.'));
+        if (d.resolvedAt) inner.appendChild(h('p', null, 'Resolved ' + ago(d.resolvedAt) + (d.resolvedBy ? ' by ' + d.resolvedBy : '') + (d.resolutionNote ? ': ' + d.resolutionNote : '.')));
+        d.notes.forEach(function (n) { inner.appendChild(h('div', { class: 'quote' }, n.note, h('div', { class: 'muted' }, (n.by || 'a staff member') + ' - ' + when(n.at)))); });
+        if (!d.notes.length) inner.appendChild(h('p', { class: 'muted' }, 'No notes yet.'));
+        if (d.history.length) inner.appendChild(h('div', { class: 'scroll' }, h('table', null, d.history.map(function (a) { return h('tr', null, h('td', null, when(a.at)), h('td', null, a.action.replace('_', ' ')), h('td', null, a.by || ''), h('td', null, a.note || '')); }))));
+        var nb = h('textarea', { placeholder: 'Private note for staff', 'aria-label': 'Private note', maxlength: 1000 }), no = h('div', { class: 'small', role: 'status' });
+        inner.appendChild(nb);
+        inner.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: function () {
+          if (!nb.value.trim()) { no.textContent = 'Write a note first.'; no.className = 'small err'; return; }
+          api('POST', '/moderation/reports/' + r.id + '/notes', { note: nb.value }).then(draw).catch(function (e) { no.textContent = e.message; no.className = 'small err'; });
+        } }, 'Add note'));
+        inner.appendChild(no);
+      }).catch(function (e) { fail(inner, e); inner.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: draw }, 'Retry')); });
+    }
+    box.addEventListener('toggle', function () { if (box.open && !loaded) { loaded = true; draw(); } });
+    return box;
   }
 
   // ---------- 3. people
-  function viewUsers(r) {
-    if (r.id) return viewPerson(r.id);
-    var q = h('input', { type: 'search', placeholder: 'Name, @handle or email (2+ letters)', 'aria-label': 'Search people', value: r.params.q || '' });
-    var go = h('button', { class: 'btn', type: 'button' }, 'Search');
-    var results = h('div');
-    body.appendChild(h('div', { class: 'row' }, q, go)); body.appendChild(results);
-    S.peopleQ = r.params.q || '';
-    function search() {
-      var term = q.value.trim();
-      if (term.length < 2) return;
-      if ((r.params.q || '') !== term) { location.hash = href('people', null, { q: term }); return; }
-      clear(results);
-      api('GET', '/admin/users?q=' + encodeURIComponent(term)).then(function (d) {
-        if (!d.items.length) results.appendChild(h('p', { class: 'muted' }, 'No one found.'));
-        d.items.forEach(function (u) {
-          results.appendChild(h('div', { class: 'card' }, h('a', { class: 'link', href: href('people', u.id) }, u.name + ' @' + u.handle),
-            h('div', { class: 'small muted' }, u.email + ' - joined ' + ago(u.joinedAt)), badges(u)));
-        });
-      }).catch(function (e) { fail(results, e); });
-    }
-    go.addEventListener('click', search); q.addEventListener('keydown', function (e) { if (e.key === 'Enter') search(); });
-    if (!r.params.q) results.appendChild(h('p', { class: 'muted small' }, 'Search by name, @handle or email to begin.'));
-    else search();
+  var PEOPLE_STATUS = [['all', 'Everyone'], ['active', 'Active'], ['suspended', 'Suspended'], ['unverified', 'Email not verified'], ['recent', 'Joined in last 7 days'], ['reported', 'Has open reports'], ['deactivated', 'Deactivated']];
+  var PEOPLE_SORT = [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A to Z'], ['seen', 'Last seen']];
+  function pick(label, value, options, onchange) {
+    var sel = h('select', { 'aria-label': label });
+    options.forEach(function (o) { var op = h('option', { value: o[0] }, o[1]); if (o[0] === value) op.selected = true; sel.appendChild(op); });
+    sel.addEventListener('change', function () { onchange(sel.value); });
+    return sel;
   }
   function badges(u) {
-      return h('div', null, u.role !== 'user' ? h('span', { class: 'pill teal' }, u.role) : null, !u.verified ? h('span', { class: 'pill amber' }, 'email not verified') : null,
-        u.suspendedUntil ? h('span', { class: 'pill red' }, 'suspended until ' + when(u.suspendedUntil)) : null, u.deactivated ? h('span', { class: 'pill' }, 'deactivated') : null);
+    return h('div', null, u.role !== 'user' ? h('span', { class: 'pill teal' }, u.role) : null, !u.verified ? h('span', { class: 'pill amber' }, 'email not verified') : null,
+      u.suspendedUntil ? h('span', { class: 'pill red' }, 'suspended until ' + when(u.suspendedUntil)) : null, u.deactivated ? h('span', { class: 'pill' }, 'deactivated') : null,
+      u.openReports ? h('span', { class: 'pill red' }, u.openReports + ' open report' + (u.openReports > 1 ? 's' : '')) : null);
+  }
+  function viewUsers(r) {
+    if (r.id) return viewPerson(r.id);
+    var P = r.params, page = Math.max(1, parseInt(P.page, 10) || 1);
+    var f = { q: P.q || '', status: P.status || 'all', university: P.university || '', sort: P.sort || 'newest' };
+    S.peopleBack = location.hash || href('people');
+    function go(change) { var n = Object.assign({}, f, change); n.page = null; if (n.status === 'all') n.status = ''; if (n.sort === 'newest') n.sort = ''; location.hash = href('people', null, n); }
+    var q = h('input', { type: 'search', placeholder: 'Name, @handle or email (2+ letters)', 'aria-label': 'Search people', value: f.q });
+    function search() { var t = q.value.trim(); if (t && t.length < 2) return; go({ q: t }); }
+    q.addEventListener('keydown', function (e) { if (e.key === 'Enter') search(); });
+    var uniSlot = h('span'), results = h('div'), pager = h('div', { class: 'row pager' });
+    body.appendChild(h('div', { class: 'row' }, q, h('button', { class: 'btn', type: 'button', onclick: search }, 'Search')));
+    body.appendChild(h('div', { class: 'row' }, pick('Show', f.status, PEOPLE_STATUS, function (v) { go({ status: v }); }), uniSlot,
+      pick('Sort by', f.sort, PEOPLE_SORT, function (v) { go({ sort: v }); })));
+    body.appendChild(results); body.appendChild(pager);
+    function load() {
+      clear(results); results.appendChild(h('p', { class: 'muted' }, 'Loading...'));
+      var qs = { q: f.q, status: f.status === 'all' ? '' : f.status, university: f.university, sort: f.sort === 'newest' ? '' : f.sort, page: page > 1 ? page : '' };
+      api('GET', '/admin/users' + href('', null, qs).slice(2)).then(function (d) {
+        clear(results); clear(uniSlot); clear(pager);
+        if (d.universities && d.universities.length > 1) uniSlot.appendChild(pick('Campus', f.university, [['', 'All campuses']].concat(d.universities.map(function (u) { return [u.id, u.name]; })), function (v) { go({ university: v }); }));
+        results.appendChild(h('p', { class: 'muted small', role: 'status' }, d.total.toLocaleString() + (d.total === 1 ? ' person' : ' people')));
+        if (!d.items.length) results.appendChild(h('p', { class: 'muted' }, 'No one matches. Try a different search or filter.'));
+        d.items.forEach(function (u) {
+          results.appendChild(h('div', { class: 'card' }, h('a', { class: 'link', href: href('people', u.id) }, u.name + ' @' + u.handle),
+            h('div', { class: 'small muted' }, u.email + ' - ' + u.university + ' - joined ' + ago(u.joinedAt) + (u.lastSeenAt ? ' - seen ' + ago(u.lastSeenAt) : ' - never seen')), badges(u)));
+        });
+        if (d.pages > 1) {
+          var link = function (n, label, off) { return off ? h('span', { class: 'muted small' }, label) : h('a', { class: 'btn ghost', href: href('people', null, Object.assign({}, f, { status: f.status === 'all' ? '' : f.status, sort: f.sort === 'newest' ? '' : f.sort, page: n > 1 ? n : '' })) }, label); };
+          pager.appendChild(link(page - 1, 'Previous', page <= 1)); pager.appendChild(h('span', { class: 'small' }, 'Page ' + d.page + ' of ' + d.pages)); pager.appendChild(link(page + 1, 'Next', page >= d.pages));
+        }
+      }).catch(function (e) { fail(results, e); results.appendChild(h('button', { class: 'btn ghost', type: 'button', onclick: load }, 'Retry')); });
     }
+    load();
+  }
   function viewPerson(id) {
     var detail = h('div', null, 'Loading...'); body.appendChild(detail);
-    var back = S.peopleQ ? href('people', null, { q: S.peopleQ }) : href('people');
+    var back = S.peopleBack || href('people');
     function open() {
       api('GET', '/admin/users/' + id).then(function (u) {
         clear(detail);
         setHeader(u.name, '@' + u.handle + ' - ' + u.email, [['People', back], [u.name]]);
-        var c = u.counts, note = h('textarea', { placeholder: 'Internal note' }), msg = h('input', { type: 'text', maxlength: 300, placeholder: 'Message the person will see (optional)' });
-        var days = h('input', { type: 'number', min: 1, max: 30, value: 7 }), out = h('div', { class: 'small' });
+        var c = u.counts, canSuspend = S.caps.indexOf('users.suspend') >= 0, canNote = S.caps.indexOf('users.note') >= 0;
+        var reasonBox = h('textarea', { placeholder: 'Reason (required, kept in the history)', 'aria-label': 'Reason', maxlength: 500 });
+        var msg = h('input', { type: 'text', maxlength: 300, placeholder: 'Message the person will see (optional)', 'aria-label': 'Message to the person' });
+        var days = h('input', { type: 'number', min: 1, max: 30, value: 7, 'aria-label': 'Days' }), out = h('div', { class: 'small', role: 'status' });
         function run(kind) {
-          var b = { note: note.value, userMessage: msg.value }; if (kind === 'suspend') b.days = Math.max(1, Math.min(30, parseInt(days.value, 10) || 7));
+          var why = reasonBox.value.trim();
+          if (why.length < 3) { out.textContent = 'Please give a reason first.'; out.className = 'small err'; reasonBox.focus(); return; }
+          var n = Math.max(1, Math.min(30, parseInt(days.value, 10) || 7));
+          var ask = kind === 'suspend' ? 'Suspend ' + u.name + ' for ' + n + ' day' + (n > 1 ? 's' : '') + '? They will not be able to post, message or host events until it ends.' : 'Lift the suspension on ' + u.name + '?';
+          if (!window.confirm(ask)) return;
+          var b = { note: why, userMessage: msg.value }; if (kind === 'suspend') b.days = n;
           api('POST', '/admin/users/' + id + '/' + kind, b).then(function () { open(); }).catch(function (e) { out.textContent = e.message; out.className = 'small err'; });
         }
-        detail.appendChild(h('div', { class: 'card' }, h('div', { class: 'small muted' }, u.university), badges(u),
-          h('div', { class: 'grid', style: false }, kpi('Posts', c.posts), kpi('Comments', c.comments), kpi('Messages sent', c.messages),
-            kpi('Reports about them', c.reportsAboutThem, c.reportsAboutThem ? 'warn' : ''), kpi('Reports they made', c.reportsTheyMade), kpi('Signed-in devices', c.sessions)),
-          u.role === 'admin' ? h('p', { class: 'muted small' }, 'Administrators cannot be suspended here.') : [note, msg,
-            h('div', { class: 'row' }, u.suspendedUntil ? h('button', { class: 'btn', type: 'button', onclick: function () { run('unsuspend'); } }, 'Lift suspension')
-              : [h('span', { class: 'muted small' }, 'Suspend for'), days, h('span', { class: 'muted small' }, 'days'), h('button', { class: 'btn danger', type: 'button', onclick: function () { run('suspend'); } }, 'Suspend')])],
-          out,
-          h('h3', null, 'Past actions'),
+        var noteBox = h('textarea', { placeholder: 'Private note for staff (the person never sees it)', 'aria-label': 'Private note', maxlength: 1000 }), noteOut = h('div', { class: 'small', role: 'status' });
+        function addNote() {
+          if (!noteBox.value.trim()) { noteOut.textContent = 'Write a note first.'; noteOut.className = 'small err'; return; }
+          api('POST', '/admin/users/' + id + '/notes', { note: noteBox.value }).then(function () { open(); }).catch(function (e) { noteOut.textContent = e.message; noteOut.className = 'small err'; });
+        }
+        detail.appendChild(h('div', { class: 'card' }, h('div', { class: 'small muted' }, u.university + ' - joined ' + when(u.joinedAt) + ' - ' + (u.lastSeenAt ? 'last seen ' + ago(u.lastSeenAt) : 'never seen')), badges(u),
+          h('div', { class: 'grid' }, kpi('Posts', c.posts), kpi('Comments', c.comments), kpi('Messages sent', c.messages), kpi('Communities', c.communities),
+            kpi('Events hosted', c.eventsHosted), kpi('Events joined', c.eventsJoined), kpi('Reports about them', c.reportsAboutThem, c.reportsAboutThem ? 'warn' : '', c.reportsAboutThem ? href('reports', null, { status: 'open' }) : ''),
+            kpi('Reports they made', c.reportsTheyMade), kpi('Signed-in devices', c.sessions))));
+        if (u.role === 'admin') detail.appendChild(h('p', { class: 'muted small' }, 'Administrators cannot be suspended here.'));
+        else if (canSuspend) detail.appendChild(h('div', { class: 'card' }, h('h3', null, u.suspendedUntil ? 'Lift the suspension' : 'Suspend this account'), reasonBox, msg,
+          h('div', { class: 'row' }, u.suspendedUntil ? h('button', { class: 'btn', type: 'button', onclick: function () { run('unsuspend'); } }, 'Lift suspension')
+            : [h('span', { class: 'muted small' }, 'Suspend for'), days, h('span', { class: 'muted small' }, 'days (1 to 30, then it ends by itself)'), h('button', { class: 'btn danger', type: 'button', onclick: function () { run('suspend'); } }, 'Suspend')]), out));
+        detail.appendChild(h('div', { class: 'card' }, h('h3', null, 'Staff notes'),
+          u.notes.length ? u.notes.map(function (n) { return h('div', { class: 'quote' }, n.note, h('div', { class: 'small muted' }, (n.by || 'a staff member') + ' - ' + when(n.at))); }) : h('p', { class: 'muted small' }, 'No notes yet.'),
+          canNote ? [noteBox, h('div', { class: 'row' }, h('button', { class: 'btn ghost', type: 'button', onclick: addNote }, 'Add note')), noteOut] : null));
+        detail.appendChild(h('div', { class: 'card' }, h('h3', null, 'Moderation history'),
           u.actions.length ? h('div', { class: 'scroll' }, h('table', null, u.actions.map(function (a) { return h('tr', null, h('td', null, when(a.at)), h('td', null, a.action.replace('_', ' ')), h('td', null, a.by || ''), h('td', null, a.note || '')); }))) : h('p', { class: 'muted small' }, 'None.')));
       }).catch(function (e) { fail(detail, e); detail.appendChild(h('div', { class: 'row' }, h('button', { class: 'btn ghost', type: 'button', onclick: open }, 'Retry'), h('a', { class: 'link', href: back }, 'Back to People'))); });
     }

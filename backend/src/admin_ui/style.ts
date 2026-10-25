@@ -66,4 +66,5 @@ a.kpi-link { display:block; color:inherit; } a.kpi-link:hover { border-color:var
 .hb { background:#000; border:1px solid var(--line); border-radius:999px; height:10px; overflow:hidden; display:block; } .hbf { display:block; height:100%; background:var(--teal); }
 .custom { margin-left:6px; padding:3px 8px; border:1px solid var(--line); border-radius:999px; } .custom.on { border-color:var(--deep); }
 .kpi .small.ok { color:var(--teal); } summary { cursor:pointer; } details ul { margin:8px 0 0; padding-left:18px; }
+.pager { justify-content:center; margin:14px 0; gap:14px; } a.btn { display:inline-block; text-decoration:none; border-radius:10px; padding:8px 14px; border:1px solid var(--line); color:var(--text); }
 `;

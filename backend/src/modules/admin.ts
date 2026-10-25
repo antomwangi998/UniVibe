@@ -87,12 +87,14 @@ const DAILY = (m: { table: string; ts: string; where: string }) =>
 /** Keeps a search word from acting as a pattern. */
 const likeOf = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
+// A reason is required for every suspension and every lifting of one; it is kept with the action and shown to staff.
+const reason = z.string().trim().min(3, 'Please give a reason (at least 3 characters).').max(500);
 const suspendSchema = z.object({
   days: z.number().int().min(1).max(30).default(7),
-  note: z.string().trim().max(500).default(''),
+  note: reason,
   userMessage: z.string().trim().max(300).default(''),
 }).strict();
-const unsuspendSchema = z.object({ note: z.string().trim().max(500).default(''), userMessage: z.string().trim().max(300).default('') }).strict();
+const unsuspendSchema = z.object({ note: reason, userMessage: z.string().trim().max(300).default('') }).strict();
 
 export function adminRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
@@ -140,12 +142,39 @@ export function adminRoutes(ctx: Ctx) {
     // ---- 2. people: find an account, see its state, suspend or restore it
     app.get('/admin/users', async (req) => {
       await need(req, 'users.view');
-      const q = z.object({ q: z.string().trim().min(2).max(80), limit: z.coerce.number().int().min(1).max(50).default(25) }).parse(req.query);
+      const q = z.object({
+        q: z.string().trim().min(2).max(80).optional(),
+        status: z.enum(['all', 'active', 'suspended', 'unverified', 'deactivated', 'reported', 'recent']).default('all'),
+        university: z.string().trim().min(1).max(60).optional(),
+        sort: z.enum(['newest', 'oldest', 'name', 'seen']).default('newest'),
+        page: z.coerce.number().int().min(1).max(1000).default(1),
+        limit: z.coerce.number().int().min(1).max(50).default(25),
+      }).strict().parse(req.query);
+      // Every fragment below is fixed text in this file; only the values travel as parameters.
+      const where: string[] = []; const args: unknown[] = [];
+      if (q.q) { args.push(likeOf(q.q)); where.push(`(u.email ilike $${args.length} or u.full_name ilike $${args.length} or u.handle ilike $${args.length})`); }
+      if (q.university) { args.push(q.university); where.push(`u.university_id = $${args.length}`); }
+      const STATUS: Record<string, string> = {
+        active: 'u.deactivated_at is null and (u.suspended_until is null or u.suspended_until <= now())',
+        suspended: 'u.suspended_until > now()',
+        unverified: 'u.email_verified_at is null',
+        deactivated: 'u.deactivated_at is not null',
+        reported: "exists (select 1 from reports r where r.target_type = 'user' and r.target_id = u.id and r.status in ('open', 'under_review'))",
+        recent: "u.created_at > now() - interval '7 days'",
+      };
+      if (q.status !== 'all') where.push(STATUS[q.status]);
+      const ORDER: Record<string, string> = {
+        newest: 'u.created_at desc, u.id desc', oldest: 'u.created_at asc, u.id asc',
+        name: 'lower(u.full_name) asc, u.id asc', seen: 'u.last_seen_at desc nulls last, u.id desc',
+      };
+      const clause = where.length ? `where ${where.join(' and ')}` : '';
+      const total = (await pool.query<{ n: number }>(`select count(*)::int as n from users u ${clause}`, args)).rows[0].n;
       const { rows } = await pool.query(
-        `select u.id, u.full_name, u.handle, u.email, u.university_id, u.role, u.created_at, u.email_verified_at, u.suspended_until, u.deactivated_at
-           from users u where u.email ilike $1 or u.full_name ilike $1 or u.handle ilike $1
-          order by u.created_at desc limit $2`, [likeOf(q.q), q.limit]);
-      return { items: rows.map(userRow) };
+        `select u.id, u.full_name, u.handle, u.email, u.university_id, u.role, u.created_at, u.email_verified_at, u.suspended_until, u.deactivated_at, u.last_seen_at,
+                (select count(*) from reports r where r.target_type = 'user' and r.target_id = u.id and r.status in ('open', 'under_review'))::int as "openReports"
+           from users u ${clause} order by ${ORDER[q.sort]} limit $${args.length + 1} offset $${args.length + 2}`, [...args, q.limit, (q.page - 1) * q.limit]);
+      const universities = (await pool.query('select id, name from universities order by name')).rows;
+      return { items: rows.map(userRow), total, page: q.page, pages: Math.max(1, Math.ceil(total / q.limit)), universities };
     });
 
     app.get('/admin/users/:id', async (req) => {
@@ -158,18 +187,39 @@ export function adminRoutes(ctx: Ctx) {
                 (select count(*) from messages m where m.sender_id = u.id and m.status = 'active')::int as messages,
                 (select count(*) from reports r where r.target_type = 'user' and r.target_id = u.id)::int as "reportsAboutThem",
                 (select count(*) from reports r where r.reporter_id = u.id)::int as "reportsTheyMade",
-                (select count(*) from refresh_tokens t where t.user_id = u.id and t.revoked_at is null and t.expires_at > now())::int as sessions
+                (select count(*) from refresh_tokens t where t.user_id = u.id and t.revoked_at is null and t.expires_at > now())::int as sessions,
+                (select count(*) from community_members cm where cm.user_id = u.id and cm.status = 'active')::int as communities,
+                (select count(*) from events e where e.organizer_id = u.id)::int as "eventsHosted",
+                (select count(*) from event_registrations er where er.user_id = u.id and er.status = 'registered')::int as "eventsJoined",
+                u.last_seen_at
            from users u where u.id = $1`, [id])).rows[0];
       if (!u) throw new HttpError(404, 'not_found', 'Not found.');
       const actions = (await pool.query(
         `select a.action, a.note, a.created_at, m.full_name as by
            from moderation_actions a left join users m on m.id = a.moderator_id
           where a.target_type = 'user' and a.target_id = $1 order by a.created_at desc limit 10`, [id])).rows;
+      const notes = (await pool.query(
+        `select n.id, n.note, n.created_at, a.full_name as by from admin_notes n left join users a on a.id = n.author_id
+          where n.user_id = $1 order by n.created_at desc limit 30`, [id])).rows;
       return {
         ...userRow(u),
-        counts: { posts: u.posts, comments: u.comments, messages: u.messages, reportsAboutThem: u.reportsAboutThem, reportsTheyMade: u.reportsTheyMade, sessions: u.sessions },
+        counts: { posts: u.posts, comments: u.comments, messages: u.messages, reportsAboutThem: u.reportsAboutThem, reportsTheyMade: u.reportsTheyMade, sessions: u.sessions,
+                  communities: u.communities, eventsHosted: u.eventsHosted, eventsJoined: u.eventsJoined },
+        notes: notes.map((n) => ({ id: n.id, note: n.note, at: n.created_at, by: n.by })),
         actions: actions.map((a) => ({ action: a.action, note: a.note, at: a.created_at, by: a.by })),
       };
+    });
+
+    app.post('/admin/users/:id/notes', async (req) => {
+      const me = await need(req, 'users.note');
+      const id = idParam((req.params as { id: string }).id);
+      const b = z.object({ note: z.string().trim().min(1).max(1000) }).strict().parse(req.body ?? {});
+      await withTx(pool, async (client) => {
+        if (!(await client.query('select 1 from users where id = $1', [id])).rowCount) throw new HttpError(404, 'not_found', 'Not found.');
+        await client.query('insert into admin_notes (user_id, author_id, note) values ($1, $2, $3)', [id, me.id, b.note]);
+        await audit(client, me.id, 'admin_note_add', 'user', id, { length: b.note.length }); // the note itself stays out of the log
+      });
+      return { ok: true };
     });
 
     const settle = async (me: AuthUser, id: string, run: (client: PoolClient) => Promise<void>) =>
@@ -266,8 +316,8 @@ export function adminRoutes(ctx: Ctx) {
       const reasons = (await pool.query<{ reason: string; n: number }>(
         'select reason, count(*)::int as n from reports where created_at >= $1::date and created_at < $2::date + 1 group by 1 order by n desc', [r.from, r.to])).rows;
       const review = (await pool.query<{ reviewed: number; hours: number | null }>(
-        `select count(*)::int as reviewed, round((avg(extract(epoch from (reviewed_at - created_at))) / 3600)::numeric, 1)::float as hours
-           from reports where created_at >= $1::date and created_at < $2::date + 1 and reviewed_at is not null`, [r.from, r.to])).rows[0];
+        `select count(*)::int as reviewed, round((avg(extract(epoch from (first_reviewed_at - created_at))) / 3600)::numeric, 1)::float as hours
+           from reports where created_at >= $1::date and created_at < $2::date + 1 and first_reviewed_at is not null`, [r.from, r.to])).rows[0];
       const state = (await pool.query(
         `select count(*) filter (where deactivated_at is null)::int as users,
                 count(*) filter (where deactivated_at is null and email_verified_at is not null)::int as verified,
@@ -280,6 +330,47 @@ export function adminRoutes(ctx: Ctx) {
         accounts: state,
       };
     });
+    // ---- 6. trust and safety: what came in, how fast it is handled, what is still waiting
+    app.get('/admin/trust-safety', async (req) => {
+      await need(req, 'analytics.view');
+      const r = resolveRange(req.query);
+      const win = 'created_at >= $1::date and created_at < $2::date + 1';
+      const rows = async <T>(sql: string, args: unknown[] = [r.from, r.to]) => (await pool.query(sql, args)).rows as T[];
+      const timing = async (stamp: string, where: string) => (await pool.query<{ n: number; avg: number | null; median: number | null }>(
+        `select count(*)::int as n,
+                round((avg(extract(epoch from (${stamp} - created_at))) / 3600)::numeric, 1)::float as avg,
+                round((percentile_cont(0.5) within group (order by extract(epoch from (${stamp} - created_at))) / 3600)::numeric, 1)::float as median
+           from reports where ${win} and ${where}`, [r.from, r.to])).rows[0];
+      const waiting = (await pool.query(
+        `select count(*)::int as total,
+                count(*) filter (where created_at > now() - interval '1 day')::int as "underDay",
+                count(*) filter (where created_at <= now() - interval '1 day' and created_at > now() - interval '3 days')::int as "oneToThreeDays",
+                count(*) filter (where created_at <= now() - interval '3 days')::int as "overThreeDays",
+                count(*) filter (where escalated_at is not null)::int as escalated,
+                count(*) filter (where assigned_to is null)::int as unassigned
+           from reports where status in ('open', 'under_review')`)).rows[0];
+      return {
+        range: r,
+        daily: {
+          reports: (await pool.query(DAILY(METRICS.reports), [r.from, r.to])).rows,
+          actions: (await pool.query(DAILY({ table: 'moderation_actions', ts: 'created_at', where: 'true' }), [r.from, r.to])).rows,
+        },
+        received: (await pool.query(`select count(*)::int as n from reports where ${win}`, [r.from, r.to])).rows[0].n,
+        byReason: await rows<{ reason: string; n: number }>(`select reason, count(*)::int as n from reports where ${win} group by 1 order by n desc`),
+        byTarget: await rows<{ targetType: string; n: number }>(`select target_type as "targetType", count(*)::int as n from reports where ${win} group by 1 order by n desc`),
+        actionsByType: await rows<{ action: string; n: number }>(`select action, count(*)::int as n from moderation_actions where ${win} group by 1 order by n desc`),
+        waiting,
+        // Only reports filed in the period are measured, and the ones still waiting are counted separately so a long queue cannot hide behind a fast average.
+        firstReview: await timing('first_reviewed_at', 'first_reviewed_at is not null'),
+        resolution: await timing('reviewed_at', "status in ('action_taken', 'dismissed') and reviewed_at is not null"),
+        stillWaitingFromPeriod: (await pool.query(`select count(*)::int as n from reports where ${win} and status in ('open', 'under_review')`, [r.from, r.to])).rows[0].n,
+        repeated: {
+          targets: (await pool.query(`select count(*)::int as n from (select 1 from reports where ${win} group by target_type, target_id having count(*) >= 2) x`, [r.from, r.to])).rows[0].n,
+          top: await rows<{ targetType: string; targetId: string; n: number }>(
+            `select target_type as "targetType", target_id as "targetId", count(*)::int as n from reports where ${win} group by 1, 2 having count(*) >= 2 order by n desc, 2 limit 5`),
+        },
+      };
+    });
   };
 }
 
@@ -287,7 +378,7 @@ function userRow(u: Record<string, unknown>) {
   const suspendedUntil = u.suspended_until ? new Date(u.suspended_until as string) : null;
   return {
     id: u.id, name: u.full_name, handle: u.handle, email: u.email, university: u.university_id, role: u.role,
-    joinedAt: u.created_at, verified: Boolean(u.email_verified_at), deactivated: Boolean(u.deactivated_at),
+    joinedAt: u.created_at, lastSeenAt: u.last_seen_at ?? null, openReports: (u.openReports as number | undefined) ?? 0, verified: Boolean(u.email_verified_at), deactivated: Boolean(u.deactivated_at),
     suspendedUntil: suspendedUntil && suspendedUntil.getTime() > Date.now() ? suspendedUntil.toISOString() : null,
   };
 }
