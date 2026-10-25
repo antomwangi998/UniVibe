@@ -18,6 +18,7 @@ object NotificationChannels {
                 channel(PushChannel.Social, R.string.channel_social, R.string.channel_social_desc, NotificationManager.IMPORTANCE_DEFAULT),
                 channel(PushChannel.Campus, R.string.channel_campus, R.string.channel_campus_desc, NotificationManager.IMPORTANCE_DEFAULT),
                 channel(PushChannel.Security, R.string.channel_security, R.string.channel_security_desc, NotificationManager.IMPORTANCE_HIGH),
+                channel(PushChannel.Promotions, R.string.channel_promotions, R.string.channel_promotions_desc, NotificationManager.IMPORTANCE_DEFAULT),
             ),
         )
     }

@@ -14,16 +14,20 @@ export type Q = Pick<PoolClient, 'query'>;
 
 export type PromotionNotice =
   | 'receipt_submitted' | 'payment_confirmed' | 'payment_rejected' | 'campaign_approved' | 'campaign_rejected' | 'campaign_paused'
-  | 'campaign_stopped' | 'refund_approved' | 'refund_declined' | 'refund_paid';
+  | 'campaign_stopped' | 'refund_approved' | 'refund_declined' | 'refund_paid'
+  | 'business_approved' | 'business_rejected' | 'business_suspended' | 'business_restored' | 'business_verified';
 
 /**
  * Tells a person something happened to their promotion. The text lives in the app, keyed by `kind`, so the server never
  * sends free text and nothing private travels in a notification. Each notice gets its own id because notifications are
  * de-duplicated per entity; the campaign id travels in the metadata.
  */
-export async function notifyPromotion(q: Q, recipientId: string | null, kind: PromotionNotice, campaignId: string | null): Promise<void> {
+export async function notifyPromotion(q: Q, recipientId: string | null, kind: PromotionNotice, campaignId: string | null, businessId: string | null = null): Promise<void> {
   if (!recipientId) return;
-  await notify(q, { recipientId, actorId: null, type: 'promotion', entityType: 'campaign', entityId: randomUUID(), metadata: { kind, ...(campaignId ? { campaignId } : {}) } });
+  await notify(q, {
+    recipientId, actorId: null, type: 'promotion', entityType: businessId ? 'business' : 'campaign', entityId: randomUUID(),
+    metadata: { kind, ...(campaignId ? { campaignId } : {}), ...(businessId ? { businessId } : {}) },
+  });
 }
 
 /** Every staff member who can confirm payments (the platform has few). */

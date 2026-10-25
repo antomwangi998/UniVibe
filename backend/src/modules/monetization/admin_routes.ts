@@ -424,6 +424,11 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         // `sql` is chosen from the fixed list above, never from the request.
         await client.query(`update businesses set ${sql}, review_note = $2, reviewed_by = $3, reviewed_at = now(), updated_at = now() where id = $1`, [id, b.note, me.id]);
         await audit(client, me.id, `business.${b.decision}`, 'business', id, {});
+        const notice = { approve: 'business_approved', reject: 'business_rejected', suspend: 'business_suspended', restore: 'business_restored', verify: 'business_verified' } as const;
+        if (b.decision !== 'unverify') {
+          const owners = await client.query<{ user_id: string }>("select user_id from business_members where business_id = $1 and role = 'owner'", [id]);
+          for (const o of owners.rows) await notifyPromotion(client, o.user_id, notice[b.decision], null, id);
+        }
         // A business that is no longer approved stops its running campaigns; paid ones go to refund review.
         if (b.decision === 'suspend') {
           const live = await client.query<{ id: string }>("select id from campaigns where business_id = $1 and status in ('pending_review', 'approved', 'scheduled', 'active', 'paused')", [id]);

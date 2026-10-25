@@ -18,6 +18,7 @@ const PUSH_SWITCH: Record<string, 'push_messages' | 'push_social' | 'push_events
   community_invitation: 'push_social', community_role_changed: null, community_member_removed: null,
   community_announcement: 'push_social', community_channel_announcement: 'push_social',
   story_reaction: 'push_social',
+  promotion: null, // overridden at delivery: only the master push switch applies
 };
 
 export async function unreadCount(ctx: Ctx, userId: string): Promise<number> {
@@ -229,7 +230,9 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
       }
       const sw = PUSH_SWITCH[n.type];
       const prefs = await loadPrefs(ctx, n.recipient_id);
-      const allowed = sw === null ? true : prefs.push_enabled && prefs[sw ?? 'push_social'];
+      // Notices about the person's own promotions (payments, reviews, refunds) follow the master push switch only: they are
+      // not social activity or event news, so those finer switches do not apply.
+      const allowed = n.type === 'promotion' ? prefs.push_enabled : sw === null ? true : prefs.push_enabled && prefs[sw ?? 'push_social'];
       if (!allowed) {
         await ctx.pool.query("update notifications set push_status = 'skipped' where id = $1", [id]);
         return;
@@ -240,6 +243,8 @@ export function deliveryHandlers(ctx: Ctx, hub: Hub, push: PushSender, images?: 
         entityType: n.entity_type ?? '', entityId: n.entity_id ?? '',
         conversationId: typeof meta.conversationId === 'string' ? meta.conversationId : '',
         postId: typeof meta.postId === 'string' ? meta.postId : '',
+        // The app words the alert from this fixed label; an unknown one just gets the generic text.
+        ...(n.type === 'promotion' && typeof meta.kind === 'string' ? { promotionKind: meta.kind.slice(0, 40) } : {}),
       }, `n:${n.id}`);
       await ctx.pool.query(
         'update notifications set push_status = $2, push_attempted_at = now() where id = $1',
