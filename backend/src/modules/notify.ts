@@ -7,7 +7,8 @@ export type NotificationType =
   | 'follow' | 'like' | 'comment' | 'reply'
   | 'message' | 'group_invite' | 'verification' | 'event_update'
   | 'community_join_request' | 'community_join_approved' | 'community_join_declined' | 'community_invitation'
-  | 'community_role_changed' | 'community_member_removed' | 'community_announcement' | 'community_channel_announcement';
+  | 'community_role_changed' | 'community_member_removed' | 'community_announcement' | 'community_channel_announcement'
+  | 'promotion';
 
 /** Which user preference switch controls each type. `verification` is account-critical and cannot be switched off. */
 const PREFERENCE_COLUMN: Record<NotificationType, string | null> = {
@@ -21,6 +22,8 @@ const PREFERENCE_COLUMN: Record<NotificationType, string | null> = {
   community_invitation: 'communities', community_role_changed: null, community_member_removed: null,
   community_announcement: 'communities',
   community_channel_announcement: 'communities',
+  // Payment, review and refund notices about the person's own promotions are account notices: they cannot be switched off.
+  promotion: null,
 };
 
 /** Finer switches for event notices. They apply on top of the `events` switch, never instead of it. */

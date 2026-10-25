@@ -58,6 +58,21 @@ class RemoteNotificationRepository(
 
     private class Shape(val type: NotificationType, val body: String, val target: NotificationTarget = NotificationTarget.None)
 
+    /** Fixed wording for promotion notices. The server sends only a `kind`, never free text. */
+    private fun promotionText(kind: String): String = when (kind) {
+        "receipt_submitted" -> "A payment receipt is waiting for your check."
+        "payment_confirmed" -> "Your payment was confirmed. Your promotion is now in review."
+        "payment_rejected" -> "We could not confirm your payment. Open the promotion for details."
+        "campaign_approved" -> "Your promotion was approved."
+        "campaign_rejected" -> "Your promotion was not approved. Open it to see why."
+        "campaign_paused" -> "Your promotion was paused."
+        "campaign_stopped" -> "Your promotion has ended early."
+        "refund_approved" -> "Your refund was approved."
+        "refund_declined" -> "Your refund request was declined."
+        "refund_paid" -> "Your refund was sent."
+        else -> "There is an update about your promotion."
+    }
+
     private fun toNotification(o: JSONObject): AppNotification {
         val actor = o.optJSONObject("actor")?.let { parseStudent(it) }
         val meta = o.optJSONObject("metadata") ?: JSONObject()
@@ -105,6 +120,10 @@ class RemoteNotificationRepository(
             "verification" -> {
                 title = "Student verification"
                 Shape(NotificationType.System, "Your verification status changed.")
+            }
+            "promotion" -> {
+                title = "Promotions"
+                Shape(NotificationType.System, promotionText(meta.optString("kind")))
             }
             else -> Shape(NotificationType.System, "")
         }

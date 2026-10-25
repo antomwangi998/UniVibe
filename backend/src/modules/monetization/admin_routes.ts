@@ -5,12 +5,13 @@ import type { Ctx } from '../../context';
 import { withTx } from '../../db';
 import { HttpError } from '../../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../../http';
+import { notSuspended } from '../../access';
 import { audit } from '../moderation';
 import { resumeTarget } from './campaign_state';
 import { formatMoney } from './money';
 import { packageView } from './advertiser_routes';
 import {
-  PLACEMENTS_FOR_PACKAGE, advanceByClock, eventPromotable, factsOf, isUnique, lockCampaign, moveCampaign, orderStatusOf,
+  PLACEMENTS_FOR_PACKAGE, advanceByClock, eventPromotable, isUnique, lockCampaign, moveCampaign, notifyPromotion, orderStatusOf,
   requestRefundIfPaid, stopCampaign, sweepCampaigns, type CampaignRow,
 } from './service';
 
@@ -153,7 +154,7 @@ export function monetizationAdminRoutes(ctx: Ctx) {
     app.post('/admin/monetization/payments/:id/confirm', async (req) => {
       const me = await need(req, 'payments.confirm');
       const id = idParam((req.params as { id?: string }).id);
-      const b = z.object({ receivedMinor: z.number().int().min(0).max(MAX_PRICE_MINOR * 10), note: z.string().trim().max(300).default('') }).strict().parse(req.body ?? {});
+      const b = z.object({ receivedMinor: z.number().int().min(0).max(MAX_PRICE_MINOR * 10), refundExcess: z.boolean().default(false), note: z.string().trim().max(300).default('') }).strict().parse(req.body ?? {});
       const res = await withTx(pool, async (client) => {
         const p = (await client.query<{ id: string; order_id: string; status: string; amount_minor: string; provider_reference: string | null }>(
           'select id, order_id, status, amount_minor, provider_reference from payments where id = $1 for update', [id])).rows[0];
@@ -164,7 +165,10 @@ export function monetizationAdminRoutes(ctx: Ctx) {
           'select id, advertiser_id, status, reference from orders where id = $1 for update', [p.order_id])).rows[0];
         // Nobody confirms their own payment.
         if (o.advertiser_id === me.id) throw new HttpError(403, 'conflict_of_interest', 'You cannot confirm your own payment.');
-        if (b.receivedMinor !== Number(p.amount_minor)) {
+        const expected = Number(p.amount_minor);
+        const excess = b.receivedMinor - expected;
+        // Short payments never confirm. Extra money confirms only when staff say the excess will be handed back.
+        if (b.receivedMinor < expected || (excess > 0 && !b.refundExcess)) {
           await client.query("update payments set received_minor = $2, reconciliation = 'mismatch', updated_at = now() where id = $1", [id, b.receivedMinor]);
           await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'amount_mismatch', $2, $3)", [id, me.id, JSON.stringify({ expected: Number(p.amount_minor), received: b.receivedMinor })]);
           await audit(client, me.id, 'payment.mismatch', 'payment', id, { order: o.reference, expected: Number(p.amount_minor), received: b.receivedMinor });
@@ -173,7 +177,12 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         await client.query(
           "update payments set status = 'confirmed', received_minor = $2, reconciliation = 'reconciled', confirmed_by = $3, confirmed_at = now(), updated_at = now() where id = $1",
           [id, b.receivedMinor, me.id]);
-        await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'confirmed', $2, $3)", [id, me.id, JSON.stringify({ note: b.note })]);
+        await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'confirmed', $2, $3)", [id, me.id, JSON.stringify({ note: b.note, excess: Math.max(0, excess) })]);
+        if (excess > 0) {
+          await client.query(
+            "insert into refunds (payment_id, order_id, amount_minor, reason, requested_by, kind) values ($1, $2, $3, 'Overpayment: the excess over the order price.', $4, 'overpayment')",
+            [id, o.id, excess, me.id]);
+        }
         const late = o.status !== 'pending_payment';
         await client.query("update orders set status = 'paid', paid_at = now(), updated_at = now() where id = $1", [o.id]);
         const cid = (await client.query<{ id: string }>('select id from campaigns where order_id = $1', [o.id])).rows[0]?.id;
@@ -187,10 +196,11 @@ export function monetizationAdminRoutes(ctx: Ctx) {
             }
           }
         }
-        await audit(client, me.id, 'payment.confirm', 'payment', id, { order: o.reference, amountMinor: Number(p.amount_minor), late });
+        await notifyPromotion(client, o.advertiser_id, 'payment_confirmed', cid ?? null);
+        await audit(client, me.id, 'payment.confirm', 'payment', id, { order: o.reference, amountMinor: expected, excessMinor: Math.max(0, excess), late });
         return { result: 'confirmed' as const, repeat: false };
       });
-      if (res.result === 'mismatch') throw new HttpError(422, 'amount_mismatch', 'The amount received does not match the order. Nothing was confirmed; reject this payment or ask the advertiser to contact support.');
+      if (res.result === 'mismatch') throw new HttpError(422, 'amount_mismatch', 'The amount received does not match the order. Nothing was confirmed. If it is short, reject this payment. If it is more, confirm again with refundExcess to hand the difference back.');
       return { status: 'confirmed' };
     });
 
@@ -204,6 +214,9 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         if (p.status !== 'awaiting_verification') throw new HttpError(409, 'invalid_state', 'This payment is not waiting for confirmation.');
         await client.query("update payments set status = 'failed', failure_reason = $2, updated_at = now() where id = $1", [id, reason]);
         await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'rejected', $2, $3)", [id, me.id, JSON.stringify({ reason })]);
+        const who = (await client.query<{ advertiser_id: string | null; cid: string | null }>(
+          'select o.advertiser_id, (select c.id from campaigns c where c.order_id = o.id) as cid from payments p join orders o on o.id = p.order_id where p.id = $1', [id])).rows[0];
+        await notifyPromotion(client, who?.advertiser_id ?? null, 'payment_rejected', who?.cid ?? null);
         await audit(client, me.id, 'payment.reject', 'payment', id, {});
       });
       return { status: 'failed' };
@@ -233,11 +246,14 @@ export function monetizationAdminRoutes(ctx: Ctx) {
       if (step === 'reject' && b.note.length < 3) throw new HttpError(422, 'validation', 'Say why the refund is declined.');
       if (step === 'paid' && !b.payoutReference) throw new HttpError(422, 'validation', 'Enter the M-Pesa reference of the refund you sent.');
       return withTx(pool, async (client) => {
-        const r = (await client.query<{ id: string; status: string; payment_id: string; order_id: string; requested_by: string | null }>(
-          'select id, status, payment_id, order_id, requested_by from refunds where id = $1 for update', [id])).rows[0];
+        const r = (await client.query<{ id: string; status: string; payment_id: string; order_id: string; requested_by: string | null; kind: 'full' | 'overpayment' }>(
+          'select id, status, payment_id, order_id, requested_by, kind from refunds where id = $1 for update', [id])).rows[0];
         if (!r) throw new HttpError(404, 'not_found', 'Not found.');
-        // The person who asked for a refund cannot also approve it.
-        if (step !== 'paid' && r.requested_by === me.id) throw new HttpError(403, 'conflict_of_interest', 'Someone else must decide a refund you requested.');
+        // The person who asked for a refund cannot also approve it, unless they are the only active administrator
+        // (a one-person team could otherwise never refund anyone). That case is written to the audit log.
+        const admins = Number((await client.query<{ n: string }>(`select count(*) as n from users u where u.role = 'admin' and ${notSuspended('u')}`)).rows[0].n);
+        const soleAdmin = admins <= 1;
+        if (step !== 'paid' && r.requested_by === me.id && !soleAdmin) throw new HttpError(403, 'conflict_of_interest', 'Someone else must decide a refund you requested.');
         const cid = (await client.query<{ id: string }>('select id from campaigns where order_id = $1', [r.order_id])).rows[0]?.id;
         if (step === 'approve') {
           if (r.status !== 'requested') throw new HttpError(409, 'invalid_state', 'This refund is not waiting for a decision.');
@@ -245,16 +261,21 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         } else if (step === 'reject') {
           if (r.status !== 'requested') throw new HttpError(409, 'invalid_state', 'This refund is not waiting for a decision.');
           await client.query("update refunds set status = 'rejected', decided_by = $2, decided_at = now(), decision_note = $3 where id = $1", [id, me.id, b.note]);
-          if (cid) { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'cancelled', 'admin', me.id, 'refund declined'); }
+          if (cid && r.kind === 'full') { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'cancelled', 'admin', me.id, 'refund declined'); }
         } else {
           if (r.status !== 'approved') throw new HttpError(409, 'invalid_state', 'Approve the refund before recording the payout.');
           await client.query("update refunds set status = 'paid_out', payout_reference = $2 where id = $1", [id, b.payoutReference]);
-          await client.query("update payments set status = 'refunded', updated_at = now() where id = $1", [r.payment_id]);
-          await client.query("update orders set status = 'refunded', updated_at = now() where id = $1", [r.order_id]);
-          await client.query("insert into payment_events (payment_id, kind, actor_id) values ($1, 'refunded', $2)", [r.payment_id, me.id]);
-          if (cid) { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'refunded', 'admin', me.id, 'refund paid'); }
+          // Handing back an overpayment changes nothing about the campaign; a full refund ends it.
+          await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, $2, $3, '{}')", [r.payment_id, r.kind === 'full' ? 'refunded' : 'excess_refunded', me.id]);
+          if (r.kind === 'full') {
+            await client.query("update payments set status = 'refunded', updated_at = now() where id = $1", [r.payment_id]);
+            await client.query("update orders set status = 'refunded', updated_at = now() where id = $1", [r.order_id]);
+          }
+          if (cid && r.kind === 'full') { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'refunded', 'admin', me.id, 'refund paid'); }
         }
-        await audit(client, me.id, `refund.${step}`, 'refund', id, {});
+        const adv = (await client.query<{ advertiser_id: string | null }>('select advertiser_id from orders where id = $1', [r.order_id])).rows[0]?.advertiser_id ?? null;
+        await notifyPromotion(client, adv, step === 'approve' ? 'refund_approved' : step === 'reject' ? 'refund_declined' : 'refund_paid', cid ?? null);
+        await audit(client, me.id, `refund.${step}`, 'refund', id, { kind: r.kind, ...(soleAdmin && r.requested_by === me.id ? { soleAdmin: true } : {}) });
         return { status: step === 'approve' ? 'approved' : step === 'reject' ? 'rejected' : 'paid_out' };
       });
     }
@@ -320,11 +341,48 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         } else {
           await stopCampaign(client, c, 'admin', me.id, b.note, b.refund);
         }
+        if (action !== 'resume') {
+          const notice = { approve: 'campaign_approved', reject: 'campaign_rejected', pause: 'campaign_paused', cancel: 'campaign_stopped' } as const;
+          await notifyPromotion(client, c.advertiser_id, notice[action], id);
+        }
         await audit(client, me.id, `campaign.${action}`, 'campaign', id, { status: c.status });
         return { status: c.status };
       });
     }
     for (const a of ['approve', 'reject', 'pause', 'resume', 'cancel'] as const) app.post(`/admin/monetization/campaigns/:id/${a}`, (req) => review(req, a));
+
+    // ------------------------------------------------------------ ad reports
+    // Campaigns with open student reports, most reported first. Capped at 100; resolving one removes it from the list.
+    app.get('/admin/monetization/ad-reports', async (req) => {
+      await need(req, 'campaigns.review');
+      const { rows } = await pool.query(
+        `select c.id as campaign_id, c.headline, c.status, u.handle as advertiser, count(*) filter (where r.status = 'open')::int as open_reports,
+                array_agg(distinct r.reason) filter (where r.status = 'open') as reasons, min(r.created_at) filter (where r.status = 'open') as oldest
+           from campaign_reports r join campaigns c on c.id = r.campaign_id left join users u on u.id = c.advertiser_id
+          group by c.id, c.headline, c.status, u.handle
+         having count(*) filter (where r.status = 'open') > 0
+          order by open_reports desc, oldest limit 100`);
+      return { items: rows };
+    });
+
+    /** upheld: the ad breaks the rules, so a live campaign is paused for staff to act on. dismissed: reports closed, the ad is released. */
+    app.post('/admin/monetization/ad-reports/:campaignId/resolve', async (req) => {
+      const me = await need(req, 'campaigns.review');
+      const id = idParam((req.params as { campaignId?: string }).campaignId);
+      const b = z.object({ decision: z.enum(['upheld', 'dismissed']), note: z.string().trim().max(500).default('') }).strict().parse(req.body ?? {});
+      if (b.decision === 'upheld' && b.note.length < 3) throw new HttpError(422, 'validation', 'Say why (at least 3 characters).');
+      return withTx(pool, async (client) => {
+        const c = await lockCampaign(client, id);
+        const done = await client.query("update campaign_reports set status = $2, reviewed_by = $3, reviewed_at = now() where campaign_id = $1 and status = 'open'", [id, b.decision, me.id]);
+        if (!done.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
+        if (b.decision === 'upheld' && (c.status === 'active' || c.status === 'scheduled')) {
+          await moveCampaign(client, c, 'paused', 'admin', me.id, `Ad reports upheld: ${b.note}`.slice(0, 500), { paused_by: 'admin' });
+          await notifyPromotion(client, c.advertiser_id, 'campaign_paused', id);
+        }
+        await audit(client, me.id, `adreport.${b.decision}`, 'campaign', id, { reports: done.rowCount ?? 0 });
+        return { status: c.status };
+      });
+    });
 
     // ------------------------------------------------------------ businesses
     app.get('/admin/monetization/businesses', async (req) => {

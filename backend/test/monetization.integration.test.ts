@@ -176,4 +176,51 @@ describe.skipIf(!url)('monetization (needs TEST_DATABASE_URL)', () => {
     await sweepCampaigns(pool);
     expect((await call('GET', `${V1}/campaigns/${c}`, org.token)).body.status).toBe('cancelled');
   });
+
+  it('an overpayment confirms the order and queues only the excess for refund; the campaign carries on', async () => {
+    const { admin, packageId } = await setup(20000);
+    const org = await h.student();
+    const c = await campaign(org.token, packageId, await event(org.token));
+    const co = await call('POST', `${V1}/campaigns/${c}/checkout`, org.token);
+    await call('POST', `${V1}/orders/${co.body.order.id}/payment`, org.token, { receipt: receipt() });
+    const pay = (await call('GET', `${V1}/admin/monetization/payments?status=awaiting_verification`, admin.token)).body.items.find((i: { orderReference: string }) => i.orderReference === co.body.order.reference);
+    // Too little never confirms; too much needs the explicit refundExcess flag.
+    expect((await call('POST', `${V1}/admin/monetization/payments/${pay.id}/confirm`, admin.token, { receivedMinor: 15000 })).status).toBe(422);
+    expect((await call('POST', `${V1}/admin/monetization/payments/${pay.id}/confirm`, admin.token, { receivedMinor: 25000 })).status).toBe(422);
+    expect((await call('POST', `${V1}/admin/monetization/payments/${pay.id}/confirm`, admin.token, { receivedMinor: 25000, refundExcess: true })).status).toBe(200);
+    expect((await call('GET', `${V1}/campaigns/${c}`, org.token)).body.status).toBe('pending_review');
+    const refund = (await call('GET', `${V1}/admin/monetization/refunds?status=requested`, admin.token)).body.items.find((r: { order_reference: string }) => r.order_reference === co.body.order.reference);
+    expect(refund.amountMinor).toBe(5000);
+    // A sole administrator may decide a refund they requested; the audit log records it.
+    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, admin.token, {})).status).toBe(200);
+    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/paid`, admin.token, { payoutReference: 'QEXCESS123' })).status).toBe(200);
+    // Paying back the excess leaves the order paid and the campaign untouched.
+    expect((await pool.query('select status from orders where id = $1', [co.body.order.id])).rows[0].status).toBe('paid');
+    expect((await call('GET', `${V1}/campaigns/${c}`, org.token)).body.status).toBe('pending_review');
+  });
+
+  it('a draft can be edited, a submitted campaign cannot', async () => {
+    const { packageId } = await setup(0);
+    const org = await h.student();
+    const ev = await event(org.token);
+    const c = await campaign(org.token, packageId, ev);
+    const body = { kind: 'event_promotion', packageId, eventId: ev, headline: 'New headline', placements: ['home_feed'], startsAt: hours(3), endsAt: hours(20) };
+    expect((await call('PUT', `${V1}/campaigns/${c}`, org.token, body)).status).toBe(200);
+    expect((await call('GET', `${V1}/campaigns/${c}`, org.token)).body.headline).toBe('New headline');
+    expect((await call('PUT', `${V1}/campaigns/${c}`, (await h.student()).token, body)).status).toBe(404);
+    await call('POST', `${V1}/campaigns/${c}/checkout`, org.token);
+    expect((await call('PUT', `${V1}/campaigns/${c}`, org.token, body)).status).toBe(409);
+  });
+
+  it('advertisers and staff are notified, and ad reports can be resolved', async () => {
+    const { admin, packageId } = await setup(0);
+    const org = await h.student();
+    const c = await campaign(org.token, packageId, await event(org.token));
+    await call('POST', `${V1}/campaigns/${c}/checkout`, org.token);
+    await call('POST', `${V1}/admin/monetization/campaigns/${c}/approve`, admin.token, {});
+    const inbox = await pool.query("select metadata->>'kind' as kind from notifications where recipient_id = $1 and type = 'promotion'", [org.id]);
+    expect(inbox.rows.map((r) => r.kind)).toContain('campaign_approved');
+    expect((await call('GET', `${V1}/admin/monetization/ad-reports`, org.token)).status).toBe(404);
+    expect((await call('GET', `${V1}/admin/monetization/ad-reports`, admin.token)).status).toBe(200);
+  });
 });
