@@ -42,6 +42,20 @@ Staff (`/admin/monetization/...`, 404 to everyone without the capability): `pack
 - **Business edits:** editing an approved listing sends it back to review; renaming drops verification. Suspending a business stops its running campaigns.
 - **Free packages** (price 0) skip payment and go to review.
 
+## Stage 7: sponsored delivery - written, NOT run (token logic unit-tested)
+Migration `047_sponsored_delivery.sql`: `campaign_events` (impressions and clicks, pseudonymous viewer key) and `campaign_reports`.
+Endpoints: `GET /sponsored?placement=` , `POST /sponsored/impression`, `POST /sponsored/click`, `POST /sponsored/:campaignId/report`.
+- **Separate from the feeds.** `/posts` and Discover responses are unchanged, so nothing existing can break. The app asks `/sponsored` once per feed load and places the card itself (Home: after the third post, only if the feed has that many).
+- **Eligibility is decided on the server, per viewer:** campaign `active`, review approved, order `paid`, inside its dates, package impression cap not reached, placement included, advertiser at the viewer's university and not suspended or blocked either way, business approved, the event (if any) visible to the viewer by the normal event rules and not hidden by "not interested" or already registered, the post (if any) visible by the normal post rules, fewer than 3 open ad reports, and the viewer under the package's daily frequency cap.
+- **Not overwhelming:** at most one card per request; at most 8 sponsored cards per student per UTC day across all campaigns; campaigns served least-delivered first with a random tiebreak.
+- **Counting:** each card carries a signed token tied to the student, valid 30 minutes. An impression counts once per token, only while the campaign is still live and under its caps. A click must follow an impression of the same token, and a second click by the same student on the same ad within 30 minutes is not counted. Forged, expired, replayed or someone else's tokens are rejected.
+- **Metrics defined:** *impression* = the card was on screen for about a second; *click* = a tap on the card or its button. Neither is a purchase. No conversion metric exists because the app receives no purchase evidence.
+- **Privacy:** events store a keyed hash of the student id, never the id; advertisers will only ever get aggregate counts. A student-run event promotion names the organizer, whose name the event page already shows to the same viewers.
+- **Caching:** there is no shared server cache, so a status change takes effect on the next request. The response says `private, max-age=60`, so a phone may keep showing a card for up to one minute after it stops.
+- **Reports:** one per student per campaign, only for campaigns they were served. Three open reports hold a campaign back automatically; staff review comes with the admin pages (stage 9).
+- **Data retention (not yet automated):** `campaign_events` should be rolled into daily totals and purged after 90 days; this job is not written yet.
+- **Android (written, NOT compiled):** `SponsoredRepository`, `SponsoredCardView` (always labelled "Sponsored", names the advertiser, has "Report this ad"), wired into the Home campus feed. Discover and the business directory have the backend but no app UI yet.
+
 ## Not implemented yet
-Delivery into Home Feed and Discover (stage 7), impression and click tracking and advertiser analytics (8), admin dashboard pages (9), financial reports, CSV export and cost tracking (10), notifications to advertisers and staff, report-an-ad, logo/cover/creative image upload, editing a draft campaign, Daraja integration, subscriptions (business plans), the Android UI.
-Tests: `test/campaign-state.test.ts` (run), `test/monetization.integration.test.ts` (written for CI; needs Postgres; not run).
+Impression and click reporting for advertisers (stage 8), admin dashboard pages including the ad-report queue (9), financial reports, CSV export and cost tracking (10), notifications, campaign event retention job, logo/cover/creative image upload, editing a draft campaign, Daraja, subscriptions, Discover and business-directory sponsored UI on Android.
+Tests: `test/campaign-state.test.ts` and `test/sponsored-token.test.ts` (run under Node with a stand-in runner); `test/monetization.integration.test.ts` and `test/sponsored.integration.test.ts` (need Postgres, not run); `SponsoredCardTest.kt` (needs Gradle, not run).

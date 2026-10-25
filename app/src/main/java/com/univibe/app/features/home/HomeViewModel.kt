@@ -63,6 +63,8 @@ data class HomeUiState(
     val rsvpPost: Post? = null,
     /** Students you might follow, best match first. Shown a few at a time between posts, never on every screenful. */
     val suggestions: List<Student> = emptyList(),
+    /** The one paid card the server chose for this feed, if any. Never more than one. */
+    val sponsoredCard: com.univibe.app.data.repository.SponsoredCard? = null,
 ) {
     val visibleSuggestions: List<Student> get() = suggestions.filter { it.id !in blocked }
     val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
@@ -75,6 +77,7 @@ class HomeViewModel(
     private val settings: SettingsRepository = AppContainer.settingsRepository,
     private val privacy: PrivacyRepository = AppContainer.privacyRepository,
     private val events: EventRepository = AppContainer.eventRepository,
+    private val sponsored: com.univibe.app.data.repository.SponsoredRepository = AppContainer.sponsoredRepository,
 ) : ViewModel() {
     val supportsInterested: Boolean get() = events.supportsInterested
     val supportsSavedEvents: Boolean get() = events.supportsSaved
@@ -115,11 +118,44 @@ class HomeViewModel(
                 }
                 // Quiet refreshes keep the row the student is looking at; it only reshuffles on a fresh load or pull.
                 if (!silent || _state.value.suggestions.isEmpty()) loadSuggestions()
+                // Paid cards belong to the campus feed only, and a quiet refresh keeps the one already shown.
+                if (_state.value.filter == FeedFilter.Campus && (!silent || _state.value.sponsoredCard == null)) loadSponsored()
             } catch (e: Exception) {
                 _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your feed. Check your connection and try again.") }
             }
+        }
+    }
+
+    private val reportedSeen = HashSet<String>()
+
+    private fun loadSponsored() {
+        viewModelScope.launch {
+            // No card, or any failure, simply means no ad. The feed never waits for or depends on this.
+            val card = runCatching { sponsored.card("home_feed") }.getOrNull()
+            _state.update { it.copy(sponsoredCard = card) }
+        }
+    }
+
+    /** Called once the card has been on screen long enough. Each served card is reported at most once from here. */
+    fun sponsoredShown() {
+        val card = _state.value.sponsoredCard ?: return
+        if (!reportedSeen.add(card.impressionToken)) return
+        viewModelScope.launch { runCatching { sponsored.impression(card) } }
+    }
+
+    fun sponsoredClicked() {
+        val card = _state.value.sponsoredCard ?: return
+        viewModelScope.launch { runCatching { sponsored.click(card) } }
+    }
+
+    fun reportSponsored(reason: String) {
+        val card = _state.value.sponsoredCard ?: return
+        _state.update { it.copy(sponsoredCard = null) }
+        viewModelScope.launch {
+            val sent = runCatching { sponsored.report(card, reason) }.isSuccess
+            explain(if (sent) "Thanks. We'll review this ad." else "We couldn't send that report. Try again later.")
         }
     }
 
