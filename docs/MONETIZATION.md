@@ -80,6 +80,21 @@ Endpoints: `GET /campaigns/:id/analytics?from=&to=` (owner only, others get 404)
 - **Privacy:** advertisers never see who viewed or clicked, only totals. Up to 5,000 sign-ups and 20,000 clickers are matched inside the server to count RSVPs after clicks; the matching result is a single number.
 - **Ranges:** whole UTC days, at most 92 days, reversed or impossible dates are refused with a 422.
 
+## Stage 9: admin Monetization Centre - screens smoke-tested against a fake page; backend NOT run
+A **Monetization** group in the existing dashboard (nothing existing was changed or removed). Code: `src/admin_ui/monetization.ts`, spliced into the dashboard script. Each page shows only to staff holding its capability, and the API checks the same capability on every call.
+| Page | Needs | What it does |
+|---|---|---|
+| Revenue | `finance.view` | Received, refunded, net collected, recognised, deferred; by campaign type and by month; counts needing attention; the rules for each figure |
+| Campaigns | `campaigns.review` | Review queue and status tabs; approve, reject, pause, resume, cancel with reasons; a detail page with performance, CTR, delivery status, engagement checks and history |
+| Payments | `payments.view` (`payments.confirm` to act) | Receipts waiting for your check; confirm with the amount actually received (and "refund any excess"), or reject with a reason |
+| Refunds | `payments.view` (`refunds.approve` to act) | Approve, decline, then record the M-Pesa reference once sent |
+| Packages and payment | `packages.manage` | Create packages, change prices (asks you to confirm, existing orders keep their price), hide or show; set the till or paybill number and switch payments on |
+| Businesses and ad reports | `advertisers.view` (`campaigns.review` to act) | Approve, reject, suspend, restore, verify business listings; resolve reported ads |
+- **Accounting rules used on the Revenue page** (also shown on the page): *received* = confirmed cash before refunds (payment volume); *refunded* = refunds actually paid out; *net collected* = received minus refunded; *recognised* = finished campaigns in full, running ones by days elapsed, a campaign cancelled without a refund in full, nothing for campaigns not yet started, unreviewed or awaiting refund; *deferred* = paid but not yet recognised. Costs and operating surplus are **not tracked yet**, so no surplus is shown.
+- **Not in this stage:** an advertiser directory beyond business listings (suspending an advertiser's account is done on the existing People page), the full financial reports, CSV exports and cost tracking (stage 10).
+- **Verification done:** the dashboard script compiles; a fake-page test (`admin-monetization-ui.test.ts`, 8 tests, run) opens every new page against canned API data and checks that confirming a payment sends the amount in cents. This does not check layout or styling: open `/admin` in a browser and look.
+- **Not verified:** the new revenue SQL and every admin route against Postgres.
+
 ## Not implemented yet
-Advertiser portal screens on Android, including analytics charts (stage 8b), event-view and business-view tracking, admin dashboard pages (9), financial reports, CSV export and cost tracking (10), logo/cover/creative image upload, Daraja, subscriptions, and Discover and business-directory sponsored UI on Android.
-Tests: `campaign-state`, `sponsored-token`, `analytics-calc` (40 tests, run under Node with a stand-in runner); `monetization.integration`, `sponsored.integration` (including analytics) and the push case in `push-reactions.integration` need Postgres and have not run; `SponsoredCardTest.kt` and `PushPayloadTest.kt` need Gradle and have not run.
+Financial reports, CSV export and cost tracking (stage 10), advertiser portal screens on Android including analytics charts (stage 8b), event-view and business-view tracking, logo/cover/creative image upload, Daraja, subscriptions, and Discover and business-directory sponsored UI on Android.
+Tests: `campaign-state`, `sponsored-token`, `analytics-calc` and `admin-monetization-ui` (48 tests, run under Node with a stand-in runner); the `*.integration` tests need Postgres and have not run; the Kotlin tests need Gradle and have not run.
