@@ -1,6 +1,0 @@
-# Baseline profile: tells ART to pre-compile UniVibe's own code (screens, view models, list items), so the first
-# scrolls and screen changes after an install are not run through the slow interpreter. Library code (Compose,
-# AndroidX) ships its own profiles. A profile recorded on a device with Macrobenchmark would be more precise;
-# this wildcard version is the broad fallback.
-HSPLcom/univibe/app/**->**(**)**
-Lcom/univibe/app/**;
