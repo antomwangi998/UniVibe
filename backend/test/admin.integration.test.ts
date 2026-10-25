@@ -57,7 +57,7 @@ describe.skipIf(!url)('admin dashboard API (needs TEST_DATABASE_URL)', () => {
     expect(detail.body.suspendedUntil).not.toBeNull();
     expect(detail.body.actions[0].action).toBe('suspend_user');
 
-    expect((await call('POST', `${V1}/admin/users/${target.id}/unsuspend`, admin.token, {})).status).toBe(200);
+    expect((await call('POST', `${V1}/admin/users/${target.id}/unsuspend`, admin.token, { note: 'appeal accepted' })).status).toBe(200);
     expect((await call('GET', `${V1}/admin/users/${target.id}`, admin.token)).body.suspendedUntil).toBeNull();
 
     const audit = await call('GET', `${V1}/admin/audit`, admin.token);
@@ -69,8 +69,8 @@ describe.skipIf(!url)('admin dashboard API (needs TEST_DATABASE_URL)', () => {
   it('never suspends an administrator or yourself, and rejects bad input', async () => {
     const admin = await asRole('admin');
     const other = await asRole('admin');
-    expect((await call('POST', `${V1}/admin/users/${other.id}/suspend`, admin.token, {})).status).toBe(403);
-    expect((await call('POST', `${V1}/admin/users/${admin.id}/suspend`, admin.token, {})).status).toBe(403);
+    expect((await call('POST', `${V1}/admin/users/${other.id}/suspend`, admin.token, { note: 'testing' })).status).toBe(403);
+    expect((await call('POST', `${V1}/admin/users/${admin.id}/suspend`, admin.token, { note: 'testing' })).status).toBe(403);
     const target = await h.student();
     expect((await call('POST', `${V1}/admin/users/${target.id}/suspend`, admin.token, { days: 400 })).status).toBe(400);
     expect((await call('GET', `${V1}/admin/users?q=a`, admin.token)).status).toBe(400);
@@ -166,5 +166,63 @@ describe.skipIf(!url)('admin dashboard API (needs TEST_DATABASE_URL)', () => {
     expect(seen.map((r) => r.action)).toEqual(['staff_login_failed', 'staff_login']);
     expect(JSON.stringify(seen)).not.toMatch(/password|wrong/i);
     expect((await pool.query("select 1 from audit_logs where actor_id = $1", [student.id])).rowCount).toBe(0);
+  });
+
+  it('people directory: filters, sorting and pages are done by the server', async () => {
+    const admin = await asRole('admin');
+    const a = await h.student(); const b = await h.student(); await h.student();
+    expect((await call('POST', `${V1}/admin/users/${a.id}/suspend`, admin.token, { days: 2, note: 'spam' })).status).toBe(200);
+    const list = async (qs: string) => { const r = await call('GET', `${V1}/admin/users${qs}`, admin.token); expect(r.status, JSON.stringify(r.body)).toBe(200); return r.body; };
+
+    const all = await list('');                       // no search word needed
+    expect(all.total).toBeGreaterThanOrEqual(4);
+    expect(all.items.length).toBeLessThanOrEqual(25);
+    expect(all.universities.length).toBeGreaterThan(0);
+
+    const sus = await list('?status=suspended');
+    expect(sus.items.map((u: { id: string }) => u.id)).toContain(a.id);
+    expect(sus.items.every((u: { suspendedUntil: string | null }) => u.suspendedUntil)).toBe(true);
+    const act = await list('?status=active&limit=50');
+    expect(act.items.map((u: { id: string }) => u.id)).not.toContain(a.id);
+    expect(act.items.map((u: { id: string }) => u.id)).toContain(b.id);
+    expect((await list('?status=unverified')).items.every((u: { verified: boolean }) => !u.verified)).toBe(true);
+    expect((await list('?status=recent')).items.map((u: { id: string }) => u.id)).toContain(b.id);
+    expect((await list('?status=reported')).items.every((u: { openReports: number }) => u.openReports > 0)).toBe(true);
+    expect((await list('?university=lakeside')).items.every((u: { university: string }) => u.university === 'lakeside')).toBe(true);
+    expect((await list(`?q=${encodeURIComponent(b.email.slice(0, 12))}&status=active`)).items.map((u: { id: string }) => u.id)).toContain(b.id);
+
+    const p1 = await list('?limit=2&page=1'); const p2 = await list('?limit=2&page=2');
+    expect(p1.items).toHaveLength(2);
+    expect(p1.pages).toBe(Math.ceil(p1.total / 2));
+    expect(p2.items.map((u: { id: string }) => u.id).some((id: string) => p1.items.map((u: { id: string }) => u.id).includes(id))).toBe(false);
+    const names = (await list('?sort=name&limit=50')).items.map((u: { name: string }) => u.name.toLowerCase());
+    expect(names).toEqual([...names].sort());
+    const oldest = (await list('?sort=oldest&limit=2')).items; const newest = (await list('?sort=newest&limit=2')).items;
+    expect(new Date(oldest[0].joinedAt).getTime()).toBeLessThanOrEqual(new Date(newest[0].joinedAt).getTime());
+
+    for (const bad of ['?status=everything', '?sort=email', '?page=0', '?limit=500', '?q=a', '?evil=1']) expect((await call('GET', `${V1}/admin/users${bad}`, admin.token)).status, bad).toBe(400);
+    const mod = await asRole('moderator');
+    expect((await call('GET', `${V1}/admin/users`, mod.token)).status).toBe(404);
+  });
+
+  it('requires a reason to suspend or lift, and keeps private notes out of the audit log', async () => {
+    const admin = await asRole('admin'); const mod = await asRole('moderator'); const target = await h.student();
+    expect((await call('POST', `${V1}/admin/users/${target.id}/suspend`, admin.token, { days: 1 })).status).toBe(400);
+    expect((await call('POST', `${V1}/admin/users/${target.id}/suspend`, admin.token, { days: 1, note: ' ' })).status).toBe(400);
+    expect((await call('POST', `${V1}/admin/users/${target.id}/unsuspend`, admin.token, {})).status).toBe(400);
+    expect((await call('GET', `${V1}/admin/users/${target.id}`, admin.token)).body.suspendedUntil).toBeNull();
+
+    expect((await call('POST', `${V1}/admin/users/${target.id}/notes`, mod.token, { note: 'hi' })).status).toBe(404);
+    expect((await call('POST', `${V1}/admin/users/${target.id}/notes`, admin.token, { note: '' })).status).toBe(400);
+    expect((await call('POST', `${V1}/admin/users/${target.id}/notes`, admin.token, { note: 'Warned about spam in chat.' })).status).toBe(200);
+    expect((await call('POST', `${V1}/admin/users/00000000-0000-4000-8000-000000000000/notes`, admin.token, { note: 'x' })).status).toBe(404);
+    const d = await call('GET', `${V1}/admin/users/${target.id}`, admin.token);
+    expect(d.body.notes[0].note).toBe('Warned about spam in chat.');
+    expect(d.body.counts).toEqual(expect.objectContaining({ communities: 0, eventsHosted: 0, eventsJoined: 0 }));
+    const logged = (await pool.query("select details from audit_logs where action = 'admin_note_add' and target_id = $1", [target.id])).rows;
+    expect(logged).toHaveLength(1);
+    expect(JSON.stringify(logged)).not.toContain('spam');
+    // the person themself never sees it
+    expect(JSON.stringify((await call('GET', `${V1}/me`, target.token)).body)).not.toContain('Warned');
   });
 });
