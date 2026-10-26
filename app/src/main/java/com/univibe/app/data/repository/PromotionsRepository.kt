@@ -74,7 +74,7 @@ fun Throwable.promotionMessage(): String = when (this) {
 }
 
 private fun JSONObject.str(name: String): String = if (isNull(name)) "" else optString(name)
-private fun JSONObject.strOrNull(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
+private fun JSONObject.nonEmptyStrOrNull(name: String): String? = if (isNull(name)) null else optString(name).ifEmpty { null }
 private fun JSONObject.doubleOrNull(name: String): Double? = if (isNull(name) || !has(name)) null else optDouble(name)
 private fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else List(length()) { optString(it) }
 private fun millis(iso: String): Long = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(0L)
@@ -99,7 +99,7 @@ internal fun parseOrder(o: JSONObject) = OrderInfo(
 internal fun parseCampaignItem(o: JSONObject) = CampaignItem(
     id = o.str("id"), kind = o.str("kind"), headline = o.str("headline"), status = o.str("status"), reviewStatus = o.str("reviewStatus"),
     startsAtMillis = millis(o.str("startsAt")), endsAtMillis = millis(o.str("endsAt")), impressions = o.optLong("impressions"),
-    clicks = o.optLong("clicks"), paymentStatus = o.strOrNull("paymentStatus"), amount = o.strOrNull("amount"),
+    clicks = o.optLong("clicks"), paymentStatus = o.nonEmptyStrOrNull("paymentStatus"), amount = o.nonEmptyStrOrNull("amount"),
 )
 
 internal fun parseCampaignDetail(o: JSONObject): CampaignDetail {
@@ -109,7 +109,7 @@ internal fun parseCampaignDetail(o: JSONObject): CampaignDetail {
         reviewStatus = o.str("reviewStatus"), reviewNote = o.str("reviewNote"), placements = o.optJSONArray("placements").strings(),
         startsAtMillis = millis(o.str("startsAt")), endsAtMillis = millis(o.str("endsAt")), impressions = o.optLong("impressions"), clicks = o.optLong("clicks"),
         order = o.optJSONObject("order")?.let(::parseOrder),
-        payment = o.optJSONObject("payment")?.let { PaymentState(it.str("status"), it.strOrNull("failureReason")) },
+        payment = o.optJSONObject("payment")?.let { PaymentState(it.str("status"), it.nonEmptyStrOrNull("failureReason")) },
         history = if (history == null) emptyList() else List(history.length()) {
             val h = history.getJSONObject(it)
             HistoryItem(h.str("status"), h.str("by"), h.str("note"), millis(h.str("at")))
@@ -134,7 +134,7 @@ internal fun parseAnalytics(o: JSONObject): CampaignAnalytics {
         running = delivery.optBoolean("running", false), heldForReview = delivery.optBoolean("heldForReview", false),
         reasonsNotRunning = delivery.optJSONArray("reasonsNotRunning").strings(),
         percentOfCapUsed = if (delivery.isNull("percentOfCapUsed")) null else delivery.optInt("percentOfCapUsed"),
-        paymentAmount = o.optJSONObject("payment")?.strOrNull("amount"), refunded = o.optJSONObject("payment")?.strOrNull("refunded"),
+        paymentAmount = o.optJSONObject("payment")?.nonEmptyStrOrNull("amount"), refunded = o.optJSONObject("payment")?.nonEmptyStrOrNull("refunded"),
         definitions = if (defs == null) emptyList() else defs.keys().asSequence().map { it to defs.optString(it) }.toList(),
     )
 }
@@ -143,7 +143,7 @@ internal fun parseBusiness(o: JSONObject) = Business(
     id = o.str("id"), name = o.str("name"), description = o.str("description"), category = o.str("category"),
     locationText = o.str("locationText"), contactPhone = o.str("contactPhone"), contactEmail = o.str("contactEmail"),
     websiteUrl = o.str("websiteUrl"), offerings = o.str("offerings"), verified = o.optBoolean("verified", false),
-    status = o.strOrNull("status"), reviewNote = o.strOrNull("reviewNote"),
+    status = o.nonEmptyStrOrNull("status"), reviewNote = o.nonEmptyStrOrNull("reviewNote"),
 )
 
 class RemotePromotionsRepository(private val api: AuthedApi) : PromotionsRepository {
@@ -163,7 +163,7 @@ class RemotePromotionsRepository(private val api: AuthedApi) : PromotionsReposit
     override suspend fun campaigns(cursor: String?): PromoPage<CampaignItem> {
         val o = get("/me/campaigns" + if (cursor != null) "?cursor=" + java.net.URLEncoder.encode(cursor, "UTF-8") else "")
         val items = o.getJSONArray("items")
-        return PromoPage(List(items.length()) { parseCampaignItem(items.getJSONObject(it)) }, o.strOrNull("nextCursor"))
+        return PromoPage(List(items.length()) { parseCampaignItem(items.getJSONObject(it)) }, o.nonEmptyStrOrNull("nextCursor"))
     }
 
     override suspend fun campaign(id: String) = parseCampaignDetail(get("/campaigns/$id"))
@@ -224,6 +224,6 @@ class RemotePromotionsRepository(private val api: AuthedApi) : PromotionsReposit
         val q = listOfNotNull(category?.let { "category=$it" }, cursor?.let { "cursor=" + java.net.URLEncoder.encode(it, "UTF-8") }).joinToString("&")
         val o = get("/businesses" + if (q.isEmpty()) "" else "?$q")
         val items = o.getJSONArray("items")
-        return PromoPage(List(items.length()) { parseBusiness(items.getJSONObject(it)) }, o.strOrNull("nextCursor"))
+        return PromoPage(List(items.length()) { parseBusiness(items.getJSONObject(it)) }, o.nonEmptyStrOrNull("nextCursor"))
     }
 }

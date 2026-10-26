@@ -98,7 +98,9 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     const get = async (qs: string) => ids((await call('GET', `${D}?limit=30&${qs}`, viewer.token)).body);
     expect(await get('category=music')).toEqual([music.id]);
     expect(await get('category=music,academic')).toEqual(expect.arrayContaining([music.id, online.id]));
-    expect(await get('format=online')).toEqual([online.id]);
+    const onlineOnly = await get('format=online'); // other test files add online events too, so check ours is in and the in-person ones are out
+    expect(onlineOnly).toContain(online.id);
+    for (const other of [tech, music, small, closed]) expect(onlineOnly).not.toContain(other.id);
     const open = await get('registrationOpen=true');
     expect(open).toContain(tech.id);
     expect(open).not.toContain(small.id);
@@ -150,7 +152,8 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     const viewer = await h.student();
     const org = await h.student();
     await call('PUT', `/students/${org.id}/follow`, viewer.token);
-    const e = await create(org.token);
+    const tag = uniq('not-interested-'); // the shared test database holds many events, so find ours by title
+    const e = await create(org.token, { title: `${tag} event` });
     expect(ids((await call('GET', `${D}?limit=30`, viewer.token)).body)).toContain(e.id);
     expect((await call('PUT', `${D}/${e.id}/not-interested`, viewer.token)).status).toBe(204);
     expect((await call('PUT', `${D}/${e.id}/not-interested`, viewer.token)).status).toBe(204); // repeat is fine
@@ -160,7 +163,7 @@ describe.skipIf(!url)('event discovery (needs TEST_DATABASE_URL)', () => {
     expect(home.some((p) => p.eventId === e.id)).toBe(false);
     // Still reachable everywhere else.
     expect((await call('GET', `${V1}/events/${e.id}`, viewer.token)).status).toBe(200);
-    expect(ids((await call('GET', `${V1}/events?limit=50`, viewer.token)).body)).toContain(e.id);
+    expect(ids((await call('GET', `${V1}/events?limit=50&q=${tag}`, viewer.token)).body)).toContain(e.id);
     expect((await call('DELETE', `${D}/${e.id}/not-interested`, viewer.token)).status).toBe(204);
     expect(ids((await call('GET', `${D}?limit=30`, viewer.token)).body)).toContain(e.id);
     // Not allowed for events the person cannot see.

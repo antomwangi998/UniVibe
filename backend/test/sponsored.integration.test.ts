@@ -38,6 +38,15 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     return { admin, org, campaignId: c.body.id as string, eventId: ev.body.id as string };
   }
   const feed = (token: string, placement = 'home_feed') => call('GET', `${V1}/sponsored?placement=${placement}`, token);
+  // The shared test database can hold other live campaigns, so pick the card of the campaign under test.
+  // Delivery picks at random among campaigns with equal reach, so ask a few times before concluding it is absent.
+  const cardOf = async (token: string, campaignId: string, tries = 25) => {
+    for (let i = 0; i < tries; i++) {
+      const hit = (await feed(token)).body.items.find((x: { campaignId: string }) => x.campaignId === campaignId);
+      if (hit) return hit;
+    }
+    return undefined;
+  };
 
   it('shows a labelled card to a student, at most one, and nothing when no campaign qualifies', async () => {
     const viewer = await h.student();
@@ -57,7 +66,7 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     const { campaignId } = await liveCampaign();
     const a = await h.student();
     const b = await h.student();
-    const token = (await feed(a.token)).body.items[0].impressionToken as string;
+    const token = (await cardOf(a.token, campaignId)).impressionToken as string;
     expect((await call('POST', `${V1}/sponsored/impression`, a.token, { token })).body.counted).toBe(true);
     expect((await call('POST', `${V1}/sponsored/impression`, a.token, { token })).body.counted).toBe(false);
     expect((await call('POST', `${V1}/sponsored/impression`, b.token, { token })).status).toBe(400);
@@ -68,33 +77,33 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
   it('counts a click only after that card was shown, and only once in a short while', async () => {
     const { campaignId } = await liveCampaign({ frequency: 5 });
     const a = await h.student();
-    const t1 = (await feed(a.token)).body.items[0].impressionToken as string;
+    const t1 = (await cardOf(a.token, campaignId)).impressionToken as string;
     expect((await call('POST', `${V1}/sponsored/click`, a.token, { token: t1 })).status).toBe(400); // never reported as shown
     await call('POST', `${V1}/sponsored/impression`, a.token, { token: t1 });
     expect((await call('POST', `${V1}/sponsored/click`, a.token, { token: t1 })).body.counted).toBe(true);
     expect((await call('POST', `${V1}/sponsored/click`, a.token, { token: t1 })).body.counted).toBe(false);
-    const t2 = (await feed(a.token)).body.items[0].impressionToken as string;
+    const t2 = (await cardOf(a.token, campaignId)).impressionToken as string;
     await call('POST', `${V1}/sponsored/impression`, a.token, { token: t2 });
     expect((await call('POST', `${V1}/sponsored/click`, a.token, { token: t2 })).body.counted).toBe(false); // second tap within 30 minutes
     expect((await pool.query('select delivered_clicks from campaigns where id = $1', [campaignId])).rows[0].delivered_clicks).toBe('1');
   });
 
   it('stops after the daily frequency cap and after the package impression cap', async () => {
-    await liveCampaign({ frequency: 2 });
+    const { campaignId: capped } = await liveCampaign({ frequency: 2 });
     const a = await h.student();
     for (let i = 0; i < 2; i++) {
-      const it = (await feed(a.token)).body.items[0];
+      const it = await cardOf(a.token, capped);
       expect(it).toBeTruthy();
       await call('POST', `${V1}/sponsored/impression`, a.token, { token: it.impressionToken });
     }
-    expect((await feed(a.token)).body.items).toHaveLength(0);
+    expect(await cardOf(a.token, capped)).toBeUndefined();
 
     const { campaignId } = await liveCampaign({ cap: 1 });
     const b = await h.student();
-    const only = (await feed(b.token)).body.items.find((x: { campaignId: string }) => x.campaignId === campaignId);
+    const only = await cardOf(b.token, campaignId);
     await call('POST', `${V1}/sponsored/impression`, b.token, { token: only.impressionToken });
     const c = await h.student();
-    expect((await feed(c.token)).body.items.some((x: { campaignId: string }) => x.campaignId === campaignId)).toBe(false);
+    expect(await cardOf(c.token, campaignId, 10)).toBeUndefined();
   });
 
   it('never delivers an unpaid, unapproved, paused or ended campaign', async () => {
@@ -143,12 +152,12 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     const stranger = await h.student();
     expect((await call('POST', `${V1}/sponsored/${campaignId}/report`, stranger.token, { reason: 'scam' })).status).toBe(404);
     for (const r of reporters) {
-      const t = (await feed(r.token)).body.items[0].impressionToken;
+      const t = (await cardOf(r.token, campaignId)).impressionToken;
       await call('POST', `${V1}/sponsored/impression`, r.token, { token: t });
       expect((await call('POST', `${V1}/sponsored/${campaignId}/report`, r.token, { reason: 'misleading' })).status).toBe(201);
     }
     const fresh = await h.student();
-    expect((await feed(fresh.token)).body.items.some((x: { campaignId: string }) => x.campaignId === campaignId)).toBe(false);
+    expect(await cardOf(fresh.token, campaignId, 10)).toBeUndefined();
   });
 
   it('advertisers see their own recorded performance; nobody else does; staff also get integrity signals', async () => {
@@ -156,7 +165,7 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     const a = await h.student();
     const b = await h.student();
     for (const v of [a, b]) {
-      const t = (await feed(v.token)).body.items[0].impressionToken as string;
+      const t = (await cardOf(v.token, campaignId)).impressionToken as string;
       await call('POST', `${V1}/sponsored/impression`, v.token, { token: t });
       if (v === a) await call('POST', `${V1}/sponsored/click`, v.token, { token: t });
     }

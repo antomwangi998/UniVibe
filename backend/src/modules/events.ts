@@ -118,7 +118,7 @@ async function assertMayHostForCommunity(client: Q, me: AuthUser, communityId: s
 
 async function assertCategory(client: Q, code: string) {
   const ok = await client.query('select 1 from event_categories where code = $1 and active', [code]);
-  if (!ok.rowCount) throw new HttpError(400, 'validation', 'Pick a category from the list.');
+  if (!ok.rowCount) throw new HttpError(422, 'validation', 'Pick a category from the list.');
 }
 
 async function audit(client: Q, eventId: string, actorId: string, action: 'create' | 'publish' | 'update' | 'cancel' | 'complete' | 'announce_update' | 'hide' | 'restore', detail: Record<string, unknown> = {}) {

@@ -91,7 +91,7 @@ describe.skipIf(!url)('event notifications (needs TEST_DATABASE_URL)', () => {
     await call('POST', `${V1}/events/${e.id}/register`, s1.token);
     const ctx = jobsCtx();
     const reminders = async () => (await call('GET', `${V1}/notifications?limit=50`, s1.token)).body.items
-      .filter((n: { metadata: { kind?: string } }) => n.metadata.kind === 'reminder').map((n: { metadata: { offsetMinutes: number } }) => n.metadata.offsetMinutes).sort();
+      .filter((n: { metadata: { kind?: string } }) => n.metadata.kind === 'reminder').map((n: { metadata: { offsetMinutes: number } }) => n.metadata.offsetMinutes).sort((a: number, b: number) => a - b);
     // sendEventReminders works on every event in the database, and other test files run at the same time,
     // so count this event's own reminder rows rather than the function's return value.
     const mine = async () => (await pool.query('select offset_minutes from event_reminders where event_id = $1 order by 1', [e.id])).rows.map((r) => r.offset_minutes);
