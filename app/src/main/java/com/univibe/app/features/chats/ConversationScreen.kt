@@ -42,7 +42,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -180,7 +179,6 @@ import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeIconSize
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibeTextField
-import com.univibe.app.ui.components.VibeTopBar
 import com.univibe.app.ui.components.rememberMultiPhotoPicker
 import com.univibe.app.data.repository.MAX_MESSAGE_PHOTOS
 import androidx.compose.runtime.saveable.listSaver
@@ -191,6 +189,15 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.univibe.app.ui.components.UndoBar
+import com.univibe.app.ui.components.GlassAmbientLayer
+import com.univibe.app.ui.components.GlassHeaderBar
+import com.univibe.app.ui.components.GlassIconButton
+import com.univibe.app.ui.components.GlassQuotedMessage
+import com.univibe.app.ui.components.GlassSurface
+import com.univibe.app.ui.components.GlassTokens
+import com.univibe.app.ui.components.GlassTone
+import com.univibe.app.ui.components.glass
+import com.univibe.app.ui.components.rememberGlassStyle
 
 private sealed interface ChatRow {
     val key: String
@@ -426,6 +433,11 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         viewModel.consumeJump()
     }
 
+    // The wallpaper sits behind the whole screen (header and message box included) so the glass has something to sit on.
+    // It is outside imePadding, so the keyboard resizes the chat but never the wallpaper.
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    if (s.wallpaperId == "none") GlassAmbientLayer(Modifier.matchParentSize())
+    ChatWallpaperLayer(s.wallpaperId, s.wallpaperPhoto, Modifier.matchParentSize())
     Column(Modifier.fillMaxSize().imePadding()) {
         if (s.searching) {
             Surface(color = MaterialTheme.colorScheme.surface) {
@@ -449,15 +461,46 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
             chat?.studentId != null -> ({ onOpenStudent(chat.studentId!!) })
             else -> null
         }
-        VibeTopBar(
-            title = s.title, compactTitle = true,
-            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) },
-            actions = {
-                VibeIconButton(VibeIcons.Search, "Search in chat", viewModel::openSearch)
-                var menuOpen by remember { mutableStateOf(false) }
-                Box {
-                    VibeIconButton(VibeIcons.More, "More options", { menuOpen = true })
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        GlassHeaderBar {
+            GlassIconButton(VibeIcons.Back, "Back", onBack)
+            if (chat != null) {
+                val colors = MaterialTheme.colorScheme
+                Row(
+                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(GlassTokens.ControlCorner))
+                        .clickable(enabled = headerAction != null, role = Role.Button, onClickLabel = if (chat.isGroup) "Open group info" else "Open profile") { headerAction?.invoke() }
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // A fixed 46dp slot with a thin teal ring (brighter while they are online or typing), so nothing shifts when the photo loads.
+                    Box(Modifier.size(46.dp).border(1.5.dp, colors.primary.copy(alpha = if (s.typing || chat.online) 0.8f else 0.28f), CircleShape).padding(3.dp)) {
+                        if (chat.isGroup) GroupAvatar(s.group?.photoPath ?: chat.groupPhotoUrl, 40.dp, name = s.title)
+                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
+                    }
+                    Column(Modifier.weight(1f).padding(start = Spacing.sm + 2.dp)) {
+                        Text(s.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // "Online", or when they were last active. Nothing at all (never "Offline") when they keep it private.
+                        val status = when {
+                            s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
+                            chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
+                            chat.online -> "Online"
+                            else -> activeLabel(false, chat.lastActiveMs, System.currentTimeMillis())
+                        }
+                        if (status != null) Text(
+                            status,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (s.typing || chat.online) colors.primary else colors.onSurface.copy(alpha = 0.68f),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else {
+                Text(s.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = Spacing.sm))
+            }
+            GlassIconButton(VibeIcons.Search, "Search in chat", viewModel::openSearch)
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                GlassIconButton(VibeIcons.More, "More options", { menuOpen = true })
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (headerAction != null) {
                             DropdownMenuItem(
                                 text = { Text(if (chat?.isGroup == true) "Group info" else "View profile") },
@@ -510,35 +553,8 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                             }
                         }
                     }
-                }
-            },
-            titleContent = if (chat == null) null else {
-                {
-                    Row(
-                        Modifier.clickable(enabled = headerAction != null, role = Role.Button, onClickLabel = if (chat.isGroup) "Open group info" else "Open profile") { headerAction?.invoke() },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (chat.isGroup) GroupAvatar(s.group?.photoPath ?: chat.groupPhotoUrl, 40.dp, name = s.title)
-                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
-                        Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
-                            Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            // "Online", or when they were last active. Nothing at all (never "Offline") when they keep it private.
-                            val status = when {
-                                s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
-                                chat.isGroup -> (s.group?.members?.size ?: chat.memberCount.takeIf { it > 0 })?.let { "$it members" } ?: "Group chat"
-                                chat.online -> "Online"
-                                else -> activeLabel(false, chat.lastActiveMs, System.currentTimeMillis())
-                            }
-                            if (status != null) Text(
-                                status,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (s.typing || chat.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            },
-        )
+            }
+        }
         }
         if (s.offline) {
             Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
@@ -557,7 +573,6 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
             s.loading -> Box(Modifier.weight(1f))
             s.notFound -> Box(Modifier.weight(1f)) { ErrorState("This conversation isn't available.", onBack, title = "Not found") }
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
-                ChatWallpaperLayer(s.wallpaperId, s.wallpaperPhoto, Modifier.matchParentSize())
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     state = listState,
@@ -615,7 +630,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                         Modifier.align(Alignment.BottomEnd).padding(Spacing.md)
                             .graphicsLayer { alpha = jumpAlpha; scaleX = 0.85f + 0.15f * jumpAlpha; scaleY = 0.85f + 0.15f * jumpAlpha },
                     ) {
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp) {
+                        GlassSurface(shape = CircleShape, tone = GlassTone.Control) {
                             IconButton(onClick = { pendingNew = 0; scope.launch { listState.animateScrollToItem(0) } }, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     VibeIcons.ChevronDown,
@@ -641,7 +656,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         }
 
         if (!s.notFound) {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
+            Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.55f)) {
                 Column(Modifier.navigationBarsPadding()) {
                     s.failedVoice?.let {
                         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
@@ -713,6 +728,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                 }
             }
         }
+    }
     }
 
     s.menuMessage?.let { m ->
@@ -795,11 +811,13 @@ private fun MessageComposerCard(
     val holdLock by rememberUpdatedState(onHoldLock)
     val micScale by animateFloatAsState(if (holding) 1.3f else 1f, label = "micScale")
     val dotScale by animateFloatAsState(1f + holdLevel.coerceIn(0f, 1f) * 0.9f, label = "holdLevel")
+    val composerShape = RoundedCornerShape(GlassTokens.ComposerCorner)
+    val composerStyle = rememberGlassStyle(GlassTone.Chrome)
     Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = colors.surfaceContainerHigh,
-        border = BorderStroke(1.dp, if (tooLong) colors.error else colors.outlineVariant),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+        shape = composerShape,
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.sm)
+            .glass(composerShape, composerStyle, borderOverride = if (tooLong) colors.error else null),
     ) {
         // Buttons stay at the bottom edge while the field grows upwards.
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
@@ -989,7 +1007,7 @@ private fun messageText(text: String, mine: Boolean): AnnotatedString {
     val uriHandler = LocalUriHandler.current
     return remember(text, mine, primary, onPrimary, uriHandler) {
         val mentionStyle = if (mine) SpanStyle(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline) else SpanStyle(fontWeight = FontWeight.Bold, color = primary)
-        val linkStyle = TextLinkStyles(SpanStyle(color = if (mine) onPrimary else primary, textDecoration = TextDecoration.Underline))
+        val linkStyle = TextLinkStyles(SpanStyle(color = primary, textDecoration = TextDecoration.Underline))
         val links = findLinks(text)
         // A mention that sits inside a link (https://x.com/@jane) belongs to the link.
         val mentions = MentionRegex.findAll(text).filter { m -> links.none { it.range.first <= m.range.last && m.range.first <= it.range.last } }.toList()
@@ -1032,7 +1050,7 @@ private fun Reaction.tint(): Color = if (this == Reaction.Heart) MaterialTheme.c
 @Composable
 private fun DayHeader(label: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = Spacing.sm), contentAlignment = Alignment.Center) {
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        GlassSurface(shape = CircleShape, tone = GlassTone.Control) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
     }
@@ -1103,7 +1121,7 @@ private fun MessageItem(
             Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
                 if (showSender) Text(m.senderName, style = MaterialTheme.typography.labelMedium, color = colors.primary, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
                 // The corners on the sender's side flatten where the bubble joins its neighbours; the last one keeps the "tail".
-                val big = 20.dp; val small = 6.dp
+                val big = GlassTokens.BubbleCorner; val small = GlassTokens.BubbleJoinCorner
                 val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (pos.joinsOlder) small else big, bottomEnd = small, bottomStart = big)
                 else RoundedCornerShape(topStart = if (pos.joinsOlder) small else big, topEnd = big, bottomEnd = big, bottomStart = small)
                 // A message that starts with photos lets them fill the bubble edge to edge. With no caption the time and ticks
@@ -1112,12 +1130,14 @@ private fun MessageItem(
                 val mediaFirst = photosList.isNotEmpty() && m.voice == null && m.replyTo == null && !m.forwarded
                 val mediaOnly = mediaFirst && m.text.isBlank() && m.linkPreview == null
                 val showTick = mine && (pos.isLast || m.status == MessageStatus.Sending)
+                val glassStyle = rememberGlassStyle(if (mine) GlassTone.Outgoing else GlassTone.Incoming)
                 Surface(
                     shape = shape,
-                    color = if (mine) colors.primary else colors.surfaceContainerHigh,
-                    contentColor = if (mine) colors.onPrimary else colors.onSurface,
+                    color = Color.Transparent,
+                    contentColor = glassStyle.content,
                     modifier = Modifier.widthIn(max = maxBubble)
                         .then(if (highlighted) Modifier.border(2.dp, colors.tertiary, shape) else Modifier)
+                        .glass(shape, glassStyle)
                         .clip(shape)
                         .combinedClickable(onClick = {}, onLongClick = onLongPress, onDoubleClick = onDoubleTap)
                         .semantics {
@@ -1128,25 +1148,19 @@ private fun MessageItem(
                             )
                         },
                 ) {
+                    val quoteFull = m.replyTo != null && photosList.isEmpty() && m.file == null && m.voice == null && m.eventId == null &&
+                        m.location == null && m.live == null && m.linkPreview == null
                     Column(
                         // Edge-to-edge: the bubble is as wide as its photos, and a caption or time below lines up with that width.
-                        Modifier.then(if (mediaFirst) Modifier.width(IntrinsicSize.Max) else Modifier)
+                        Modifier.then(if (mediaFirst || quoteFull) Modifier.width(IntrinsicSize.Max) else Modifier)
                             .padding(if (mediaFirst) PaddingValues(3.dp) else PaddingValues(horizontal = 14.dp, vertical = 8.dp)),
                     ) {
                         m.replyTo?.let { r ->
-                            val barColor = if (mine) colors.onPrimary else colors.primary
-                            Row(
-                                Modifier.padding(bottom = 6.dp).clip(RoundedCornerShape(12.dp))
-                                    .background((if (mine) colors.onPrimary else colors.onSurface).copy(alpha = if (mine) 0.18f else 0.08f))
-                                    .clickable(role = Role.Button, onClickLabel = "Jump to original message") { onJump(r.messageId) }
-                                    .height(IntrinsicSize.Min),
-                            ) {
-                                Box(Modifier.width(3.dp).fillMaxHeight().background(barColor))
-                                Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                    Text(r.senderName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Text(r.preview, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.alpha(0.9f))
-                                }
-                            }
+                            GlassQuotedMessage(
+                                senderName = r.senderName, preview = r.preview, outgoing = mine,
+                                modifier = Modifier.padding(bottom = 6.dp), fillWidth = quoteFull,
+                                onClick = { onJump(r.messageId) },
+                            )
                         }
                         if (m.forwarded) Text("Forwarded", style = MaterialTheme.typography.labelSmall, modifier = Modifier.alpha(0.8f).padding(bottom = 2.dp))
                         val photos = photosList
@@ -1170,7 +1184,7 @@ private fun MessageItem(
                                 }
                                 if (mediaOnly) {
                                     MessageMeta(
-                                        m, showTick, showReceipts, tint = Color.White, strength = 1f,
+                                        m, showTick, showReceipts, tint = Color.White, strength = 1f, seenTint = Color.White,
                                         modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
                                             .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 7.dp, vertical = 3.dp),
                                     )
@@ -1222,7 +1236,7 @@ private fun MessageItem(
 
 /** The time (and "edited"), plus the delivery tick on your own last message. [tint] and [strength] let it sit on a photo in white. */
 @Composable
-private fun MessageMeta(m: Message, showTick: Boolean, showReceipts: Boolean, modifier: Modifier = Modifier, tint: Color = LocalContentColor.current, strength: Float = 0.8f) {
+private fun MessageMeta(m: Message, showTick: Boolean, showReceipts: Boolean, modifier: Modifier = Modifier, tint: Color = LocalContentColor.current, strength: Float = GlassTokens.MetaAlpha, seenTint: Color = MaterialTheme.colorScheme.primary) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(if (m.edited) "edited · ${formatClock(m.timeMillis)}" else formatClock(m.timeMillis), style = MaterialTheme.typography.labelSmall, color = tint, modifier = Modifier.alpha(strength))
         // One status tick per run of messages (on the last), unless a message is still sending.
@@ -1234,7 +1248,7 @@ private fun MessageMeta(m: Message, showTick: Boolean, showReceipts: Boolean, mo
             Icon(
                 imageVector = when { m.status == MessageStatus.Sending -> VibeIcons.Clock; delivered -> VibeIcons.DoubleCheck; else -> VibeIcons.Check },
                 contentDescription = when { m.status == MessageStatus.Sending -> "Sending"; seen -> "Seen"; delivered -> "Delivered"; else -> "Sent" },
-                tint = tint,
+                tint = if (seen) seenTint else tint,
                 modifier = Modifier.size(14.dp).alpha(if (seen) 1f else strength),
             )
         }
@@ -1245,10 +1259,11 @@ private fun MessageMeta(m: Message, showTick: Boolean, showReceipts: Boolean, mo
 private fun TypingBubble() {
     val reduced = rememberReducedMotion()
     val transition = rememberInfiniteTransition(label = "typing")
+    val typingShape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     Surface(
-        shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.semantics { contentDescription = "Typing"; liveRegion = LiveRegionMode.Polite },
+        shape = typingShape,
+        color = Color.Transparent,
+        modifier = Modifier.glass(typingShape, rememberGlassStyle(GlassTone.Incoming)).semantics { contentDescription = "Typing"; liveRegion = LiveRegionMode.Polite },
     ) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             repeat(3) { i ->

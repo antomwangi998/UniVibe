@@ -21,10 +21,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.univibe.app.ui.components.GlassSurface
+import com.univibe.app.ui.components.GlassTone
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -151,11 +152,11 @@ fun ChatAppearanceSheet(
         Box(Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(16.dp)).background(colors.background).border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))) {
             ChatWallpaperLayer(wallpaperId, wallpaperPhoto, Modifier.matchParentSize())
             Column(Modifier.fillMaxSize().padding(Spacing.sm), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Surface(shape = RoundedCornerShape(14.dp), color = colors.surfaceContainerHigh, contentColor = colors.onSurface) {
+                GlassSurface(shape = RoundedCornerShape(14.dp), tone = GlassTone.Incoming) {
                     Text("Hey, are you coming today?", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Surface(shape = RoundedCornerShape(14.dp), color = colors.primary, contentColor = colors.onPrimary) {
+                    GlassSurface(shape = RoundedCornerShape(14.dp), tone = GlassTone.Outgoing) {
                         Text("On my way!", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                     }
                 }
