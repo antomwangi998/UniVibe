@@ -190,6 +190,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.univibe.app.ui.components.UndoBar
 import com.univibe.app.ui.components.GlassAmbientLayer
+import com.univibe.app.ui.components.GlassDropdownMenu
 import com.univibe.app.ui.components.GlassHeaderBar
 import com.univibe.app.ui.components.GlassIconButton
 import com.univibe.app.ui.components.GlassQuotedMessage
@@ -500,7 +501,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
             var menuOpen by remember { mutableStateOf(false) }
             Box {
                 GlassIconButton(VibeIcons.More, "More options", { menuOpen = true })
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (headerAction != null) {
                             DropdownMenuItem(
                                 text = { Text(if (chat?.isGroup == true) "Group info" else "View profile") },
