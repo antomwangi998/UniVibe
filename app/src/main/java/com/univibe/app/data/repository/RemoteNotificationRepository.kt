@@ -108,7 +108,7 @@ class RemoteNotificationRepository(
             }
             "promotion" -> {
                 title = com.univibe.app.data.model.PromotionNotice.TITLE
-                Shape(NotificationType.System, com.univibe.app.data.model.PromotionNotice.body(meta.optString("kind")))
+                Shape(NotificationType.System, com.univibe.app.data.model.PromotionNotice.body(meta.optString("kind")), NotificationTarget.Promotions)
             }
             else -> Shape(NotificationType.System, "")
         }

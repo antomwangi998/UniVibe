@@ -95,6 +95,21 @@ A **Monetization** group in the existing dashboard (nothing existing was changed
 - **Verification done:** the dashboard script compiles; a fake-page test (`admin-monetization-ui.test.ts`, 8 tests, run) opens every new page against canned API data and checks that confirming a payment sends the amount in cents. This does not check layout or styling: open `/admin` in a browser and look.
 - **Not verified:** the new revenue SQL and every admin route against Postgres.
 
+## Android screens - written, NOT compiled or run
+Entry points: Profile has **Promotions** and **Campus businesses** rows; a promotion notice (in-app or push) opens Promotions.
+| Screen (route) | What it does |
+|---|---|
+| Promotions (`promotions`) | Totals (running, waiting, views, taps, tap rate, paid, refunded) and the list of your promotions with plain status words |
+| New promotion (`promotion-new`) | Choose what to promote (event, business ad, featured listing, Discover feature), the event or approved business, a package (price comes from the server), where it shows, headline, description, optional button, start and length, a live preview, then "Continue to payment" (or "Send for review" for a free package) |
+| Promotion (`promotion/{id}`) | Status and what happens next, the reason if it was not approved, payment instructions (till or paybill number, amount, order reference) with a receipt code box that only records a claim, performance (views, taps, tap rate, reach, RSVPs after a tap, a daily bar chart, whether it is showing and why not), history, and Pause, Resume and Cancel with confirmation |
+| My businesses, add, edit (`my-businesses`, `business-new`, `business-edit/{id}`) | Free listings with their review status; send for review; editing a live listing sends it back for review (the screen says so) |
+| Campus businesses (`businesses`, `business/{id}`) | Organic directory with category filter; a labelled sponsored card sits above it and is never mixed into the listings; call, email and website buttons (https only) |
+| Sponsored cards in Discover | One card in front of the fourth post in Discover's post lists (only when the list is that long) and one under the filters in the server-ranked Discover events list (`SponsoredSlot`); tapping opens the event, post or business. The plain on-device events list used when the server has no Discover has none |
+- **Honesty rules in the UI:** prices and amounts are always the server's text; no screen computes money; "I have paid" says it only records the receipt and that nothing starts until payment is confirmed and the ad approved; the tap rate shows a dash, not 0%, when nothing was shown; there is no purchase-conversion figure.
+- **Offline demo:** every promotion screen shows "needs a connection" instead of fake data (`NoPromotionsRepository`).
+- **Verification done:** a static check that every import, icon and spacing name used by the new files exists and that brackets balance. **Not done:** Gradle compile, the two new Kotlin test classes (`PromotionsLogicTest`, `PromotionsParsingTest`), and any look at the screens on a device or emulator.
+- **Not built:** a "Promote this event" button on the event page itself (use Profile > Promotions > New promotion), picking a start date and time by calendar (it offers "as soon as approved", "tomorrow" and "in 3 days"), editing a submitted promotion, ad images, and a business-review notice screen (notices open the Promotions list).
+
 ## Not implemented yet
-Financial reports, CSV export and cost tracking (stage 10), advertiser portal screens on Android including analytics charts (stage 8b), event-view and business-view tracking, logo/cover/creative image upload, Daraja, subscriptions, and Discover and business-directory sponsored UI on Android.
-Tests: `campaign-state`, `sponsored-token`, `analytics-calc` and `admin-monetization-ui` (48 tests, run under Node with a stand-in runner); the `*.integration` tests need Postgres and have not run; the Kotlin tests need Gradle and have not run.
+Financial reports, CSV export and cost tracking (stage 10), event-view and business-view tracking, logo/cover/creative image upload, Daraja, subscriptions, a "Promote" button on the event page, and calendar pickers for promotion dates.
+Tests: `campaign-state`, `sponsored-token`, `analytics-calc` and `admin-monetization-ui` run under Node with a stand-in runner; the `*.integration` tests need Postgres and have not run; all Kotlin tests need Gradle and have not run.

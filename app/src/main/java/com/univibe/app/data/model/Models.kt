@@ -354,6 +354,8 @@ sealed interface NotificationTarget {
     data class Event(val id: String) : NotificationTarget
     data class Community(val id: String) : NotificationTarget
     data class Chat(val id: String) : NotificationTarget
+    /** Payment, review and refund notices about the person's own promotions. */
+    data object Promotions : NotificationTarget
     data object None : NotificationTarget
 }
 
