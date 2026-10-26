@@ -12,21 +12,28 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
   const V1 = '/api/v1';
   const hours = (n: number) => new Date(Date.now() + n * 3600_000).toISOString();
 
-  beforeAll(async () => { pool = createPool(url as string); await migrate(pool); });
+  // Delivery serves one card per request, fewest impressions first, and only within the advertiser's university. A university
+  // of its own keeps campaigns from other tests and test files (they share one database and run in parallel) from crowding ours out.
+  const student = () => h.student('sponsored.example', 'sponsored-test');
+  beforeAll(async () => {
+    pool = createPool(url as string);
+    await migrate(pool);
+    await pool.query("insert into universities (id, name, email_domains) values ('sponsored-test', 'Sponsored Test University', array['sponsored.example']) on conflict do nothing");
+  });
   afterAll(async () => { await pool.end(); });
   beforeEach(() => { h.make(); });
   afterEach(async () => { await h.close(); });
 
   /** A live, paid, approved event promotion (free package, so no payment step), plus the organizer and a staff account. */
   async function liveCampaign(over: { cap?: number | null; frequency?: number } = {}) {
-    const admin = await h.student();
+    const admin = await student();
     await pool.query("update users set role = 'admin' where id = $1", [admin.id]);
     const pkg = await call('POST', `${V1}/admin/monetization/packages`, admin.token, {
       code: `free-${Math.random().toString(36).slice(2, 10)}`, kind: 'event_promotion', name: 'Free boost', priceMinor: 0, durationDays: 7,
       placements: ['home_feed', 'discover_events'], impressionCap: over.cap ?? null, frequencyCapPerDay: over.frequency ?? 3,
     });
     expect(pkg.status, JSON.stringify(pkg.body)).toBe(201);
-    const org = await h.student();
+    const org = await student();
     const ev = await call('POST', `${V1}/events`, org.token, { title: 'Hack night', description: 'x', category: 'technology', venueName: 'Lab 3', startsAt: hours(24), endsAt: hours(27) });
     await pool.query("update events set status = 'published' where id = $1", [ev.body.id]);
     const c = await call('POST', `${V1}/campaigns`, org.token, { kind: 'event_promotion', packageId: pkg.body.id, eventId: ev.body.id, headline: 'Hack night', placements: ['home_feed'], startsAt: hours(2), endsAt: hours(26) });
@@ -49,7 +56,7 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
   };
 
   it('shows a labelled card to a student, at most one, and nothing when no campaign qualifies', async () => {
-    const viewer = await h.student();
+    const viewer = await student();
     expect((await feed(viewer.token)).body.items).toHaveLength(0);
     const { campaignId } = await liveCampaign();
     const r = await feed(viewer.token);
@@ -64,8 +71,8 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   it('counts an impression once per card and ignores replays, forgeries and other people\'s tokens', async () => {
     const { campaignId } = await liveCampaign();
-    const a = await h.student();
-    const b = await h.student();
+    const a = await student();
+    const b = await student();
     const token = (await cardOf(a.token, campaignId)).impressionToken as string;
     expect((await call('POST', `${V1}/sponsored/impression`, a.token, { token })).body.counted).toBe(true);
     expect((await call('POST', `${V1}/sponsored/impression`, a.token, { token })).body.counted).toBe(false);
@@ -76,7 +83,7 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   it('counts a click only after that card was shown, and only once in a short while', async () => {
     const { campaignId } = await liveCampaign({ frequency: 5 });
-    const a = await h.student();
+    const a = await student();
     const t1 = (await cardOf(a.token, campaignId)).impressionToken as string;
     expect((await call('POST', `${V1}/sponsored/click`, a.token, { token: t1 })).status).toBe(400); // never reported as shown
     await call('POST', `${V1}/sponsored/impression`, a.token, { token: t1 });
@@ -90,7 +97,7 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   it('stops after the daily frequency cap and after the package impression cap', async () => {
     const { campaignId: capped } = await liveCampaign({ frequency: 2 });
-    const a = await h.student();
+    const a = await student();
     for (let i = 0; i < 2; i++) {
       const it = await cardOf(a.token, capped);
       expect(it).toBeTruthy();
@@ -99,16 +106,16 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     expect(await cardOf(a.token, capped)).toBeUndefined();
 
     const { campaignId } = await liveCampaign({ cap: 1 });
-    const b = await h.student();
+    const b = await student();
     const only = await cardOf(b.token, campaignId);
     await call('POST', `${V1}/sponsored/impression`, b.token, { token: only.impressionToken });
-    const c = await h.student();
+    const c = await student();
     expect(await cardOf(c.token, campaignId, 10)).toBeUndefined();
   });
 
   it('never delivers an unpaid, unapproved, paused or ended campaign', async () => {
     const { campaignId, org } = await liveCampaign();
-    const v = await h.student();
+    const v = await student();
     const live = async () => (await feed(v.token)).body.items.some((x: { campaignId: string }) => x.campaignId === campaignId);
     expect(await live()).toBe(true);
     await pool.query("update orders set status = 'pending_payment' where id = (select order_id from campaigns where id = $1)", [campaignId]);
@@ -128,9 +135,9 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   it('respects blocks, "not interested" and existing sign-ups', async () => {
     const { campaignId, org, eventId } = await liveCampaign();
-    const blocker = await h.student();
-    const hider = await h.student();
-    const going = await h.student();
+    const blocker = await student();
+    const hider = await student();
+    const going = await student();
     await pool.query('insert into blocks (blocker_id, blocked_id) values ($1, $2)', [blocker.id, org.id]);
     await pool.query('insert into event_feedback (user_id, event_id) values ($1, $2)', [hider.id, eventId]);
     await pool.query("insert into event_registrations (event_id, user_id, status) values ($1, $2, 'registered')", [eventId, going.id]);
@@ -148,22 +155,22 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   it('three reports hold an ad back; reporting needs a card the person was shown', async () => {
     const { campaignId } = await liveCampaign({ frequency: 5 });
-    const reporters = [await h.student(), await h.student(), await h.student()];
-    const stranger = await h.student();
+    const reporters = [await student(), await student(), await student()];
+    const stranger = await student();
     expect((await call('POST', `${V1}/sponsored/${campaignId}/report`, stranger.token, { reason: 'scam' })).status).toBe(404);
     for (const r of reporters) {
       const t = (await cardOf(r.token, campaignId)).impressionToken;
       await call('POST', `${V1}/sponsored/impression`, r.token, { token: t });
       expect((await call('POST', `${V1}/sponsored/${campaignId}/report`, r.token, { reason: 'misleading' })).status).toBe(201);
     }
-    const fresh = await h.student();
+    const fresh = await student();
     expect(await cardOf(fresh.token, campaignId, 10)).toBeUndefined();
   });
 
   it('advertisers see their own recorded performance; nobody else does; staff also get integrity signals', async () => {
     const { admin, org, campaignId, eventId } = await liveCampaign({ frequency: 5 });
-    const a = await h.student();
-    const b = await h.student();
+    const a = await student();
+    const b = await student();
     for (const v of [a, b]) {
       const t = (await cardOf(v.token, campaignId)).impressionToken as string;
       await call('POST', `${V1}/sponsored/impression`, v.token, { token: t });

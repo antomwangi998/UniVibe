@@ -157,7 +157,7 @@ describe.skipIf(!url)('monetization (needs TEST_DATABASE_URL)', () => {
     expect(view.body.reviewNote).toBe('Misleading wording');
     const refund = (await call('GET', `${V1}/admin/monetization/refunds?status=requested`, admin.token)).body.items.find((r: { order_reference: string }) => r.order_reference === co.body.order.reference);
     // The requester (the admin who rejected) cannot approve their own request.
-    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, decider.token, {})).status).toBe(403);
+    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, admin.token, {})).status).toBe(403);
     const second = await staff();
     expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/paid`, second.token, { payoutReference: 'QREFUND123' })).status).toBe(409); // must approve first
     expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, second.token, {})).status).toBe(200);

@@ -88,6 +88,13 @@ fun PermissionsScreen(onBack: () -> Unit) {
                     why = "When you add a photo, Android's photo picker opens and you choose each one. UniVibe only receives the photos you pick, and can't browse your gallery.",
                     dependsOn = "Profile photos and photos in posts and messages.",
                 ) {}
+                RowDivider()
+                PermissionBlock(
+                    title = "Location",
+                    status = "Asked only when you use it",
+                    why = "UniVibe reads your position only when you tap Send location or Use my location. While you share a live location, a notification with a Stop button stays visible until you stop.",
+                    dependsOn = "Sending your location in messages and sharing a live location.",
+                ) {}
             }
         }
         item {
@@ -95,7 +102,7 @@ fun PermissionsScreen(onBack: () -> Unit) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.md)) {
                     Text("Not used", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "UniVibe doesn't use your camera, contacts, location or calendar, and can't be given access to them.",
+                        "UniVibe doesn't use your camera, contacts or calendar, and can't be given access to them.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = Spacing.xs),
                     )

@@ -20,8 +20,8 @@ data class LegalSection(val number: Int, val title: String, val clauses: List<Le
  * does today; when a feature is added or removed, change the matching clause here and bump [VERSION] and [UPDATED].
  */
 object TermsOfService {
-    const val VERSION = "0.1"
-    const val UPDATED = "18 October 2026"
+    const val VERSION = "0.2"
+    const val UPDATED = "24 October 2026"
     const val TITLE = "Terms of Service"
 
     private fun c(label: String, heading: String, text: String) = LegalClause(label, heading, text)
