@@ -146,6 +146,7 @@ import com.univibe.app.features.settings.TermsScreen
 import com.univibe.app.ui.components.LocalChromeHidden
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.VibeBottomBar
+import com.univibe.app.ui.components.glassBackdropSource
 
 private const val DEEP_LINK_SCHEME = "univibe://"
 private const val SCROLL_THRESHOLD_PX = 24f
@@ -281,6 +282,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
         }
     }
 
+    // Null (nothing happens) below Android 12, on low-RAM phones and in High contrast.
+    val backdrop = com.univibe.app.ui.components.rememberGlassBackdropState()
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
             // Content runs edge to edge; the bar hovers above it.
@@ -296,7 +299,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 NavHost(
                     navController = navController,
                     startDestination = TopLevelDestination.Home.route,
-                    modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
+                    modifier = Modifier.fillMaxSize().glassBackdropSource(backdrop).nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
                     // Moving between two tabs slides toward the tab's side; every other change keeps the soft fade.
                     enterTransition = { tabSlideIn(initialState.destination.route, targetState.destination.route, tabRoutes) ?: (fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f)) },
                     exitTransition = { tabSlideOut(initialState.destination.route, targetState.destination.route, tabRoutes) ?: fadeOut(tween(90)) },
@@ -633,7 +636,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(160)),
                 exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(140)),
             ) {
-                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab)
+                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab, backdrop = backdrop)
             }
 
             // Guided tour and first-time welcome. Both draw nothing when idle, and Back closes either one.
