@@ -2,6 +2,7 @@ package com.univibe.app.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -306,5 +309,31 @@ fun GlassAmbientLayer(modifier: Modifier = Modifier) {
                 drawRect(glow)
             }
         },
+    )
+}
+
+/**
+ * The "…" menu in glass. A menu lives in its own popup window, so it cannot show the wallpaper through itself; it uses
+ * the same border, corner and tint language, kept mostly opaque so the items stay easy to read over the chat behind.
+ */
+@Composable
+fun GlassDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val style = rememberGlassStyle(GlassTone.Chrome)
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = modifier,
+        shape = RoundedCornerShape(GlassTokens.BubbleCorner),
+        containerColor = if (dark) Color(0xFF111B26).copy(alpha = 0.96f) else Color.White.copy(alpha = 0.97f),
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
+        border = BorderStroke(GlassTokens.BorderWidth, style.border),
+        content = content,
     )
 }
