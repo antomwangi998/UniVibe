@@ -15,9 +15,17 @@ export type ServerEvent =
   | { type: 'notification:unread'; unreadCount: number }
   /** Someone's Note changed or went away. Carries no text: the app re-reads the authoritative list. */
   | { type: 'note:changed'; userId: string; kind: 'updated' | 'deleted' }
-  /** Someone posted or removed a Story. Carries no content: the app re-reads the authoritative list. */
-  | { type: 'story:changed'; userId: string; kind: 'created' | 'deleted' }
-  | { type: 'community:membership'; communityId: string; membership: JoinState; memberCount: number };
+  | { type: 'story:changed'; userId: string; kind: 'created' | 'deleted' | 'updated' }
+  | { type: 'community:membership'; communityId: string; membership: JoinState; memberCount: number }
+  /**
+   * Discussion channels. Message events carry the full viewer-neutral message (no per-viewer fields) and are sent only to
+   * people who may read the channel at that moment. `channel:changed` carries ids only: apps re-read the channel list.
+   */
+  | { type: 'channel:message'; communityId: string; channelId: string; message: unknown }
+  | { type: 'channel:message:updated'; communityId: string; channelId: string; message: unknown }
+  | { type: 'channel:message:deleted'; communityId: string; channelId: string; messageId: string }
+  | { type: 'channel:reaction'; communityId: string; channelId: string; messageId: string; userId: string; reaction: string; active: boolean; reactions: Record<string, number> }
+  | { type: 'channel:changed'; communityId: string; channelId: string | null; kind: 'created' | 'updated' | 'deleted' | 'reordered' | 'archived' };
 
 /**
  * Tracks live WebSocket connections per user (several devices per user are fine).

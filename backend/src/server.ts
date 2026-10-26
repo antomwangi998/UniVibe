@@ -6,15 +6,18 @@ import { createConsoleMailer, createResendMailer } from './email';
 import { JobWorker, purgeOldRecords } from './jobs';
 import { RateLimiter } from './limiter';
 import { purgeExpiredNotes } from './modules/notes';
+import { purgeLiveLocations } from './modules/messaging';
 import { purgeExpiredStories } from './modules/stories';
 import { deliveryHandlers } from './modules/delivery';
 import { createFcmSender, disabledPushSender, type PushSender } from './push';
 import { Hub } from './realtime';
 import { purgeExpiredEvents, sendEventReminders } from './modules/events';
 import { createSharpProcessor } from './imaging';
-import { MEDIA_LIMITS, cleanupPendingMedia } from './media';
+import { MEDIA_LIMITS, cleanupPendingMedia, cleanupStorageGarbage } from './media';
+import { purgeUnusedMedia } from './media_cleanup';
 import { createR2Storage } from './storage';
 import { createGoogleVerifier, googleClientIds } from './google';
+import { rollupCampaignEvents, sweepCampaigns } from './modules/monetization/service';
 
 async function main() {
   const config = loadConfig();
@@ -36,6 +39,10 @@ async function main() {
     const sweep = () => cleanupPendingMedia(pool, storage).catch((e) => app.log.error({ err: e }, 'media cleanup failed'));
     void sweep();
     setInterval(sweep, 6 * 3600 * 1000).unref();
+    // Files whose message, card or account is gone (hourly; each run takes up to 200).
+    const tidy = () => cleanupStorageGarbage(pool, storage).catch((e) => app.log.error({ err: e }, 'storage garbage cleanup failed'));
+    void tidy();
+    setInterval(tidy, 3600 * 1000).unref();
   }
 
   // Background jobs. Each is safe to run twice (reminders are guarded by a unique row; the purge just finds nothing).
@@ -45,6 +52,7 @@ async function main() {
     void run();
     setInterval(run, ms).unref();
   };
+  every('live-location-purge', 5 * 60 * 1000, () => purgeLiveLocations(pool));
   every('event-reminders', 5 * 60 * 1000, () => sendEventReminders(jobs));
   every('event-retention', 6 * 3600 * 1000, () => purgeExpiredEvents(jobs));
 
@@ -62,7 +70,7 @@ async function main() {
   } else {
     console.warn('FCM_SERVICE_ACCOUNT_JSON is not set, so push notifications are skipped (in-app notifications still work).');
   }
-  const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push), app.log);
+  const worker = new JobWorker(pool, deliveryHandlers(jobs, hub, push, images), app.log);
   worker.start();
   every('community-invitation-expiry', 3600 * 1000, async () => {
     const r = await pool.query("update community_invitations set status = 'expired', decided_at = now() where status = 'pending' and expires_at <= now()");
@@ -70,6 +78,11 @@ async function main() {
   });
   every('purge-expired-notes', 3600 * 1000, async () => app.log.info(await purgeExpiredNotes(pool), 'purged expired notes'));
   every('purge-expired-stories', 15 * 60 * 1000, async () => app.log.info(await purgeExpiredStories(pool, storage ?? null), 'purged expired stories'));
+  // Uploads nothing uses any more (abandoned composers, failed posts, replaced covers). Every 15 minutes; each run takes at most 2,000.
+  if (storage) every('purge-unused-media', 15 * 60 * 1000, async () => app.log.info(await purgeUnusedMedia(pool, storage, { graceHours: config.MEDIA_ORPHAN_GRACE_HOURS }), 'purged unused media'));
+  // Campaign clock, promotions whose event stopped being promotable, and unpaid orders. Safe to run twice.
+  every('campaign-sweep', 60 * 1000, async () => app.log.info(await sweepCampaigns(pool), 'campaign sweep'));
+  every('campaign-rollup', 6 * 3600 * 1000, async () => app.log.info(await rollupCampaignEvents(pool), 'campaign event roll-up'));
   every('purge-old-records', 6 * 3600 * 1000, async () => app.log.info(await purgeOldRecords(pool), 'purged old records'));
 
   const shutdown = async () => {

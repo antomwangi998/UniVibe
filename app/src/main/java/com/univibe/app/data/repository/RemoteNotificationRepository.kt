@@ -63,6 +63,7 @@ class RemoteNotificationRepository(
         val meta = o.optJSONObject("metadata") ?: JSONObject()
         val entityId = if (o.isNull("entityId")) "" else o.getString("entityId")
         val postId = meta.optString("postId").ifBlank { entityId }
+        val communityId = meta.optString("communityId").ifBlank { entityId }
         val conversationId = meta.optString("conversationId").ifBlank { entityId }
         var title = actor?.name ?: "UniVibe"
         val shape = when (o.getString("type")) {
@@ -78,8 +79,17 @@ class RemoteNotificationRepository(
             "event_update" -> {
                 title = meta.optString("title").ifBlank { "An event" }
                 val what = when (meta.optString("kind")) {
-                    "reminder" -> "starts soon"
+                    "reminder" -> when (meta.optInt("offsetMinutes", 0)) {
+                        1440 -> "starts in 24 hours"
+                        60 -> "starts in 1 hour"
+                        else -> "starts soon"
+                    }
                     "cancelled" -> "was cancelled"
+                    "changed" -> "has a new time or place"
+                    "confirmed" -> "registration confirmed"
+                    "registrations" -> if (meta.optBoolean("full", false)) "is now full" else "has ${meta.optInt("count", 0)} registered"
+                    "community_event" -> "is a new event in your community"
+                    "update" -> meta.optString("preview").ifBlank { "has a new update" }
                     else -> "was updated"
                 }
                 Shape(NotificationType.Event, what, NotificationTarget.Event(entityId))
@@ -90,10 +100,15 @@ class RemoteNotificationRepository(
             "community_invitation" -> Shape(NotificationType.Community, "invited you to join a community", NotificationTarget.Community(entityId))
             "community_role_changed" -> { title = "Community"; Shape(NotificationType.Community, "Your role in a community changed.", NotificationTarget.Community(entityId)) }
             "community_member_removed" -> { title = "Community"; Shape(NotificationType.Community, "Your membership in a community changed.", NotificationTarget.Community(entityId)) }
+            "community_channel_announcement" -> Shape(NotificationType.Community, "posted an announcement", NotificationTarget.Community(communityId))
             "community_announcement" -> Shape(NotificationType.Community, "posted a community announcement", NotificationTarget.Post(postId))
             "verification" -> {
                 title = "Student verification"
                 Shape(NotificationType.System, "Your verification status changed.")
+            }
+            "promotion" -> {
+                title = com.univibe.app.data.model.PromotionNotice.TITLE
+                Shape(NotificationType.System, com.univibe.app.data.model.PromotionNotice.body(meta.optString("kind")), NotificationTarget.Promotions)
             }
             else -> Shape(NotificationType.System, "")
         }

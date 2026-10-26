@@ -268,6 +268,22 @@ class MockAuthRepository(
         return AuthResult.Success(Unit)
     }
 
+    /** The offline demo has no other students, so hiding the account only means signing out; the account stays and logs back in. */
+    override suspend fun deactivateAccount(password: String): AuthResult<Unit> {
+        ensureLoaded(); simulateLatency()
+        val email = activeEmail ?: return fail(AuthError.SessionExpired)
+        val account = accounts[email] ?: return fail(AuthError.SessionExpired)
+        retryAfter(failedLogins[email], LOGIN_WINDOW_MS, MAX_LOGIN_FAILURES)?.let { return fail(AuthError.RateLimited(it)) }
+        if (!passwordMatches(account, password)) {
+            failedLogins.getOrPut(email) { mutableListOf() }.add(clock.nowMs())
+            return fail(AuthError.InvalidCredentials)
+        }
+        store.remove(SESSION_KEY)
+        activeEmail = null
+        _session.value = AuthState.SignedOut()
+        return AuthResult.Success(Unit)
+    }
+
     private suspend fun passwordMatches(account: Account, password: String): Boolean =
         MessageDigest.isEqual(hashPassword(password, dec64(account.salt)), dec64(account.hash))
 

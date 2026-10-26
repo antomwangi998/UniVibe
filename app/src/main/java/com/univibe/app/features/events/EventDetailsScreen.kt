@@ -52,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +68,7 @@ import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.model.EventDetails
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.ui.components.ConfirmDialog
+import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.LoadingSkeleton
@@ -82,7 +84,7 @@ import com.univibe.app.ui.components.accentGradient
 import com.univibe.app.ui.theme.Spacing
 
 @Composable
-fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}) {
+fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit = {}, onOpenAttendees: () -> Unit = {}, onModerate: () -> Unit = {}) {
     val viewModel = keyedViewModel("event-$eventId") { EventDetailsViewModel(eventId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     val details = s.details
@@ -110,11 +112,17 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
                 Hero(details)
                 Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     StatusBanner(event)
+                    if (event.draft) Text("Draft. Only you can see it until you publish.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.tertiary)
+                    if (event.hidden) Text("Moderators have hidden this event. Only you can see it.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     Text(event.title, style = MaterialTheme.typography.headlineSmall)
                     HostRow(details)
                     InfoCard(details)
                     if (status == EventStatus.Upcoming || status == EventStatus.Live) {
-                        TextButton(onClick = { addToCalendar(ctx, event, details.description) }) {
+                        val addedRevision = remember(event.id, s.details?.event?.revision) { calendarRevisionAdded(ctx, event.id) }
+                        if (addedRevision != null && addedRevision < event.revision) {
+                            CalendarChangedNote { addToCalendar(ctx, event, details.description); rememberCalendarRevision(ctx, event.id, event.revision) }
+                        }
+                        TextButton(onClick = { addToCalendar(ctx, event, details.description); rememberCalendarRevision(ctx, event.id, event.revision) }) {
                             Icon(VibeIcons.Events, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Add to calendar")
@@ -126,11 +134,19 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
                             Text(details.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                    UpdatesSection(s.updates)
+                    if (viewModel.supportsSharing && !event.draft && (event.mine || (event.rsvp == RsvpState.Going && event.going > 0))) {
+                        TextButton(onClick = onOpenAttendees) { Text("See who's going (${event.going})") }
+                    }
                     if (details.agenda.isNotEmpty()) Agenda(details)
                     VenueSection(details)
                 }
             }
-            ActionBar(details, onGoing = viewModel::toggleGoing, onInterested = viewModel::toggleInterested)
+            if (event.draft && event.mine) {
+                VibeButton("Publish event", viewModel::publish, Modifier.fillMaxWidth().navigationBarsPadding().padding(Spacing.md))
+            } else if (!event.draft) {
+                ActionBar(details, onGoing = viewModel::toggleGoing, onInterested = viewModel::toggleInterested)
+            }
         }
         // Floating controls over the hero.
         val context = LocalContext.current
@@ -141,10 +157,10 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
             BackButton(onBack)
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 if (event.mine && status != EventStatus.Ended) VibeIconButton(VibeIcons.More, "Manage event", { viewModel.openManage(true) })
-                VibeIconButton(VibeIcons.Share, "Share event", {
-                    val text = "${event.title}\n${event.timeLabel}\n${event.location}"
-                    val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
-                    context.startActivity(Intent.createChooser(send, "Share event"))
+                else if (!event.mine) VibeIconButton(VibeIcons.More, "More options", { viewModel.openManage(true) })
+                if (viewModel.supportsSaving && !event.draft) VibeIconButton(if (event.saved) VibeIcons.BookmarkFilled else VibeIcons.Bookmark, if (event.saved) "Remove from saved" else "Save event", viewModel::toggleSaved)
+                if (!event.hidden && !event.draft && status != EventStatus.Cancelled) VibeIconButton(VibeIcons.Share, "Share event", {
+                    if (viewModel.supportsSharing) viewModel.openShare() else systemShare(context, event, null)
                 })
             }
         }
@@ -152,9 +168,20 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
 
     if (s.manageOpen) {
         VibeBottomSheet(onDismiss = { viewModel.openManage(false) }) {
-            SheetRow(VibeIcons.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
-            if (status != EventStatus.Cancelled) SheetRow(VibeIcons.EventBusy, "Cancel event", true) { viewModel.confirm(EventConfirm.Cancel) }
-            SheetRow(VibeIcons.Delete, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
+            if (event.mine) {
+                SheetRow(VibeIcons.Edit, "Edit event", false) { viewModel.openManage(false); onEdit() }
+                if (event.draft) SheetRow(VibeIcons.Check, "Publish event", false) { viewModel.publish() }
+                if (viewModel.supportsSharing && !event.hidden && (status == EventStatus.Upcoming || status == EventStatus.Live)) SheetRow(UpdateIcon, "Post an update", false) { viewModel.composeUpdate(true) }
+                if (viewModel.supportsSharing && status == EventStatus.Live) SheetRow(VibeIcons.Check, "Mark as completed", false) { viewModel.completeEvent() }
+                if (viewModel.supportsSharing) SheetRow(ActivityIcon, "Activity", false) { viewModel.openActivity() }
+                if (status != EventStatus.Cancelled) SheetRow(VibeIcons.EventBusy, "Cancel event", true) { viewModel.confirm(EventConfirm.Cancel) }
+                SheetRow(VibeIcons.Delete, "Delete event", true) { viewModel.confirm(EventConfirm.Delete) }
+            } else if (viewModel.supportsSharing) {
+                if (event.remindersOn != null && (status == EventStatus.Upcoming)) SheetRow(UpdateIcon, if (event.remindersOn == true) "Turn reminders off" else "Turn reminders on", false) { viewModel.toggleReminders() }
+                if (s.moderator) SheetRow(ReportIcon, "Review as moderator", false) { viewModel.openManage(false); onModerate() }
+                SheetRow(ReportIcon, "Report event", true) { viewModel.reporting(ReportTarget.Event) }
+                if (details.organizerId != null) SheetRow(OrganizerReportIcon, "Report organizer", true) { viewModel.reporting(ReportTarget.Organizer) }
+            }
         }
     }
     when (s.confirm) {
@@ -163,10 +190,17 @@ fun EventDetailsScreen(eventId: String, onBack: () -> Unit, onEdit: () -> Unit =
             confirmLabel = "Cancel event", dismissLabel = "Keep event", destructive = true, onConfirm = viewModel::doConfirmed, onDismiss = { viewModel.confirm(null) },
         )
         EventConfirm.Delete -> ConfirmDialog(
-            title = "Delete this event?", message = "It's removed for everyone. If people have RSVPed you'll need to cancel it instead.",
+            title = "Delete this event?", message = "It's removed for everyone. If people have RSVPed you'll need to cancel it first.",
             confirmLabel = "Delete", dismissLabel = "Keep event", destructive = true, onConfirm = viewModel::doConfirmed, onDismiss = { viewModel.confirm(null) },
         )
         null -> Unit
+    }
+
+    if (s.composeUpdate) PostUpdateDialog(s.posting, viewModel::postUpdate) { viewModel.composeUpdate(false) }
+    s.activity?.let { ActivitySheet(it, viewModel::closeActivity) }
+    s.reporting?.let { ReportReasonSheet(it, viewModel::report) { viewModel.reporting(null) } }
+    s.share?.let { sh ->
+        ShareSheet(sh, onSystemShare = { systemShare(ctx, event, sh.link?.webUrl); viewModel.closeShare() }, onPage = viewModel::sharePage, onSend = viewModel::shareTo, onDismiss = viewModel::closeShare)
     }
 
     if (s.confirmLeave) {

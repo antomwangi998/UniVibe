@@ -3,13 +3,16 @@ import { blockedBetween } from '../access';
 import { enqueue } from '../jobs';
 
 export type NotificationType =
+  | 'story_reaction'
   | 'follow' | 'like' | 'comment' | 'reply'
   | 'message' | 'group_invite' | 'verification' | 'event_update'
   | 'community_join_request' | 'community_join_approved' | 'community_join_declined' | 'community_invitation'
-  | 'community_role_changed' | 'community_member_removed' | 'community_announcement';
+  | 'community_role_changed' | 'community_member_removed' | 'community_announcement' | 'community_channel_announcement'
+  | 'promotion';
 
 /** Which user preference switch controls each type. `verification` is account-critical and cannot be switched off. */
 const PREFERENCE_COLUMN: Record<NotificationType, string | null> = {
+  story_reaction: 'story_reactions',
   follow: 'follows',
   like: 'likes', comment: 'comments', reply: 'comments',
   message: 'messages', group_invite: 'groups', event_update: 'events', verification: null,
@@ -18,7 +21,14 @@ const PREFERENCE_COLUMN: Record<NotificationType, string | null> = {
   community_join_request: 'communities', community_join_approved: 'communities', community_join_declined: 'communities',
   community_invitation: 'communities', community_role_changed: null, community_member_removed: null,
   community_announcement: 'communities',
+  community_channel_announcement: 'communities',
+  // Payment, review and refund notices about the person's own promotions are account notices: they cannot be switched off.
+  promotion: null,
 };
+
+/** Finer switches for event notices. They apply on top of the `events` switch, never instead of it. */
+export const EVENT_PREFERENCES = ['event_confirmations', 'event_reminders', 'event_changes', 'event_cancellations', 'event_community', 'event_organizer_updates'] as const;
+export type EventPreference = (typeof EVENT_PREFERENCES)[number];
 
 export interface NewNotification {
   recipientId: string;
@@ -28,6 +38,8 @@ export interface NewNotification {
   entityId?: string;
   /** Ids and other non-sensitive references only. Never message text or student records. */
   metadata?: Record<string, string | number | boolean | null>;
+  /** Which finer event switch also has to be on. Only the fixed names above are ever put into SQL. */
+  preference?: EventPreference;
 }
 
 /**
@@ -37,9 +49,10 @@ export interface NewNotification {
  */
 export async function notify(client: Pick<PoolClient, 'query'>, n: NewNotification): Promise<boolean> {
   const column = PREFERENCE_COLUMN[n.type];
-  const prefCheck = column
+  const finer = n.preference && (EVENT_PREFERENCES as readonly string[]).includes(n.preference) ? n.preference : null;
+  const prefCheck = (column
     ? `and coalesce((select np.${column} from notification_preferences np where np.user_id = $1), true)`
-    : '';
+    : '') + (finer ? ` and coalesce((select np.${finer} from notification_preferences np where np.user_id = $1), true)` : '');
   // Community posts: the recipient's per-community level decides whether reactions and comments reach them.
   // all and highlights: everything. mentions (the default): comments and replies, but not reactions.
   // announcements and muted: neither. Administrative notices (role, removal) never go through this check.

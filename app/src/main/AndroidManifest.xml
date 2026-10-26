@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Needed for map tiles. The app never asks for the device location. -->
+    <!-- Map tiles. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Asked for only when someone taps the microphone in a chat, never when a chat opens. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Android 13+: asked once, after sign-in. If it is declined the in-app notification list keeps working. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Asked for only when someone taps "Send location" in a chat or "Use my location" on the venue map: one position,
+         while the app is open. Only a live share the person starts keeps going, with a notification and a Stop button. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- Live location: a visible, stoppable notification while a share is running. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:name=".app.UniVibeApplication"
@@ -35,7 +44,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Lets another app open a file from a chat (and the camera save a photo) through a temporary link, without sharing app storage. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Receives FCM data messages and token changes. Not exported: only Firebase may call it. -->
+        <service
+            android:name=".features.chats.LiveLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <service
             android:name=".push.UniVibeMessagingService"
             android:exported="false">

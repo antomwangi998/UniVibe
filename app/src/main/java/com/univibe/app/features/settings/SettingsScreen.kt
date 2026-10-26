@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import com.univibe.app.app.AppContainer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.univibe.app.BuildConfig
 import com.univibe.app.data.prefs.ThemeMode
 import com.univibe.app.navigation.SettingsRoutes
 import com.univibe.app.ui.components.ConfirmDialog
@@ -119,8 +122,16 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Shield, "Privacy & safety", { onNavigate(SettingsRoutes.PRIVACY) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Bell, "Notifications", { onNavigate(SettingsRoutes.NOTIFICATIONS) })
+                    // Only moderators ever see this row; the server decides who that is.
+                    val isModerator by produceState(false) { value = runCatching { AppContainer.eventRepository.isModerator() }.getOrDefault(false) }
+                    if (isModerator) {
+                        RowDivider()
+                        SettingsNavRow(VibeIcons.Shield, "Reported events", { onNavigate(com.univibe.app.navigation.AppRoutes.MODERATION_REPORTS) }, subtitle = "Moderators only")
+                    }
                     RowDivider()
                     SettingsNavRow(VibeIcons.Chats, "Messages", { onNavigate(SettingsRoutes.MESSAGING) })
+                    RowDivider()
+                    SettingsNavRow(VibeIcons.Groups, "Campus & community", { onNavigate(SettingsRoutes.CAMPUS) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Palette, "Appearance", { onNavigate(SettingsRoutes.APPEARANCE) })
                     RowDivider()
@@ -136,6 +147,8 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Document, "Account status", { onNavigate(SettingsRoutes.STATUS) })
                     RowDivider()
                     SettingsNavRow(VibeIcons.Help, "Help & support", { onNavigate(SettingsRoutes.HELP) })
+                    RowDivider()
+                    SettingsNavRow(VibeIcons.Info, "Legal & About", { onNavigate(SettingsRoutes.LEGAL) })
                 }
             }
             item {
@@ -143,7 +156,7 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Logout, "Log out", { confirmLogOut = true }, destructive = true, showChevron = false)
                 }
             }
-            item { SettingsNote("UniVibe 0.1.0") }
+            item { SettingsNote("UniVibe ${BuildConfig.VERSION_NAME}") }
         }
     }
 
@@ -170,66 +183,7 @@ private fun iconFor(category: String): ImageVector = when (category) {
     SettingsCategories.PERMISSIONS -> VibeIcons.Shield
     SettingsCategories.DATA -> VibeIcons.Archive
     SettingsCategories.STATUS -> VibeIcons.Document
+    SettingsCategories.CAMPUS -> VibeIcons.Groups
+    SettingsCategories.LEGAL -> VibeIcons.Info
     else -> VibeIcons.Help
-}
-
-/** Settings → Appearance. The theme is a device preference, applied app-wide immediately. */
-@Composable
-fun AppearanceScreen(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onBack: () -> Unit, viewModel: SettingsViewModel = viewModel()) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    SettingsPage("Appearance", onBack) {
-        item { SettingsSectionTitle("Theme") }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                ThemeOption("System", VibeIcons.Contrast, themeMode == ThemeMode.SYSTEM, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.SYSTEM) }
-                ThemeOption("Light", VibeIcons.Sun, themeMode == ThemeMode.LIGHT, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.LIGHT) }
-                ThemeOption("Dark", VibeIcons.Moon, themeMode == ThemeMode.DARK, Modifier.weight(1f)) { onThemeModeChange(ThemeMode.DARK) }
-            }
-        }
-        item { SettingsNote("System follows your phone's light or dark setting.") }
-        item {
-            SettingsGroup {
-                SettingsSectionTitle("Font")
-                AppFont.entries.forEach { f ->
-                    SettingsRadioRow(f.label, f.description, settings.font == f, f.family()) { viewModel.update { it.copy(font = f) } }
-                }
-            }
-        }
-        item {
-            SettingsGroup {
-                SettingsSectionTitle("Text size")
-                TextScale.entries.forEach { sc ->
-                    SettingsRadioRow(sc.label, null, settings.textScale == sc) { viewModel.update { it.copy(textScale = sc) } }
-                }
-            }
-        }
-        item {
-            VibeCard {
-                Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Great session today on AI & innovation!", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = Spacing.xs))
-                Text("Study group at the library, 6 PM.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.xs))
-            }
-        }
-        item { SettingsNote("Changes apply everywhere straight away. Reduce motion is under Accessibility.") }
-    }
-}
-
-@Composable
-private fun ThemeOption(label: String, icon: ImageVector, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val container by animateColorAsState(if (selected) colors.primaryContainer else colors.surface, label = "themeBg")
-    val border by animateColorAsState(if (selected) colors.primary else colors.outlineVariant, label = "themeBorder")
-    Surface(
-        modifier = modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = "$label theme" },
-        shape = MaterialTheme.shapes.medium,
-        color = container,
-        border = BorderStroke(if (selected) 1.5.dp else 1.dp, border),
-    ) {
-        Column(Modifier.padding(vertical = Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = null, tint = if (selected) colors.primary else colors.onSurfaceVariant)
-            Spacer(Modifier.height(Spacing.xs))
-            Text(label, style = MaterialTheme.typography.labelLarge)
-        }
-    }
 }

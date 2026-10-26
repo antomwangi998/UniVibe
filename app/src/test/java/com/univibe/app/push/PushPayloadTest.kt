@@ -55,6 +55,22 @@ class PushPayloadTest {
         assertEquals("univibe://notifications", security.deepLink)
     }
 
+    @Test fun promotionNoticesUseTheirOwnChannelAndFixedWording() {
+        val e = PushPayload.parse(mapOf("kind" to "notification", "type" to "promotion", "notificationId" to "n5", "promotionKind" to "payment_confirmed"))!!
+        assertEquals(PushChannel.Promotions, e.channel)
+        assertEquals("Promotions", e.title)
+        assertEquals("Your payment was confirmed. Your promotion is now in review.", e.body)
+        assertEquals("univibe://notifications", e.deepLink)
+    }
+
+    @Test fun anUnknownOrForgedPromotionKindGetsTheGenericLine() {
+        for (kind in listOf("brand_new_kind", "<script>", "")) {
+            val e = PushPayload.parse(mapOf("kind" to "notification", "type" to "promotion", "promotionKind" to kind))!!
+            assertEquals("There is an update about your promotion.", e.body)
+        }
+        assertEquals("There is an update about your promotion.", PushPayload.parse(mapOf("kind" to "notification", "type" to "promotion"))!!.body)
+    }
+
     @Test fun aMissingIdFallsBackToTheNotificationList() {
         val e = PushPayload.parse(mapOf("kind" to "notification", "type" to "like"))
         assertNotNull(e)
@@ -70,5 +86,29 @@ class PushPayloadTest {
     @Test fun textsNeverContainPrivateContent() {
         val e = PushPayload.parse(mapOf("kind" to "message", "conversationId" to conv, "content" to "secret plan"))!!
         assertFalse((e.title + e.body).contains("secret"))
+    }
+}
+
+class MessagePreviewFormatTest {
+    @Test fun directChatShowsSenderAndText() {
+        val p = MessagePreviewFormat.compose(false, null, "Ashley Wangeci", "  see you\nat 5  ", emptyList())
+        assertEquals("Ashley Wangeci", p.title)
+        assertEquals("see you at 5", p.body)
+    }
+
+    @Test fun groupShowsGroupNameAndSenderPrefix() {
+        val p = MessagePreviewFormat.compose(true, "I-RISE", "Joy Anne", "Workshop moved", emptyList())
+        assertEquals("I-RISE", p.title)
+        assertEquals("Joy Anne: Workshop moved", p.body)
+    }
+
+    @Test fun mediaOnlyMessagesGetALabel() {
+        assertEquals("Sent a photo", MessagePreviewFormat.compose(false, null, "A", "", listOf("image")).body)
+        assertEquals("Voice message", MessagePreviewFormat.compose(false, null, "A", "", listOf("audio")).body)
+    }
+
+    @Test fun longTextIsClipped() {
+        val body = MessagePreviewFormat.compose(false, null, "A", "x".repeat(500), emptyList()).body
+        assertEquals(MessagePreviewFormat.MAX_BODY, body.length)
     }
 }

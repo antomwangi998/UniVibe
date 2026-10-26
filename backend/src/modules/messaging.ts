@@ -9,8 +9,17 @@ import { idParam, pageSchema } from '../http';
 import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
+import { firstLink } from '../linkpreview';
+import { groupInOrder } from '../group';
+import { createHash } from 'node:crypto';
 import { notify } from './notify';
 import { presenceOf } from './presence';
+
+/** Wipes positions that are no longer being shared (stopped, or past their end time). Safe to run any time. */
+export async function purgeLiveLocations(pool: { query: (sql: string) => Promise<{ rowCount: number | null }> }): Promise<{ cleared: number }> {
+  const res = await pool.query('update live_locations set lat = null, lng = null where lat is not null and (ended_at is not null or expires_at <= now())');
+  return { cleared: res.rowCount ?? 0 };
+}
 
 export const EDIT_WINDOW_MINUTES = 15;
 const MAX_GROUP_MEMBERS = 256;
@@ -20,14 +29,34 @@ export const sendSchema = z.object({
   clientId: z.string().min(1).max(64).optional(),
   replyToId: z.string().uuid().optional(),
   mediaIds: z.array(z.string().uuid()).max(4).default([]),
+  /** "Send current location": one fixed point. Rounded to about 10 m before it is stored. */
+  location: z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    label: z.string().trim().max(80).nullable().default(null),
+    /** Keep updating this position for 15 minutes, 1 hour or 8 hours. Absent means a one-time position. */
+    liveMinutes: z.union([z.literal(15), z.literal(60), z.literal(480)]).optional(),
+  }).strict().optional(),
 }).strict();
+
+/** About 10 m. Nobody needs more than that to find a person, and an exact position is never stored. */
+const roundCoordinate = (n: number) => Math.round(n * 1e4) / 1e4;
 
 export interface MessageView {
   id: string; seq: number; conversationId: string; senderId: string | null; content: string | null;
   deleted: boolean; createdAt: Date; editedAt: Date | null;
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
-  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null }[];
+  media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null; fileName: string | null; sizeBytes: number | null }[];
   forwarded: boolean;
+  /** Set when this message answers a Story. `available` is false once the Story has expired or been deleted; its content is never copied here. */
+  story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
+  /** A shared event. Only the id travels in the message; each reader's app asks for the event itself, so people who may not see it get "not available". */
+  eventId: string | null;
+  /** A shared place (fixed point). Null for every other kind of message. */
+  location: { latitude: number; longitude: number; label: string | null } | null;
+  /** Set when the place is shared live. `active` turns false when sharing stops or runs out, and `location` is then null. */
+  live: { active: boolean; endsAt: Date; updatedAt: Date | null } | null;
+  linkPreview: { url: string; host: string; title: string | null; description: string | null; siteName: string | null; imageUrl: string | null; imageWidth: number | null; imageHeight: number | null } | null;
   /** Counts per reaction, e.g. { heart: 2 }. `myReaction` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
   myReaction?: string | null;
@@ -58,20 +87,31 @@ async function audience(q: Q, conversationId: string, actorId: string): Promise<
 
 async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerId?: string): Promise<MessageView[]> {
   const ids = rows.map((r) => r.id as string);
+  const liveRows = ids.length
+    ? (await ctx.pool.query<{ message_id: string; lat: number | null; lng: number | null; updated_at: Date | null; expires_at: Date; active: boolean }>(
+        'select message_id, lat, lng, updated_at, expires_at, (ended_at is null and expires_at > now()) as active from live_locations where message_id = any($1::uuid[])', [ids])).rows
+    : [];
+  const liveBy = new Map(liveRows.map((l) => [l.message_id, l]));
   const reactionRows = ids.length
     ? (await ctx.pool.query<{ message_id: string; user_id: string; reaction: string }>(
         'select message_id, user_id, reaction from message_reactions where message_id = any($1::uuid[])', [ids])).rows
     : [];
   const media = ids.length
     ? (await ctx.pool.query(
-        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
+        "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform, file_name, size_bytes from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
         [ids])).rows
     : [];
-  const byMessage = new Map<string, MessageView['media']>();
-  await Promise.all(media.map(async (m) => {
-    const list = byMessage.get(m.message_id) ?? [];
-    list.push({ id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null, durationMs: m.duration_ms ?? null });
-    byMessage.set(m.message_id, list);
+  const previews = ids.length
+    ? (await ctx.pool.query<{ message_id: string; url: string; host: string; title: string | null; description: string | null; site_name: string | null; image_key: string | null; image_width: number | null; image_height: number | null }>(
+        'select message_id, url, host, title, description, site_name, image_key, image_width, image_height from message_link_previews where message_id = any($1::uuid[])', [ids])).rows
+    : [];
+  const previewOf = new Map(previews.map((p) => [p.message_id, p] as const));
+  // The picture is private like all media: a short-lived link is made for each viewer-visible card.
+  const previewImage = new Map(await Promise.all(previews.map(async (p) => [p.message_id, await signedUrl(ctx, p.image_key)] as const)));
+  // Every attachment of a message, in position order (see group.ts for why this is not done inside the async callback).
+  const byMessage = await groupInOrder(media, async (m): Promise<MessageView['media'][number]> => ({
+    id: m.id, kind: m.kind, contentType: m.content_type, url: await signedUrl(ctx, m.object_key), width: m.width ?? null, height: m.height ?? null,
+    durationMs: m.duration_ms ?? null, waveform: m.waveform ?? null, fileName: m.file_name ?? null, sizeBytes: m.kind === 'document' ? Number(m.size_bytes) : null,
   }));
   return rows.map((r) => {
     const deleted = r.status === 'deleted';
@@ -84,6 +124,21 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
       forwarded: Boolean(r.forwarded),
+      story: !deleted && r.story_kind ? { id: (r.story_id as string | null) ?? null, kind: r.story_kind as 'photo' | 'video' | 'text', available: Boolean(r.story_live) } : null,
+      eventId: deleted ? null : (r.event_id as string | null) ?? null,
+      live: (() => { const l = deleted ? undefined : liveBy.get(r.id as string); return l ? { active: l.active, endsAt: l.expires_at, updatedAt: l.updated_at } : null; })(),
+      location: (() => {
+        const l = deleted ? undefined : liveBy.get(r.id as string);
+        if (l) return l.active && l.lat != null && l.lng != null ? { latitude: Number(l.lat), longitude: Number(l.lng), label: null } : null;
+        return deleted || r.location_lat == null ? null : { latitude: Number(r.location_lat), longitude: Number(r.location_lng), label: (r.location_label as string | null) ?? null };
+      })(),
+      // Shown only while the stored address is still the first one in the text (an edit can change it).
+      linkPreview: (() => {
+        const p = deleted ? undefined : previewOf.get(r.id as string);
+        return p && firstLink(r.content as string) === p.url
+          ? { url: p.url, host: p.host, title: p.title, description: p.description, siteName: p.site_name, imageUrl: previewImage.get(p.message_id) ?? null, imageWidth: p.image_width, imageHeight: p.image_height }
+          : null;
+      })(),
       reactions: deleted ? {} : reactionRows.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = (acc[x.reaction] ?? 0) + 1; return acc; }, {}),
       ...(viewerId ? { myReaction: deleted ? null : reactionRows.find((x) => x.message_id === r.id && x.user_id === viewerId)?.reaction ?? null } : {}),
     };
@@ -91,9 +146,15 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
 }
 
 const MESSAGE_SELECT = `
-  select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded,
-         r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content
-    from messages m left join messages r on r.id = m.reply_to_id`;
+  select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded, m.event_id,
+         m.location_lat, m.location_lng, m.location_label,
+         r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content,
+         m.story_id, m.story_kind, (sr.id is not null) as story_live
+    from messages m left join messages r on r.id = m.reply_to_id
+    left join stories sr on sr.id = m.story_id and sr.expires_at > now()`;
+
+/** A short stable key for an address, so the same link in the same message is only ever read once. */
+const linkKey = (url: string) => createHash('sha1').update(url).digest('hex').slice(0, 16);
 
 export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Promise<MessageView> {
   const { rows } = await ctx.pool.query(`${MESSAGE_SELECT} where m.id = $1`, [id]);
@@ -105,12 +166,16 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
  * It is stored first and announced second, so nobody is told about a message that failed to save.
  * A retry with the same clientId returns the stored message and creates nothing new.
  */
-export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean } = {}) {
+export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean; story?: { id: string; kind: 'photo' | 'video' | 'text' }; eventId?: string } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
-  if (!input.content && !input.mediaIds.length) throw new HttpError(400, 'validation', 'Write a message, attach a photo or record a voice message.');
+  if (!input.content && !input.mediaIds.length && !opts.eventId && !input.location) throw new HttpError(400, 'validation', 'Write a message, attach a photo or a file, or record a voice message.');
+  if (input.location && input.mediaIds.length) throw new HttpError(422, 'validation', 'A location is sent on its own.');
+  const isLive = Boolean(input.location?.liveMinutes);
+  // A live place lives only in live_locations (so it can be wiped); a one-time place is stored on the message.
+  const place = input.location && !isLive ? { lat: roundCoordinate(input.location.latitude), lng: roundCoordinate(input.location.longitude), label: input.location.label } : null;
 
-  const { id, created } = await withTx(ctx.pool, async (client) => {
+  const { id, created, superseded } = await withTx(ctx.pool, async (client) => {
     const member = await membership(client, conversationId, me.id);
     if (member.kind === 'group' && member.only_admins_can_message && member.role === 'member') {
       throw new HttpError(403, 'forbidden', 'Only admins can send messages in this group.');
@@ -133,26 +198,43 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       if (!ok.rowCount) throw new HttpError(422, 'validation', 'The message you are replying to is not in this conversation.');
     }
     const inserted = await client.query<{ id: string; seq: string }>(
-      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded) values ($1, $2, $3, $4, $5, $6)
+      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind, event_id, location_lat, location_lng, location_label) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        on conflict (conversation_id, sender_id, client_id) where client_id is not null do nothing returning id, seq`,
-      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false],
+      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null, opts.eventId ?? null, place?.lat ?? null, place?.lng ?? null, place?.label ?? null],
     );
     if (!inserted.rowCount) {
       const existing = await client.query<{ id: string }>(
         'select id from messages where conversation_id = $1 and sender_id = $2 and client_id = $3', [conversationId, me.id, input.clientId]);
-      return { id: existing.rows[0].id, created: false };
+      return { id: existing.rows[0].id, created: false, superseded: [] as { id: string; conversationId: string }[] };
     }
     const messageId = inserted.rows[0].id;
+    // The preview is read in the background, so sending is never slowed down. The job is written with the message (outbox).
+    const link = firstLink(input.content);
+    if (link) await enqueue(client, 'link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
     if (input.mediaIds.length) {
       const attached = await client.query(
         `update media m set message_id = $1, position = x.ord - 1
            from unnest($2::uuid[]) with ordinality as x(id, ord)
-          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio') and m.status = 'ready' and m.message_id is null`,
+          where m.id = x.id and m.owner_id = $3 and m.purpose = 'message' and m.kind in ('image', 'audio', 'document') and m.status = 'ready' and m.message_id is null and m.channel_message_id is null`,
         [messageId, input.mediaIds, me.id]);
       if (attached.rowCount !== input.mediaIds.length) throw new HttpError(422, 'invalid_media', 'One of the attachments is not available.');
       // A voice message stands alone: no other attachments with it.
       const audio = await client.query("select 1 from media where message_id = $1 and kind = 'audio'", [messageId]);
       if (audio.rowCount && input.mediaIds.length > 1) throw new HttpError(422, 'invalid_media', 'A voice message cannot have other attachments.');
+      // A document is sent on its own too (with a caption if wanted), never mixed with photos or other documents.
+      const doc = await client.query("select 1 from media where message_id = $1 and kind = 'document'", [messageId]);
+      if (doc.rowCount && input.mediaIds.length > 1) throw new HttpError(422, 'invalid_media', 'A document is sent on its own.');
+    }
+    // Live place: one active share per person. Starting a new one stops the old one, which is wiped on the spot.
+    const superseded: { id: string; conversationId: string }[] = [];
+    if (input.location?.liveMinutes) {
+      const old = await client.query<{ message_id: string; conversation_id: string }>(
+        `update live_locations ll set ended_at = now(), lat = null, lng = null from messages m
+          where m.id = ll.message_id and ll.user_id = $1 and ll.ended_at is null and ll.expires_at > now() returning ll.message_id, m.conversation_id`, [me.id]);
+      for (const r of old.rows) superseded.push({ id: r.message_id, conversationId: r.conversation_id });
+      await client.query(
+        'insert into live_locations (message_id, user_id, lat, lng, updated_at, expires_at) values ($1, $2, $3, $4, now(), now() + make_interval(mins => $5))',
+        [messageId, me.id, roundCoordinate(input.location.latitude), roundCoordinate(input.location.longitude), input.location.liveMinutes]);
     }
     await client.query('update conversations set last_message_at = now() where id = $1', [conversationId]);
     await client.query(
@@ -170,9 +252,13 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       // One push job per message and recipient, written in this transaction (outbox): it exists if and only if the message does.
       await enqueue(client, 'push.message', { messageId: inserted.rows[0].id, recipientId: userId }, { dedupeKey: `${inserted.rows[0].id}:${userId}` });
     }
-    return { id: messageId, created: true };
+    return { id: messageId, created: true, superseded };
   });
 
+  for (const old of superseded) {
+    const view = await loadMessage(ctx, old.id);
+    hub.sendMany(await audience(ctx.pool, old.conversationId, me.id), { type: 'message:updated', conversationId: old.conversationId, message: view });
+  }
   const message = await loadMessage(ctx, id);
   if (created) {
     const recipients = await audience(ctx.pool, conversationId, me.id);
@@ -324,7 +410,9 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                     and x.sender_id is distinct from $1 and x.status = 'active') as unread,
                 lm.id as lm_id, lm.sender_id as lm_sender, lm.content as lm_content, lm.status as lm_status, lm.created_at as lm_created,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'image') as lm_media,
+                (lm.event_id is not null) as lm_event, (lm.location_lat is not null or exists (select 1 from live_locations ll where ll.message_id = lm.id)) as lm_location,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'audio') as lm_audio,
+                (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'document') as lm_docs,
                 (select su.full_name from users su where su.id = lm.sender_id) as lm_sender_name,
                 (select count(*) from conversation_members mc where mc.conversation_id = c.id) as member_count,
                 -- Up to six other members of a group (names only): used for typing labels, collage avatars and untitled groups.
@@ -363,7 +451,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           presence: r.card_id ? presence.get(r.card_id) ?? null : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
-          mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, senderName: r.lm_sender_name ?? null,
+          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), hasLocation: r.lm_status === 'active' && Boolean(r.lm_location), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, documentCount: r.lm_status === 'active' ? Number(r.lm_docs) : 0, senderName: r.lm_sender_name ?? null,
           delivery: r.lm_delivery ?? null } : null,
         }))),
         nextCursor: more && last ? Buffer.from(JSON.stringify({ t: last.cursor_t, id: last.id })).toString('base64url') : null,
@@ -432,6 +520,14 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
         [id, me.id, b.content, EDIT_WINDOW_MINUTES]);
       if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
       const conversationId = res.rows[0].conversation_id;
+      const link = firstLink(b.content);
+      if (link) await enqueue(pool, 'link.preview', { messageId: id, url: link }, { dedupeKey: `${id}:${linkKey(link)}`, maxAttempts: 2 });
+      else {
+        // The link was edited out: its card, picture included, goes too.
+        const card = await pool.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
+        const keys = card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k));
+        if (keys.length && ctx.storage) void ctx.storage.remove(keys).catch(() => undefined);
+      }
       const message = await loadMessage(ctx, id);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
       return message;
@@ -441,14 +537,50 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     app.delete('/messages/:id', async (req, reply) => {
       const me = await ctx.auth(req);
       const id = param(req);
-      const conversationId = await withTx(pool, async (client) => {
+      const { conversationId, previewImages } = await withTx(pool, async (client) => {
         const res = await client.query<{ conversation_id: string }>(
           "update messages set status = 'deleted', content = '', deleted_at = now() where id = $1 and sender_id = $2 and status = 'active' returning conversation_id", [id, me.id]);
         if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
-        await client.query('delete from media where message_id = $1', [id]);
-        return res.rows[0].conversation_id;
+        const gone = await client.query<{ object_key: string; thumb_key: string | null }>('delete from media where message_id = $1 returning object_key, thumb_key', [id]);
+        // The link card goes with the message, picture included.
+        const card = await client.query<{ image_key: string | null }>('delete from message_link_previews where message_id = $1 returning image_key', [id]);
+        const files = gone.rows.flatMap((r) => [r.object_key, r.thumb_key]).filter((k): k is string => Boolean(k));
+        return { conversationId: res.rows[0].conversation_id, previewImages: [...files, ...card.rows.map((r) => r.image_key).filter((k): k is string => Boolean(k))] };
       });
+      if (previewImages.length && ctx.storage) void ctx.storage.remove(previewImages).catch(() => undefined);
       hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:deleted', conversationId, messageId: id });
+      return reply.status(204).send();
+    });
+
+    // ---- live location: the sender's phone keeps this up to date; everyone in the chat gets the message again, changed.
+    app.put('/messages/:id/live', async (req) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      ctx.limit(`live:${me.id}`, 30, 60);
+      const b = z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) }).strict().parse(req.body ?? {});
+      const res = await pool.query<{ conversation_id: string }>(
+        `update live_locations ll set lat = $3, lng = $4, updated_at = now() from messages m
+          where m.id = ll.message_id and ll.message_id = $1 and ll.user_id = $2 and ll.ended_at is null and ll.expires_at > now() returning m.conversation_id`,
+        [id, me.id, roundCoordinate(b.latitude), roundCoordinate(b.longitude)]);
+      if (!res.rowCount) throw new HttpError(409, 'live_ended', 'This live location has ended.');
+      const conversationId = res.rows[0].conversation_id;
+      const message = await loadMessage(ctx, id);
+      hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
+      return { ok: true };
+    });
+
+    // Stopping wipes the stored position at once. Calling it again, or after it ran out, changes nothing.
+    app.delete('/messages/:id/live', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const id = param(req);
+      const res = await pool.query<{ conversation_id: string }>(
+        `update live_locations ll set ended_at = now(), lat = null, lng = null from messages m
+          where m.id = ll.message_id and ll.message_id = $1 and ll.user_id = $2 and ll.ended_at is null returning m.conversation_id`, [id, me.id]);
+      if (res.rowCount) {
+        const conversationId = res.rows[0].conversation_id;
+        const message = await loadMessage(ctx, id);
+        hub.sendMany(await audience(pool, conversationId, me.id), { type: 'message:updated', conversationId, message });
+      }
       return reply.status(204).send();
     });
 

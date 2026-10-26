@@ -93,6 +93,18 @@ object VibeIcons {
         "Share", 0f, LINE,
         SHARE_NODE_TOP, SHARE_NODE_MID, SHARE_NODE_BOT, "M8.1 10.8 L15.9 7", "M8.1 13.2 L15.9 17",
     )
+    /** Two arrows chasing each other around a loop. */
+    val Repost = icon(
+        "Repost", 0f, LINE,
+        "M17 3.5 L20.5 7 L17 10.5", "M3.5 11 V10 Q3.5 7 6.5 7 H20.5",
+        "M7 20.5 L3.5 17 L7 13.5", "M20.5 13 V14 Q20.5 17 17.5 17 H3.5",
+    )
+    /** An eye: how many students have looked at a post. */
+    val Views = icon(
+        "Views", 0f, LINE,
+        "M2.5 12 Q7 5.5 12 5.5 Q17 5.5 21.5 12 Q17 18.5 12 18.5 Q7 18.5 2.5 12 Z",
+        "M9.5 12 A2.5 2.5 0 1 0 14.5 12 A2.5 2.5 0 1 0 9.5 12 Z",
+    )
     val Bookmark = icon("Bookmark", 0f, LINE, BOOKMARK)
     val BookmarkFilled = icon("BookmarkFilled", SOLID, LINE, BOOKMARK)
     /** Three dots, drawn as zero-length round-capped strokes so they stay optically even. */
@@ -107,6 +119,11 @@ object VibeIcons {
         "Photo", 0f, LINE,
         "M6.5 4.5 H17.5 Q20 4.5 20 7 V17 Q20 19.5 17.5 19.5 H6.5 Q4 19.5 4 17 V7 Q4 4.5 6.5 4.5 Z",
         "M8.6 9.2 H8.61", "M4.4 16.4 L9.4 12 L13 15.2 L15.4 13.2 L19.6 16.8",
+    )
+    val File = icon(
+        "File", 0f, LINE,
+        "M7.5 3.5 H13 L18.5 9 V19 Q18.5 20.5 17 20.5 H7.5 Q6 20.5 6 19 V5 Q6 3.5 7.5 3.5 Z",
+        "M13 3.5 V9 H18.5", "M9 13.5 H15.5", "M9 16.5 H13.5",
     )
     val Check = icon("Check", 0f, LINE, "M5.5 12.6 L9.8 16.8 L18.5 7.8")
     val DoubleCheck = icon("DoubleCheck", 0f, LINE, "M2.6 12.8 L6.9 17 L15.4 8.4", "M11.2 15.9 L12.1 16.8 L21 7.8")
@@ -134,6 +151,7 @@ object VibeIcons {
         "M4.5 16.5 H12.8", "M17.2 16.5 H19.5", "M12.8 16.5 A2.2 2.2 0 1 0 17.2 16.5 A2.2 2.2 0 1 0 12.8 16.5 Z",
     )
     private const val RING = "M3.8 12 A8.2 8.2 0 1 0 20.2 12 A8.2 8.2 0 1 0 3.8 12 Z"
+    val Link = icon("Link", 0f, LINE, "M9.5 14.5 L14.5 9.5", "M11 7.5 L12.2 6.3 A3.2 3.2 0 0 1 16.7 10.8 L15.5 12", "M13 16.5 L11.8 17.7 A3.2 3.2 0 0 1 7.3 13.2 L8.5 12")
     val Info = icon("Info", 0f, LINE, RING, "M12 11 V16", "M12 8 H12.01")
     val CheckCircle = icon("CheckCircle", 0f, LINE, RING, "M8.5 12.3 L11 14.8 L15.8 9.5")
     val Block = icon("Block", 0f, LINE, RING, "M6.2 6.2 L17.8 17.8")

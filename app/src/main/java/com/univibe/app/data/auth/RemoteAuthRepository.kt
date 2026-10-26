@@ -446,6 +446,27 @@ class RemoteAuthRepository(
         return AuthResult.Success(Unit)
     }
 
+    override suspend fun deactivateAccount(password: String): AuthResult<Unit> {
+        val response = when (val r = authedCall("POST", "/me/deactivate", JSONObject().put("password", password))) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 204 && response.status != 200) return fail(mapError(response))
+        // The server ended every login. Nothing of the account is kept on this phone.
+        clearSession()
+        _session.value = AuthState.SignedOut()
+        return AuthResult.Success(Unit)
+    }
+
+    override suspend fun exportMyData(): AuthResult<String> {
+        val response = when (val r = authedCall("POST", "/me/export", null)) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return fail(mapError(response))
+        return AuthResult.Success(response.body)
+    }
+
     // ---------------------------------------------------------------- tokens
     private fun adopt(newTokens: Tokens) {
         tokens = newTokens

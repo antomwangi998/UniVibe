@@ -1,7 +1,17 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.CampusEvent
+import com.univibe.app.data.model.EventActivity
+import com.univibe.app.data.model.AttendeePage
+import com.univibe.app.data.model.EventAttendee
+import com.univibe.app.data.model.EventReportItem
+import com.univibe.app.data.model.ModeratorEvent
+import com.univibe.app.data.model.EventLink
+import com.univibe.app.data.model.EventUpdate
+import com.univibe.app.data.model.ShareTarget
 import com.univibe.app.data.model.EventCategoryInfo
+import com.univibe.app.data.model.EventNotificationPrefs
+import com.univibe.app.data.model.EventNotificationPrefsChange
 import com.univibe.app.data.model.EventDiscoverFilter
 import com.univibe.app.data.model.EventDiscoverPage
 import com.univibe.app.data.model.EventSection
@@ -28,6 +38,7 @@ import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostLimits
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.model.StudentProfile
@@ -63,6 +74,10 @@ interface FeedRepository {
     suspend fun getStories(): List<Student>
     suspend fun setLiked(postId: String, liked: Boolean)
     suspend fun setSaved(postId: String, saved: Boolean)
+    /** Reposts (or un-reposts) a post. One repost per student; repeating a request changes nothing. */
+    suspend fun setReposted(postId: String, reposted: Boolean)
+    /** Tells the server which posts this student has looked at. The server counts each student once per post. */
+    suspend fun recordViews(postIds: List<String>)
     /** Sends a report to moderators. */
     suspend fun reportPost(postId: String, reason: String)
     /** Server must validate length/content; returns the stored post. */
@@ -72,6 +87,8 @@ interface FeedRepository {
         imagePath: String? = null,
         videoPath: String? = null,
         pollOptions: List<String> = emptyList(),
+        /** How long the poll stays open, in hours (1 to 72). Ignored without poll options. */
+        pollHours: Int = PostLimits.DEFAULT_POLL_HOURS,
     ): Post
     /**
      * Creates a post with attached photos and an audience. The server must validate text length, photo count/size/type
@@ -140,6 +157,16 @@ interface EventRepository {
     /** False until the server stores bookmarks; screens then hide the save action instead of faking it. */
     val supportsSaved: Boolean get() = false
     suspend fun setSaved(eventId: String, saved: Boolean) { throw UnsupportedOperationException("Saving events isn't available yet.") }
+    val supportsEventNotificationPrefs: Boolean get() = false
+    suspend fun eventNotificationPrefs(): EventNotificationPrefs = EventNotificationPrefs()
+    suspend fun saveEventNotificationPrefs(change: EventNotificationPrefsChange): EventNotificationPrefs { throw UnsupportedOperationException("Not available yet.") }
+    /** True when the server ranks, filters and sections events. Otherwise Discover filters the plain list on the device. */
+    val supportsDiscover: Boolean get() = false
+    suspend fun eventCategories(): List<EventCategoryInfo> = emptyList()
+    suspend fun discoverSections(): List<EventSection> = emptyList()
+    suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String? = null): EventDiscoverPage = EventDiscoverPage(emptyList(), null)
+    /** Hides an event from the person's recommendations only. It stays reachable everywhere else. */
+    suspend fun setNotInterested(eventId: String, hidden: Boolean) { throw UnsupportedOperationException("Not available yet.") }
     suspend fun getEvents(): List<CampusEvent>
     /** Null when the id is unknown (ids from deep links are untrusted). */
     suspend fun getEvent(id: String): EventDetails?
@@ -154,19 +181,37 @@ interface EventRepository {
     suspend fun deleteEvent(id: String)
     suspend fun getVenues(): List<Venue>
 
-    /** False when the server has no event discovery; Discover then falls back to the plain [getEvents] list. */
-    val supportsDiscover: Boolean get() = false
-    /** The categories the server offers, as data, so new ones appear without an app update. */
-    suspend fun eventCategories(): List<EventCategoryInfo> = emptyList()
-    /** Filtered, ranked events, one page at a time. Pass the previous page's cursor for the next one. */
-    suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String? = null): EventDiscoverPage =
-        throw UnsupportedOperationException("Discovering events isn't available yet.")
-    /** The named sections of the Discover page, in the server's order. An event is in at most one section. */
-    suspend fun discoverSections(): List<EventSection> = emptyList()
-    /** Private feedback that hides an event from recommendations. false undoes it. */
-    suspend fun setNotInterested(eventId: String, notInterested: Boolean) {
-        throw UnsupportedOperationException("Hiding events isn't available yet.")
-    }
+    /** False where the server has no organizer updates, activity log, links or sharing; screens then hide those actions. */
+    val supportsOrganizerTools: Boolean get() = false
+    suspend fun eventUpdates(eventId: String): List<EventUpdate> = emptyList()
+    /** Organizer only. Tells everyone going or interested; the server limits it to a few a day. */
+    suspend fun postEventUpdate(eventId: String, body: String) { throw UnsupportedOperationException("Updates aren't available yet.") }
+    /** Organizer only: who changed what, and when. */
+    suspend fun eventActivity(eventId: String): List<EventActivity> = emptyList()
+    suspend fun eventLink(eventId: String): EventLink? = null
+    /** Organizer only: announces a draft. The server re-checks the time and limits. */
+    suspend fun publishEvent(id: String) { throw UnsupportedOperationException("Not available yet.") }
+    /** The organizer's own unpublished events. */
+    suspend fun myDrafts(): List<CampusEvent> = emptyList()
+    /** Who is going. The organizer always sees it; others only when the organizer allows it and they are going. */
+    suspend fun attendees(eventId: String, cursor: String? = null): AttendeePage = AttendeePage(emptyList(), null)
+
+    // ---- Moderator tools. Everyone else gets "no" from [isModerator] and never sees them.
+    suspend fun isModerator(): Boolean = false
+    suspend fun eventReports(): List<EventReportItem> = emptyList()
+    suspend fun moderatorEvent(id: String): ModeratorEvent? = null
+    /** Hides an event from everyone but its organizer, or brings it back. [userMessage] is shown to the organizer in Account status. */
+    suspend fun setEventHidden(id: String, hide: Boolean, note: String, userMessage: String) { throw UnsupportedOperationException("Not available.") }
+    /** Organizer only: closes an event that has started. */
+    suspend fun completeEvent(id: String) { throw UnsupportedOperationException("Not available yet.") }
+    /** Turns reminders on or off for one event you are going to. */
+    suspend fun setEventReminders(id: String, enabled: Boolean) { throw UnsupportedOperationException("Not available yet.") }
+    /** Upcoming events a community hosts, as this person may see them. */
+    suspend fun communityEvents(communityId: String): List<CampusEvent> = emptyList()
+    /** Shares the event itself into a chat or community. The server refuses community-only events outside their community. */
+    suspend fun shareEvent(eventId: String, target: ShareTarget, targetId: String, text: String) { throw UnsupportedOperationException("Sharing isn't available yet.") }
+    /** [targetType] is "event" or "user" (to report an organizer). */
+    suspend fun report(targetType: String, targetId: String, reason: String) { throw UnsupportedOperationException("Reporting isn't available yet.") }
 }
 
 interface ProfileRepository {
@@ -181,6 +226,9 @@ interface ProfileRepository {
     suspend fun getStudentProfile(id: String): StudentProfile?
     suspend fun getFollowers(): List<FollowEntry>
     suspend fun getFollowing(): List<FollowEntry>
+    /** Another student's followers / following. Empty when offline or not available. */
+    suspend fun getFollowersOf(studentId: String): List<FollowEntry> = emptyList()
+    suspend fun getFollowingOf(studentId: String): List<FollowEntry> = emptyList()
     suspend fun setFollowing(studentId: String, following: Boolean)
 }
 
@@ -193,13 +241,36 @@ interface CommentRepository {
     suspend fun reportComment(commentId: String, reason: String)
 }
 
+data class LiveShareStarted(val messageId: String, val endsAtMillis: Long)
+
 interface MessageRepository {
     fun messages(chatId: String): Flow<List<Message>>
     fun typing(chatId: String): Flow<Boolean>
     /** Fails if you may not post here (e.g. an admins-only group). The server must check this too. */
     suspend fun send(chatId: String, text: String, imagePath: String? = null, replyTo: ReplyRef? = null)
+    /** Sends up to [MAX_MESSAGE_PHOTOS] photos in one message, with an optional caption. */
+    suspend fun sendPhotos(chatId: String, text: String, imagePaths: List<String>, replyTo: ReplyRef? = null) {
+        if (imagePaths.size > 1) throw UnsupportedOperationException("Sending several photos isn't available.")
+        send(chatId, text, imagePaths.firstOrNull(), replyTo)
+    }
+    /** Sends one document (PDF, Word, ...) with an optional caption. */
+    suspend fun sendFile(chatId: String, text: String, file: com.univibe.app.data.media.PickedFile, replyTo: ReplyRef? = null): Unit =
+        throw UnsupportedOperationException("Sharing files isn't available.")
     /** Sends a recorded voice message (a local .m4a file, at most five minutes). Throws where voice is not available. */
-    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null): Unit =
+    /** Sends one fixed place ("my current location"). */
+    suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef? = null): Unit =
+        throw UnsupportedOperationException("Sharing a location isn't available yet.")
+
+    /** Starts sharing a live position for [minutes]. The phone then keeps it fresh with [updateLiveLocation]. */
+    suspend fun sendLiveLocation(chatId: String, latitude: Double, longitude: Double, minutes: Int, replyTo: ReplyRef? = null): LiveShareStarted =
+        throw UnsupportedOperationException("Live location isn't available yet.")
+
+    /** False when the share has already ended (stopped, ran out, or replaced by a newer one). */
+    suspend fun updateLiveLocation(messageId: String, latitude: Double, longitude: Double): Boolean = false
+
+    suspend fun stopLiveLocation(messageId: String) {}
+
+    suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef? = null, waveform: List<Int> = emptyList()): Unit =
         throw UnsupportedOperationException("Voice messages aren't available.")
     suspend fun deleteMessage(chatId: String, messageId: String)
     /** One reaction per person per message; null removes yours. */
@@ -281,3 +352,6 @@ interface CommunityRepository {
     /** Posts addressed to this community. Private communities only show them to members. */
     suspend fun getPosts(id: String): List<com.univibe.app.data.model.Post>
 }
+
+/** The server accepts at most this many photos in one message. */
+const val MAX_MESSAGE_PHOTOS = 4

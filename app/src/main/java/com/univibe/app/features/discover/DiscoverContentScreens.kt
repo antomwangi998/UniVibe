@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -50,6 +51,7 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.PhotoImage
+import com.univibe.app.ui.components.SponsoredSlot
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIcons
@@ -116,8 +118,10 @@ internal fun DiscoverPostList(
                     modifier = Modifier.padding(Spacing.md), actionLabel = "Refresh", onAction = onRetry,
                 )
             }
-            else -> items(list.posts, key = { it.id }) { post ->
+            else -> itemsIndexed(list.posts, key = { _, p -> p.id }) { index, post ->
                 Column {
+                    // One paid, labelled card in front of the fourth post, and only when the feed is at least that long.
+                    if (index == 3) SponsoredSlot("discover_feed")
                     val reason = if (showReason) postLabel(post) else null
                     if (reason != null) {
                         Text(
@@ -139,6 +143,7 @@ internal fun DiscoverPostList(
                             else actions.onExplain("Only campus-wide posts can be shared outside UniVibe.")
                         },
                         onVote = { index -> actions.onVote(post.id, index) },
+                        onRepost = { actions.onRepost(post.id) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
                 }
@@ -175,6 +180,7 @@ internal class PostActions(
     val onShared: (String) -> Unit,
     val onExplain: (String) -> Unit,
     val onVote: (String, Int) -> Unit,
+    val onRepost: (String) -> Unit = {},
 )
 
 @Composable

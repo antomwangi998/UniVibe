@@ -1,5 +1,7 @@
 package com.univibe.app.push
 
+import com.univibe.app.data.model.PromotionNotice
+
 /** The Android notification channels (Settings ▸ Apps ▸ UniVibe ▸ Notifications lets people tune each one). */
 enum class PushChannel(val id: String) {
     DirectMessages("direct_messages"),
@@ -7,9 +9,10 @@ enum class PushChannel(val id: String) {
     Social("social_activity"),
     Campus("campus_updates"),
     Security("security_alerts"),
+    Promotions("promotions"),
 }
 
-/** What to show for one push. Built only from ids and generic labels the server sent; never from message text. */
+/** What to show for one push. Built only from ids and generic labels the server sent; never from message text (previews are fetched separately). */
 data class PushEvent(
     val channel: PushChannel,
     val title: String,
@@ -18,6 +21,8 @@ data class PushEvent(
     val tag: String,
     /** A `univibe://` link. The app's own screens re-check access, so a stale or forged id just shows "not found". */
     val deepLink: String,
+    /** Set for message alerts: the conversation whose newest message can be previewed. */
+    val conversationId: String? = null,
 )
 
 /**
@@ -47,6 +52,7 @@ object PushPayload {
             body = OPEN_TO_READ,
             tag = "c:$conversation",
             deepLink = "${SCHEME}chats/$conversation",
+            conversationId = conversation,
         )
     }
 
@@ -66,6 +72,8 @@ object PushPayload {
             "group_invite" -> event(PushChannel.GroupMessages, "Added to a group", "You were added to a group chat.", conversation?.let { "${SCHEME}chats/$it" })
             "event_update" -> event(PushChannel.Campus, "Event update", "An event you follow has news.", entity?.let { "${SCHEME}events/$it" })
             "verification" -> event(PushChannel.Security, "Account notice", "There is an update about your account.", null)
+            // Payments, reviews and refunds for the person's own promotions. The wording comes from a fixed table keyed by `promotionKind`.
+            "promotion" -> event(PushChannel.Promotions, PromotionNotice.TITLE, PromotionNotice.body(data["promotionKind"]), null)
             else -> null
         }
     }

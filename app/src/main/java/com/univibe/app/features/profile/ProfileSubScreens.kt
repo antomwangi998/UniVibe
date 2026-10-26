@@ -200,6 +200,7 @@ fun SavedPostsScreen(
                 items(s.posts, key = { it.id }) { post ->
                     CampusPostCard(
                         post, onLike = { viewModel.toggleLike(post.id) }, onComment = { onOpenComments(post.id) },
+                        onRepost = { viewModel.toggleRepost(post.id) },
                         onSave = { viewModel.unsave(post.id) }, onAuthorClick = { onOpenStudent(post.author.id) },
                         onShare = {
                             if (sharePost(shareContext, post)) viewModel.noteShared(post.id)
@@ -220,8 +221,8 @@ fun SavedPostsScreen(
 
 // ------------------------------------------------------------------ followers / following
 @Composable
-fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (String) -> Unit) {
-    val viewModel = keyedViewModel("follow-${kind.name}") { FollowListViewModel(kind) }
+fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, studentId: String? = null, onOpenStudent: (String) -> Unit) {
+    val viewModel = keyedViewModel("follow-${kind.name}-${studentId ?: "me"}") { FollowListViewModel(kind, studentId) }
     val s by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(if (kind == FollowKind.Followers) "Followers" else "Following", onBack, onRefresh = viewModel::pullRefresh, refreshing = s.refreshing) {
         when {
@@ -231,7 +232,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (Strin
                 EmptyState(
                     VibeIcons.Groups,
                     if (kind == FollowKind.Followers) "No followers yet" else "Not following anyone yet",
-                    "Students you connect with will appear here.",
+                    if (studentId == null) "Students you connect with will appear here." else "Nothing to show here yet.",
                 )
             }
             else -> item {
@@ -247,7 +248,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, onOpenStudent: (Strin
                                 Text(entry.student.name, style = MaterialTheme.typography.titleSmall)
                                 Text(entry.student.course.ifBlank { entry.student.handle }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            FollowButton(entry.isFollowing, { viewModel.toggle(entry.student.id) }, compact = true)
+                            if (!entry.isMe) FollowButton(entry.isFollowing, { viewModel.toggle(entry.student.id) }, compact = true)
                         }
                     }
                 }

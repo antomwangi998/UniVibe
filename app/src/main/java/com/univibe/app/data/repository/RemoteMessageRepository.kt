@@ -1,7 +1,12 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.model.FileAttachment
+import com.univibe.app.data.media.PickedFile
+import com.univibe.app.data.model.LiveShare
 import com.univibe.app.data.model.Message
 import com.univibe.app.data.model.MessageStatus
+import com.univibe.app.data.model.SharedLocation
+import com.univibe.app.data.model.LinkPreview
 import com.univibe.app.data.model.VoiceNote
 import com.univibe.app.data.model.Reaction
 import com.univibe.app.data.model.ReplyRef
@@ -56,6 +61,8 @@ class RemoteMessageRepository(
         val pinned = MutableStateFlow<String?>(null)
         /** Photos this phone sent: shown from the local file (instant, works offline) instead of a temporary download link. */
         val localPhotos = HashMap<String, String>()
+        /** Files this phone sent: opened from the local copy instead of downloading them again. */
+        val localFiles = HashMap<String, String>()
         val hasOlder = MutableStateFlow(false)
         @Volatile var windowSeen = false
         /** Lowest seq seen so far, unsent messages included, so paging back always makes progress. */
@@ -284,20 +291,111 @@ class RemoteMessageRepository(
         }
     }
 
+    override suspend fun sendPhotos(chatId: String, text: String, imagePaths: List<String>, replyTo: ReplyRef?) {
+        if (imagePaths.size <= 1) return send(chatId, text, imagePaths.firstOrNull(), replyTo)
+        val paths = imagePaths.take(MAX_MESSAGE_PHOTOS)
+        val clean = text.trim()
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sending, imagePath = paths[0], imagePaths = paths, replyTo = replyTo)
+        s.messages.update { it + local }
+        try {
+            val up = uploader ?: throw IllegalStateException("Photos aren't available right now.")
+            val mediaIds = JSONArray()
+            for (p in paths) mediaIds.put(up.upload(p, "image", "message", tag = local.id)) // one after another, in the order picked
+            val body = JSONObject().put("content", clean).put("clientId", clientId).put("mediaIds", mediaIds)
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            synchronized(s) { s.localPhotos[sent.getString("id")] = paths[0] } // the first one shows instantly from the phone
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
+    override suspend fun sendLiveLocation(chatId: String, latitude: Double, longitude: Double, minutes: Int, replyTo: ReplyRef?): LiveShareStarted {
+        val body = JSONObject().put("clientId", UUID.randomUUID().toString())
+            .put("location", JSONObject().put("latitude", latitude).put("longitude", longitude).put("liveMinutes", minutes))
+        replyTo?.let { body.put("replyToId", it.messageId) }
+        val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+        merge(chatId, listOf(sent))
+        val ends = runCatching { java.time.Instant.parse(sent.getJSONObject("live").getString("endsAt")).toEpochMilli() }
+            .getOrDefault(System.currentTimeMillis() + minutes * 60_000L)
+        return LiveShareStarted(sent.getString("id"), ends)
+    }
+
+    override suspend fun updateLiveLocation(messageId: String, latitude: Double, longitude: Double): Boolean =
+        try {
+            api.send("PUT", "/api/v1/messages/${enc(messageId)}/live", JSONObject().put("latitude", latitude).put("longitude", longitude))
+            true
+        } catch (e: ApiException) {
+            if (e.status == 409) false else throw e
+        }
+
+    override suspend fun stopLiveLocation(messageId: String) {
+        api.send("DELETE", "/api/v1/messages/${enc(messageId)}/live", ok = setOf(200, 204))
+    }
+
+    override suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef?) {
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, replyTo = replyTo,
+            location = SharedLocation(latitude, longitude))
+        s.messages.update { it + local }
+        try {
+            val body = JSONObject().put("clientId", clientId)
+                .put("location", JSONObject().put("latitude", latitude).put("longitude", longitude))
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
+    override suspend fun sendFile(chatId: String, text: String, file: PickedFile, replyTo: ReplyRef?) {
+        val clean = text.trim()
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", clean, System.currentTimeMillis(), true, MessageStatus.Sending, replyTo = replyTo,
+            file = FileAttachment(file.name, file.sizeBytes, file.contentType, file.path))
+        s.messages.update { it + local }
+        try {
+            val mediaId = (uploader ?: throw IllegalStateException("Sharing files isn't available right now."))
+                .upload(file.path, "document", "message", tag = local.id, explicitType = file.contentType, fileName = file.name)
+            val body = JSONObject().put("content", clean).put("clientId", clientId).put("mediaIds", JSONArray().put(mediaId))
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            synchronized(s) { s.localFiles[sent.getString("id")] = file.path }
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
     private fun queueText(chatId: String, clientId: String, content: String, replyTo: ReplyRef?): Boolean {
         val data = JSONObject().put("chatId", chatId).put("clientId", clientId).put("content", content)
         replyTo?.let { data.put("reply", JSONObject().put("messageId", it.messageId).put("senderName", it.senderName).put("preview", it.preview)) }
         return outbox?.add("message", data) == true
     }
 
-    override suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef?) {
+    override suspend fun sendVoice(chatId: String, audioPath: String, durationMs: Int, replyTo: ReplyRef?, waveform: List<Int>) {
         val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
         val s = state(chatId)
         val clientId = UUID.randomUUID().toString()
-        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, voice = VoiceNote(audioPath, durationMs), replyTo = replyTo)
+        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, voice = VoiceNote(audioPath, durationMs, waveform), replyTo = replyTo)
         s.messages.update { it + local }
         try {
-            val mediaId = (uploader ?: throw IllegalStateException("Voice messages aren't available right now.")).upload(audioPath, "audio", "message", durationMs, tag = local.id)
+            val mediaId = (uploader ?: throw IllegalStateException("Voice messages aren't available right now.")).upload(audioPath, "audio", "message", durationMs, tag = local.id, waveform = waveform)
             val body = JSONObject().put("content", "").put("clientId", clientId).put("mediaIds", JSONArray().put(mediaId))
             replyTo?.let { body.put("replyToId", it.messageId) }
             val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
@@ -409,7 +507,12 @@ class RemoteMessageRepository(
             }
         }
         val firstMedia = firstOfKind(media, "image")
-        val voice = firstOfKind(media, "audio")?.let { a -> a.strOrNull("url")?.let { VoiceNote(it, a.optInt("durationMs", 0)) } }
+        val voice = firstOfKind(media, "audio")?.let { a -> a.strOrNull("url")?.let { VoiceNote(it, a.optInt("durationMs", 0), a.optJSONArray("waveform")?.let { w -> List(w.length()) { i -> w.optInt(i) } } ?: emptyList()) } }
+        val file = firstOfKind(media, "document")?.let { d ->
+            val url = d.strOrNull("url") ?: return@let null
+            val local = synchronized(st) { st.localFiles[id] }?.takeIf { File(it).isFile }
+            FileAttachment(d.strOrNull("fileName") ?: "document", d.optLong("sizeBytes", 0L), d.optString("contentType", "application/octet-stream"), local ?: url)
+        }
         val ratio = firstMedia?.let { m -> val w = m.optInt("width", 0); val h = m.optInt("height", 0); if (w > 0 && h > 0) w.toFloat() / h else null }
         val reply = o.optJSONObject("replyTo")?.let { r ->
             val author = r.strOrNull("senderId")
@@ -438,6 +541,26 @@ class RemoteMessageRepository(
             myReaction = o.strOrNull("myReaction")?.let(::reactionOf),
             forwarded = o.optBoolean("forwarded", false),
             edited = !o.isNull("editedAt"),
+            eventId = o.strOrNull("eventId"),
+            location = o.optJSONObject("location")?.let { l ->
+                val lat = l.optDouble("latitude", Double.NaN); val lng = l.optDouble("longitude", Double.NaN)
+                if (lat.isNaN() || lng.isNaN()) null else SharedLocation(lat, lng, l.strOrNull("label"))
+            },
+            live = o.optJSONObject("live")?.let { l ->
+                runCatching { LiveShare(java.time.Instant.parse(l.getString("endsAt")).toEpochMilli(), l.optBoolean("active", false)) }.getOrNull()
+            },
+            file = file,
+            linkPreview = o.optJSONObject("linkPreview")?.let { l ->
+                l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
+                    ?.let { u ->
+                        val w = l.optInt("imageWidth", 0); val h = l.optInt("imageHeight", 0)
+                        LinkPreview(
+                            u, l.optString("host", ""), l.strOrNull("title"), l.strOrNull("description"), l.strOrNull("siteName"),
+                            imageUrl = l.strOrNull("imageUrl")?.takeIf { it.startsWith("https://", true) || it.startsWith("http://", true) },
+                            imageRatio = if (w > 0 && h > 0) w.toFloat() / h else null,
+                        )
+                    }
+            },
         )
     }
 

@@ -3,11 +3,18 @@ import type { Pool } from 'pg';
 import { z } from 'zod';
 import { acceptedFollow, blockedBetween, userVisible } from '../access';
 import type { Ctx } from '../context';
+import { withTx } from '../db';
 import { HttpError } from '../errors';
 import { idParam } from '../http';
 import type { Hub } from '../realtime';
 import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard, type UserCard } from './cards';
+import { sendMessage } from './messaging';
 import { type Presence, presenceOf } from './presence';
+
+const replySchema = z.object({
+  content: z.string().trim().min(1, 'Write a reply first.').max(500, 'That reply is too long.'),
+  clientId: z.string().min(1).max(64).optional(),
+}).strict();
 
 export const DEFAULT_NOTE_MAX_CHARS = 60;
 export const DEFAULT_NOTE_TTL_HOURS = 24;
@@ -180,6 +187,42 @@ export function noteRoutes(ctx: Ctx, hub: Hub) {
       await pool.query('delete from notes where author_id = $1', [me.id]);
       await announce(me.id, me.universityId, 'campus', 'deleted');
       return reply.status(204).send();
+    });
+
+    /**
+     * Reply to someone's Note. An ordinary chat message in the direct conversation with the author (created if needed), so
+     * every messaging rule applies unchanged: blocks, suspension, university and the author's "who can message me" setting.
+     * The message opens with a short quote of the Note, because the Note itself disappears after its lifetime.
+     */
+    app.post('/users/:userId/note/reply', async (req, reply) => {
+      const me = await ctx.auth(req);
+      const authorId = idParam((req.params as { userId: string }).userId);
+      const b = replySchema.safeParse(req.body ?? {});
+      if (!b.success) throw new HttpError(400, 'validation', b.error.issues[0]?.message ?? 'Write a reply first.');
+      if (authorId === me.id) throw new HttpError(400, 'validation', 'You cannot reply to your own Note.');
+      const { rows } = await pool.query<{ text: string }>(
+        `select n.text from notes n join users u on u.id = n.author_id
+          where n.author_id = $1 and n.expires_at > now()
+            and ${userVisible('u', '$2::uuid', '$3')}
+            and (n.audience = 'campus' or ${acceptedFollow('$2::uuid', 'n.author_id')})`,
+        [authorId, me.id, me.universityId]);
+      if (!rows[0]) throw new HttpError(404, 'not_found', 'Not found.');
+      const perm = (await pool.query<{ p: string; follows: boolean }>(
+        `select coalesce(ps.message_permission, 'everyone') as p, ${acceptedFollow('$2::uuid', '$1::uuid')} as follows
+           from users u left join privacy_settings ps on ps.user_id = u.id where u.id = $1`, [authorId, me.id])).rows[0];
+      if (!perm || perm.p === 'nobody' || (perm.p === 'followers' && !perm.follows)) throw new HttpError(403, 'cannot_message', 'You cannot message this person.');
+      const key = [me.id, authorId].sort().join(':');
+      const conversationId = await withTx(pool, async (c) => {
+        const made = await c.query<{ id: string }>(
+          "insert into conversations (kind, created_by, direct_key) values ('direct', $1, $2) on conflict (direct_key) do nothing returning id", [me.id, key]);
+        if (!made.rowCount) return (await c.query<{ id: string }>('select id from conversations where direct_key = $1', [key])).rows[0].id;
+        await c.query("insert into conversation_members (conversation_id, user_id, role) values ($1, $2, 'member'), ($1, $3, 'member')", [made.rows[0].id, me.id, authorId]);
+        return made.rows[0].id;
+      });
+      const quoted = rows[0].text.replace(/\s+/g, ' ').trim();
+      const content = `Replying to your note: \u201C${quoted}\u201D\n${b.data.content}`;
+      const { message, created } = await sendMessage(ctx, hub, me, conversationId, { content, clientId: b.data.clientId });
+      return reply.status(created ? 201 : 200).send({ conversationId, message });
     });
 
     app.put('/users/:userId/note-mute', async (req, reply) => {

@@ -19,9 +19,12 @@ const schema = z.object({
   GOOGLE_WEB_CLIENT_ID: z.string().optional(),
   // Notes: longest allowed text (in characters, so an emoji counts as one) and how long a Note stays up. Defaults: 60 and 24.
   NOTE_MAX_CHARS: z.coerce.number().int().min(1).max(200).optional(),
+  // Public https address of this service (no trailing slash), used for event share links like <base>/e/<id>. Without it only app links are offered.
+  PUBLIC_BASE_URL: z.string().url().optional(),
   NOTE_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
-  // Stories: how long a Story stays up. Default 24.
   STORY_TTL_HOURS: z.coerce.number().int().min(1).max(168).optional(),
+  // How long a finished upload may sit unused (not on a post, message, Story, profile, ...) before it is deleted. Default 24.
+  MEDIA_ORPHAN_GRACE_HOURS: z.coerce.number().int().min(1).max(720).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -39,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     R2_BUCKET: env.R2_BUCKET?.trim() || undefined,
     FCM_SERVICE_ACCOUNT_JSON: env.FCM_SERVICE_ACCOUNT_JSON?.trim() || undefined,
     GOOGLE_WEB_CLIENT_ID: env.GOOGLE_WEB_CLIENT_ID?.trim() || undefined,
+    PUBLIC_BASE_URL: env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, '') || undefined,
   });
   if (config.NODE_ENV === 'production' && !config.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY is required in production');

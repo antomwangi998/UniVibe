@@ -29,10 +29,25 @@ object PushNotifier {
             .setSmallIcon(R.drawable.ic_stat_univibe)
             .setContentTitle(event.title)
             .setContentText(event.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(event.body))
             .setContentIntent(pending)
             .setAutoCancel(true)
-            .setCategory(if (event.channel == PushChannel.DirectMessages || event.channel == PushChannel.GroupMessages) NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_SOCIAL)
+            .setCategory(
+                when (event.channel) {
+                    PushChannel.DirectMessages, PushChannel.GroupMessages -> NotificationCompat.CATEGORY_MESSAGE
+                    PushChannel.Promotions -> NotificationCompat.CATEGORY_STATUS
+                    else -> NotificationCompat.CATEGORY_SOCIAL
+                },
+            )
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            // Shown instead on a locked screen (unless the person allowed sensitive content there).
+            .setPublicVersion(
+                NotificationCompat.Builder(context, event.channel.id)
+                    .setSmallIcon(R.drawable.ic_stat_univibe)
+                    .setContentTitle("UniVibe")
+                    .setContentText("New message")
+                    .build(),
+            )
             .build()
         // Same tag and id replace the earlier notification, so a retried or repeated push never stacks.
         manager.notify(event.tag, 1, notification)

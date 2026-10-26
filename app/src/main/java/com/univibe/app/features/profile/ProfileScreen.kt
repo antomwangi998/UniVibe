@@ -79,6 +79,8 @@ class ProfileActions(
     val onOpenCommunities: () -> Unit = {},
     val onOpenCommunity: (String) -> Unit = {},
     val onOpenPrivacy: () -> Unit = {},
+    val onOpenPromotions: () -> Unit = {},
+    val onOpenBusinesses: () -> Unit = {},
     val unreadNotifications: Int = 0,
     val onOpenNotifications: () -> Unit = {},
 )
@@ -138,6 +140,16 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                 item {
                     VibeCard(onClick = actions.onOpenSaved) {
                         NavLine(VibeIcons.Bookmark, "Saved posts", "${profile.savedPosts} saved")
+                    }
+                }
+                item {
+                    VibeCard(onClick = actions.onOpenPromotions) {
+                        NavLine(VibeIcons.Sparkle, "Promotions", "Promote an event or a business")
+                    }
+                }
+                item {
+                    VibeCard(onClick = actions.onOpenBusinesses) {
+                        NavLine(VibeIcons.Badge, "Campus businesses", "Find and add local businesses")
                     }
                 }
                 item {

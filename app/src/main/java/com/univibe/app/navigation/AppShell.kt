@@ -30,6 +30,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.univibe.app.app.AppContainer
 import androidx.compose.runtime.mutableStateOf
@@ -63,7 +64,10 @@ import com.univibe.app.features.notifications.NotificationCenterScreen
 import com.univibe.app.features.post.CreatePostScreen
 import com.univibe.app.features.comments.CommentsScreen
 import com.univibe.app.features.communities.CommunitiesScreen
+import com.univibe.app.features.communities.ChannelScreen
+import com.univibe.app.features.communities.ManageChannelsScreen
 import com.univibe.app.features.communities.CommunityDetailScreen
+import com.univibe.app.features.communities.ThreadScreen
 import com.univibe.app.features.communities.CommunityFormScreen
 import com.univibe.app.features.post.PostComposeHandoff
 import com.univibe.app.features.profile.EditProfileScreen
@@ -83,12 +87,24 @@ import com.univibe.app.features.events.EventsScreen
 import com.univibe.app.features.home.HomeScreen
 import com.univibe.app.features.profile.ProfileScreen
 import com.univibe.app.features.settings.AboutScreen
+import com.univibe.app.features.settings.CampusIdentityScreen
+import com.univibe.app.features.settings.CampusScreen
+import com.univibe.app.features.settings.DefaultFeedScreen
+import com.univibe.app.features.settings.LegalScreen
+import com.univibe.app.features.settings.AccessibilityDisplayScreen
 import com.univibe.app.features.settings.AccessibilityScreen
 import com.univibe.app.features.settings.AccountScreen
 import com.univibe.app.features.settings.AccountStatusScreen
 import com.univibe.app.features.settings.AppearanceScreen
+import com.univibe.app.features.settings.FontScreen
+import com.univibe.app.features.settings.MotionScreen
+import com.univibe.app.features.settings.TextSizeScreen
+import com.univibe.app.features.settings.ThemeScreen
+import com.univibe.app.features.settings.TouchAndHapticsScreen
 import com.univibe.app.features.settings.LoginActivityScreen
+import com.univibe.app.features.settings.DataExportScreen
 import com.univibe.app.features.settings.DataStorageScreen
+import com.univibe.app.features.settings.DeactivateAccountScreen
 import com.univibe.app.features.settings.MessagingSettingsScreen
 import com.univibe.app.features.settings.MutedConversationsScreen
 import com.univibe.app.features.settings.PermissionsScreen
@@ -98,10 +114,30 @@ import com.univibe.app.features.settings.ChangePasswordScreen
 import com.univibe.app.features.settings.DeleteAccountScreen
 import com.univibe.app.features.settings.FaqScreen
 import com.univibe.app.features.settings.GuidelinesScreen
+import com.univibe.app.features.settings.TutorialsScreen
+import com.univibe.app.guide.GuideHost
+import com.univibe.app.guide.GuideWelcome
+import com.univibe.app.guide.NAVIGATION_TOUR_ID
+import com.univibe.app.guide.TutorialRegistry
+import com.univibe.app.guide.registerGuideTours
+import com.univibe.app.guide.rememberGuideController
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.launch
 import com.univibe.app.features.settings.HelpScreen
+import com.univibe.app.features.settings.EventNoticesScreen
+import com.univibe.app.features.settings.NotificationActivityScreen
 import com.univibe.app.features.settings.NotificationsScreen
+import com.univibe.app.features.settings.PhoneAlertsScreen
+import com.univibe.app.features.settings.QuietHoursScreen
 import com.univibe.app.features.settings.DiscoverProfileScreen
+import com.univibe.app.features.settings.ActivityStatusScreen
+import com.univibe.app.features.settings.MessagePolicyScreen
+import com.univibe.app.features.settings.PrivacyMessagesScreen
 import com.univibe.app.features.settings.PrivacyScreen
+import com.univibe.app.features.settings.PrivacyVisibilityScreen
+import com.univibe.app.features.settings.ReadReceiptsScreen
 import com.univibe.app.features.settings.ReportProblemScreen
 import com.univibe.app.features.settings.SafetyScreen
 import com.univibe.app.features.settings.SettingsScreen
@@ -110,6 +146,7 @@ import com.univibe.app.features.settings.TermsScreen
 import com.univibe.app.ui.components.LocalChromeHidden
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.VibeBottomBar
+import com.univibe.app.ui.components.glassBackdropSource
 
 private const val DEEP_LINK_SCHEME = "univibe://"
 private const val SCROLL_THRESHOLD_PX = 24f
@@ -179,8 +216,10 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabSlideOut(from: 
 }
 
 @Composable
-fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit) {
+fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogOut: () -> Unit, userId: String) {
     val navController = rememberNavController()
+    remember { registerGuideTours() }
+    val guide = rememberGuideController(userId)
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val barItems = remember { TopLevelDestination.entries.map { it.toBarItem() } }
@@ -219,6 +258,20 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
         }
     }
     val open: (String) -> Unit = { route -> navController.navigate(route) { launchSingleTop = true } }
+    // The guided tour opens tabs the same way the bottom bar does, so Back and saved tab state behave normally.
+    val goToTab: (String) -> Unit = { route ->
+        if (TopLevelDestination.entries.any { it.route == route }) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        } else open(route)
+    }
+    SideEffect { guide.navigate = goToTab }
+    val welcomeSeen by remember(userId) { AppContainer.guideStore.welcomeSeen(userId) }.collectAsStateWithLifecycle(initialValue = null)
+    var welcomeDismissed by rememberSaveable { mutableStateOf(false) }
+    val guideScope = rememberCoroutineScope()
     val back: () -> Unit = { navController.popBackStack() }
     val unreadNotifications by AppContainer.notificationRepository.unreadCount.collectAsStateWithLifecycle()
     // Keep the bell badge in step with the server (does nothing in the offline demo).
@@ -229,6 +282,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
         }
     }
 
+    // Null (nothing happens) below Android 12, on low-RAM phones and in High contrast.
+    val backdrop = com.univibe.app.ui.components.rememberGlassBackdropState()
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
             // Content runs edge to edge; the bar hovers above it.
@@ -240,11 +295,17 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 // Any post card can open its community without every screen threading a callback through.
                 com.univibe.app.ui.components.LocalOpenCommunity provides { id: String -> open(AppRoutes.community(id)) },
                 com.univibe.app.ui.components.LocalOpenCommunityList provides { open(AppRoutes.COMMUNITIES) },
+                // A tapped sponsored card opens what it advertises, from any list that shows one.
+                com.univibe.app.ui.components.LocalSponsoredTargets provides remember {
+                    com.univibe.app.ui.components.SponsoredTargets(
+                        onEvent = { id -> open(AppRoutes.event(id)) }, onPost = { id -> open(AppRoutes.comments(id)) }, onBusiness = { id -> open(AppRoutes.business(id)) },
+                    )
+                },
             ) {
                 NavHost(
                     navController = navController,
                     startDestination = TopLevelDestination.Home.route,
-                    modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
+                    modifier = Modifier.fillMaxSize().glassBackdropSource(backdrop).nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
                     // Moving between two tabs slides toward the tab's side; every other change keeps the soft fade.
                     enterTransition = { tabSlideIn(initialState.destination.route, targetState.destination.route, tabRoutes) ?: (fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f)) },
                     exitTransition = { tabSlideOut(initialState.destination.route, targetState.destination.route, tabRoutes) ?: fadeOut(tween(90)) },
@@ -260,6 +321,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onCreatePost = { open(AppRoutes.CREATE_POST) },
                             unreadNotifications = unreadNotifications,
                             onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
+                            onOpenDiscover = { selectTab(TopLevelDestination.Discover.route) },
                         )
                     }
                     tab(TopLevelDestination.Discover.route) {
@@ -270,7 +332,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onOpenSearch = { open(AppRoutes.SEARCH) },
                         )
                     }
-                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }) }
+                    tab(TopLevelDestination.Chats.route) { ChatsScreen(onOpenChat = { open(AppRoutes.chat(it)) }, onNewGroup = { open(AppRoutes.GROUP_NEW) }, onAddStory = { open(AppRoutes.STORY_NEW) }, onOpenStory = { open(AppRoutes.storyView(it)) }, onManageStories = { open(AppRoutes.STORY_MANAGE) }) }
                     tab(TopLevelDestination.Events.route) { EventsScreen(onOpenEvent = { open(AppRoutes.event(it)) }, onCreateEvent = { open(AppRoutes.EVENT_NEW) }) }
                     tab(TopLevelDestination.Profile.route) {
                         ProfileScreen(
@@ -284,6 +346,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 onOpenCommunities = { open(AppRoutes.COMMUNITIES) },
                                 onOpenCommunity = { open(AppRoutes.community(it)) },
                                 onOpenPrivacy = { open(SettingsRoutes.PRIVACY) },
+                                onOpenPromotions = { open(AppRoutes.PROMOTIONS) },
+                                onOpenBusinesses = { open(AppRoutes.BUSINESSES) },
                                 unreadNotifications = unreadNotifications,
                                 onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
                             ),
@@ -291,11 +355,26 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     }
 
                     subScreen(AppRoutes.CHAT, stringArgs("chatId")) { entry ->
-                        ConversationScreen(
-                            chatId = entry.arg("chatId"), onBack = back,
-                            onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
-                            onOpenStudent = { open(AppRoutes.student(it)) },
+                        androidx.compose.runtime.CompositionLocalProvider(com.univibe.app.features.events.LocalOpenEvent provides { open(AppRoutes.event(it)) }) {
+                            ConversationScreen(
+                                chatId = entry.arg("chatId"), onBack = back,
+                                onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
+                                onOpenStudent = { open(AppRoutes.student(it)) },
+                            )
+                        }
+                    }
+                    subScreen(AppRoutes.STORY_VIEW, stringArgs("authorId")) { entry ->
+                        com.univibe.app.features.chats.stories.StoryViewerScreen(startAuthorId = entry.arg("authorId"), onClose = back)
+                    }
+                    subScreen(AppRoutes.STORY_MANAGE) {
+                        com.univibe.app.features.chats.stories.StoryManagementScreen(
+                            onBack = back,
+                            onOpenMyStory = { open(AppRoutes.storyView("me")) },
+                            onAddStory = { open(AppRoutes.STORY_NEW) },
                         )
+                    }
+                    subScreen(AppRoutes.STORY_NEW) {
+                        com.univibe.app.features.chats.stories.CreateStoryScreen(onBack = back, onPublished = back)
                     }
                     subScreen(AppRoutes.GROUP_NEW) {
                         NewGroupScreen(
@@ -339,14 +418,60 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                     is NotificationTarget.Event -> open(AppRoutes.event(target.id))
                                     is NotificationTarget.Community -> open(AppRoutes.community(target.id))
                                     is NotificationTarget.Chat -> open(AppRoutes.chat(target.id))
+                                    NotificationTarget.Promotions -> open(AppRoutes.PROMOTIONS)
                                     NotificationTarget.None -> Unit
                                 }
                             },
                         )
                     }
                     subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
+                    subScreen(AppRoutes.PROMOTIONS) {
+                        com.univibe.app.features.promotions.PromotionsScreen(
+                            onBack = back, onNewPromotion = { open(AppRoutes.PROMOTION_NEW) },
+                            onOpenCampaign = { open(AppRoutes.promotion(it)) }, onMyBusinesses = { open(AppRoutes.MY_BUSINESSES) },
+                        )
+                    }
+                    subScreen(AppRoutes.PROMOTION_NEW) {
+                        com.univibe.app.features.promotions.NewPromotionScreen(
+                            onBack = back, onAddBusiness = { open(AppRoutes.BUSINESS_NEW) },
+                            // Replace the form with the new promotion so Back returns to the list.
+                            onCreated = { id ->
+                                navController.navigate(AppRoutes.promotion(id)) {
+                                    popUpTo(AppRoutes.PROMOTION_NEW) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
+                    subScreen(AppRoutes.PROMOTION, stringArgs("campaignId")) { entry ->
+                        com.univibe.app.features.promotions.CampaignScreen(campaignId = entry.arg("campaignId"), onBack = back)
+                    }
+                    subScreen(AppRoutes.MY_BUSINESSES) {
+                        com.univibe.app.features.promotions.MyBusinessesScreen(onBack = back, onAdd = { open(AppRoutes.BUSINESS_NEW) }, onEdit = { open(AppRoutes.businessEdit(it)) })
+                    }
+                    subScreen(AppRoutes.BUSINESS_NEW) { com.univibe.app.features.promotions.BusinessFormScreen(editId = null, onBack = back, onDone = { back() }) }
+                    subScreen(AppRoutes.BUSINESS_EDIT, stringArgs("businessId")) { entry ->
+                        com.univibe.app.features.promotions.BusinessFormScreen(editId = entry.arg("businessId"), onBack = back, onDone = { back() })
+                    }
+                    subScreen(AppRoutes.BUSINESSES) { com.univibe.app.features.promotions.BusinessDirectoryScreen(onBack = back, onOpen = { open(AppRoutes.business(it)) }) }
+                    subScreen(AppRoutes.BUSINESS, stringArgs("businessId")) { entry ->
+                        com.univibe.app.features.promotions.BusinessDetailScreen(businessId = entry.arg("businessId"), onBack = back)
+                    }
                     subScreen(AppRoutes.EVENT, stringArgs("eventId")) { entry ->
-                        EventDetailsScreen(eventId = entry.arg("eventId"), onBack = back, onEdit = { open(AppRoutes.eventEdit(entry.arg("eventId"))) })
+                        EventDetailsScreen(
+                            eventId = entry.arg("eventId"), onBack = back, onEdit = { open(AppRoutes.eventEdit(entry.arg("eventId"))) },
+                            onOpenAttendees = { open(AppRoutes.eventAttendees(entry.arg("eventId"))) },
+                            onModerate = { open(AppRoutes.moderationEvent(entry.arg("eventId"))) },
+                        )
+                    }
+                    subScreen(AppRoutes.MODERATION_REPORTS) {
+                        com.univibe.app.features.moderation.EventReportsScreen(onBack = back, onOpenEvent = { open(AppRoutes.moderationEvent(it)) })
+                    }
+                    subScreen(AppRoutes.MODERATION_EVENT, stringArgs("eventId")) { entry ->
+                        com.univibe.app.features.moderation.ModeratorEventScreen(eventId = entry.arg("eventId"), onBack = back)
+                    }
+                    subScreen(AppRoutes.EVENT_ATTENDEES, stringArgs("eventId")) { entry ->
+                        com.univibe.app.features.events.EventAttendeesScreen(eventId = entry.arg("eventId"), onBack = back, onOpenStudent = { open(AppRoutes.student(it)) })
                     }
                     subScreen(AppRoutes.EVENT_NEW) {
                         EventFormScreen(
@@ -368,7 +493,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             studentId = entry.arg("studentId"), onBack = back,
                             onOpenChat = { open(AppRoutes.chat(it)) }, onEditProfile = { open(AppRoutes.EDIT_PROFILE) },
                             onOpenCommunity = { open(AppRoutes.community(it)) }, onOpenComments = { open(AppRoutes.comments(it)) },
+                            onOpenFollowers = { open(AppRoutes.studentFollowers(it)) }, onOpenFollowing = { open(AppRoutes.studentFollowing(it)) },
                         )
+                    }
+                    subScreen(AppRoutes.STUDENT_FOLLOWERS, stringArgs("studentId")) { entry ->
+                        FollowListScreen(FollowKind.Followers, back, entry.arg("studentId")) { open(AppRoutes.student(it)) }
+                    }
+                    subScreen(AppRoutes.STUDENT_FOLLOWING, stringArgs("studentId")) { entry ->
+                        FollowListScreen(FollowKind.Following, back, entry.arg("studentId")) { open(AppRoutes.student(it)) }
                     }
                     subScreen(AppRoutes.EDIT_PROFILE) { EditProfileScreen(onBack = back) }
                     subScreen(AppRoutes.PHOTOS) { PhotosScreen(onBack = back) }
@@ -386,6 +518,27 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                             onPost = { PostComposeHandoff.communityId = communityId; open(AppRoutes.CREATE_POST) },
                             onOpenComments = { open(AppRoutes.comments(it)) },
                             onOpenStudent = { open(AppRoutes.student(it)) },
+                            onOpenEvent = { open(AppRoutes.event(it)) },
+                            onOpenChannel = { open(AppRoutes.channel(communityId, it)) },
+                            onManageChannels = { open(AppRoutes.manageChannels(communityId)) },
+                        )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_MANAGE_CHANNELS, stringArgs("communityId")) { entry ->
+                        ManageChannelsScreen(communityId = entry.arg("communityId"), onBack = back)
+                    }
+                    subScreen(AppRoutes.COMMUNITY_CHANNEL, stringArgs("communityId", "channelId")) { entry ->
+                        val communityId = entry.arg("communityId")
+                        val channelId = entry.arg("channelId")
+                        ChannelScreen(
+                            communityId = communityId, channelId = channelId, onBack = back,
+                            onOpenThread = { open(AppRoutes.thread(communityId, channelId, it)) },
+                            onOpenStudent = { open(AppRoutes.student(it)) },
+                        )
+                    }
+                    subScreen(AppRoutes.COMMUNITY_THREAD, stringArgs("communityId", "channelId", "messageId")) { entry ->
+                        ThreadScreen(
+                            communityId = entry.arg("communityId"), channelId = entry.arg("channelId"), messageId = entry.arg("messageId"),
+                            onBack = back, onOpenStudent = { open(AppRoutes.student(it)) },
                         )
                     }
                     subScreen(AppRoutes.COMMUNITY_NEW) {
@@ -408,7 +561,10 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         SettingsScreen(onBack = back, onNavigate = open, onLogOut = onLogOut)
                     }
                     subScreen(SettingsRoutes.ACCOUNT) {
-                        AccountScreen(onBack = back, onChangePassword = { open(SettingsRoutes.PASSWORD) }, onDelete = { open(SettingsRoutes.DELETE) })
+                        AccountScreen(
+                            onBack = back, onChangePassword = { open(SettingsRoutes.PASSWORD) }, onDelete = { open(SettingsRoutes.DELETE) },
+                            onDeactivate = { open(SettingsRoutes.DEACTIVATE) }, onExport = { open(SettingsRoutes.DATA_EXPORT) },
+                        )
                     }
                     subScreen(SettingsRoutes.PASSWORD) { ChangePasswordScreen(onBack = back) }
                     subScreen(SettingsRoutes.SECURITY) {
@@ -419,33 +575,93 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                     subScreen(SettingsRoutes.DATA_STORAGE) { DataStorageScreen(onBack = back) }
                     subScreen(SettingsRoutes.MESSAGING) {
                         MessagingSettingsScreen(
-                            onBack = back, onPrivacy = { open(SettingsRoutes.PRIVACY) },
+                            onBack = back, onPrivacy = { open(SettingsRoutes.PRIVACY_MESSAGES) },
                             onMuted = { open(SettingsRoutes.MUTED_CHATS) }, onBlocked = { open(SettingsRoutes.BLOCKED) },
                         )
                     }
                     subScreen(SettingsRoutes.MUTED_CHATS) { MutedConversationsScreen(onBack = back) }
-                    subScreen(SettingsRoutes.APPEARANCE) { AppearanceScreen(themeMode, onThemeModeChange, onBack = back) }
+                    subScreen(SettingsRoutes.APPEARANCE) {
+                        AppearanceScreen(
+                            themeMode = themeMode, onBack = back,
+                            onTheme = { open(SettingsRoutes.APPEARANCE_THEME) },
+                            onFont = { open(SettingsRoutes.APPEARANCE_FONT) },
+                            onTextSize = { open(SettingsRoutes.ACCESSIBILITY_TEXT_SIZE) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.APPEARANCE_THEME) { ThemeScreen(themeMode, onThemeModeChange, onBack = back) }
+                    subScreen(SettingsRoutes.APPEARANCE_FONT) { FontScreen(onBack = back) }
                     subScreen(SettingsRoutes.STATUS) { AccountStatusScreen(onBack = back, onGuidelines = { open(SettingsRoutes.GUIDELINES) }) }
                     subScreen(SettingsRoutes.DELETE) { DeleteAccountScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DEACTIVATE) { DeactivateAccountScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DATA_EXPORT) { DataExportScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY) {
                         PrivacyScreen(
                             onBack = back, onBlocked = { open(SettingsRoutes.BLOCKED) }, onSafety = { open(SettingsRoutes.SAFETY) },
-                            onDiscoverProfile = { open(SettingsRoutes.DISCOVER_PROFILE) },
+                            onVisibility = { open(SettingsRoutes.PRIVACY_VISIBILITY) },
+                            onMessages = { open(SettingsRoutes.PRIVACY_MESSAGES) },
+                            onActivityStatus = { open(SettingsRoutes.ACTIVITY_STATUS) },
                         )
                     }
+                    subScreen(SettingsRoutes.PRIVACY_VISIBILITY) {
+                        PrivacyVisibilityScreen(onBack = back, onDiscoverProfile = { open(SettingsRoutes.DISCOVER_PROFILE) })
+                    }
+                    subScreen(SettingsRoutes.PRIVACY_MESSAGES) {
+                        PrivacyMessagesScreen(
+                            onBack = back, onWhoCanMessage = { open(SettingsRoutes.MESSAGE_POLICY) },
+                            onReadReceipts = { open(SettingsRoutes.READ_RECEIPTS) }, onBlocked = { open(SettingsRoutes.BLOCKED) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.MESSAGE_POLICY) { MessagePolicyScreen(onBack = back) }
+                    subScreen(SettingsRoutes.READ_RECEIPTS) { ReadReceiptsScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACTIVITY_STATUS) { ActivityStatusScreen(onBack = back) }
                     subScreen(SettingsRoutes.DISCOVER_PROFILE) { DiscoverProfileScreen(onBack = back) }
                     subScreen(SettingsRoutes.BLOCKED) { BlockedUsersScreen(onBack = back) }
                     subScreen(SettingsRoutes.SAFETY) { SafetyScreen(onBack = back) }
-                    subScreen(SettingsRoutes.NOTIFICATIONS) { NotificationsScreen(onBack = back) }
-                    subScreen(SettingsRoutes.ACCESSIBILITY) { AccessibilityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS) {
+                        NotificationsScreen(
+                            onBack = back,
+                            onPhoneAlerts = { open(SettingsRoutes.NOTIFICATIONS_PUSH) },
+                            onActivity = { open(SettingsRoutes.NOTIFICATIONS_ACTIVITY) },
+                            onEventNotices = { open(SettingsRoutes.NOTIFICATIONS_EVENTS) },
+                            onQuietHours = { open(SettingsRoutes.NOTIFICATIONS_QUIET) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_PUSH) { PhoneAlertsScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_ACTIVITY) { NotificationActivityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_EVENTS) { EventNoticesScreen(onBack = back) }
+                    subScreen(SettingsRoutes.NOTIFICATIONS_QUIET) { QuietHoursScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACCESSIBILITY) {
+                        AccessibilityScreen(
+                            onBack = back,
+                            onDisplay = { open(SettingsRoutes.ACCESSIBILITY_DISPLAY) },
+                            onMotion = { open(SettingsRoutes.ACCESSIBILITY_MOTION) },
+                            onInteraction = { open(SettingsRoutes.ACCESSIBILITY_INTERACTION) },
+                        )
+                    }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_DISPLAY) {
+                        AccessibilityDisplayScreen(onBack = back, onTextSize = { open(SettingsRoutes.ACCESSIBILITY_TEXT_SIZE) })
+                    }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_TEXT_SIZE) { TextSizeScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_MOTION) { MotionScreen(onBack = back) }
+                    subScreen(SettingsRoutes.ACCESSIBILITY_INTERACTION) { TouchAndHapticsScreen(onBack = back) }
                     subScreen(SettingsRoutes.HELP) {
                         HelpScreen(
                             onBack = back,
                             onFaq = { open(SettingsRoutes.FAQ) }, onReport = { open(SettingsRoutes.REPORT) },
-                            onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onAbout = { open(SettingsRoutes.ABOUT) },
-                            onTerms = { open(SettingsRoutes.TERMS) }, onPrivacyPolicy = { open(SettingsRoutes.PRIVACY_POLICY) },
+                            onGuidelines = { open(SettingsRoutes.GUIDELINES) }, onLegal = { open(SettingsRoutes.LEGAL) },
+                            onTutorials = { open(SettingsRoutes.TUTORIALS) },
                         )
                     }
+                    subScreen(SettingsRoutes.TUTORIALS) {
+                        TutorialsScreen(userId, onBack = back, onStart = { tutorial, from ->
+                            goToTab(tutorial.entryRoute)
+                            guide.start(tutorial, from)
+                        })
+                    }
+                    subScreen(SettingsRoutes.LEGAL) { LegalScreen(onBack = back, onNavigate = open) }
+                    subScreen(SettingsRoutes.CAMPUS) { CampusScreen(onBack = back, onNavigate = open) }
+                    subScreen(SettingsRoutes.CAMPUS_IDENTITY) { CampusIdentityScreen(onBack = back) }
+                    subScreen(SettingsRoutes.DEFAULT_FEED) { DefaultFeedScreen(onBack = back) }
                     subScreen(SettingsRoutes.FAQ) { FaqScreen(onBack = back) }
                     subScreen(SettingsRoutes.TERMS) { TermsScreen(onBack = back) }
                     subScreen(SettingsRoutes.PRIVACY_POLICY) { PrivacyPolicyScreen(onBack = back) }
@@ -461,7 +677,21 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(160)),
                 exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(140)),
             ) {
-                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab)
+                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab, backdrop = backdrop)
+            }
+
+            // Guided tour and first-time welcome. Both draw nothing when idle, and Back closes either one.
+            GuideHost(guide, Modifier.zIndex(10f))
+            if (welcomeSeen == false && !welcomeDismissed) {
+                val finishWelcome = {
+                    welcomeDismissed = true
+                    guideScope.launch { runCatching { AppContainer.guideStore.markWelcomeSeen(userId) } }
+                }
+                GuideWelcome(
+                    onStartTour = { finishWelcome(); TutorialRegistry.get(NAVIGATION_TOUR_ID)?.let { guide.start(it) } },
+                    onFinished = { finishWelcome() },
+                    modifier = Modifier.zIndex(20f),
+                )
             }
         }
     }

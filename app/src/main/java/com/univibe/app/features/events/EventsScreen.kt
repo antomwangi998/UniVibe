@@ -78,6 +78,8 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
         ) {
             InterestChip("Upcoming", selected = state.tab == EventsTab.Upcoming, onClick = { viewModel.setTab(EventsTab.Upcoming) })
             InterestChip("My Events", selected = state.tab == EventsTab.MyEvents, onClick = { viewModel.setTab(EventsTab.MyEvents) })
+            if (viewModel.supportsSaving) InterestChip("Saved", selected = state.tab == EventsTab.Saved, onClick = { viewModel.setTab(EventsTab.Saved) })
+            if (state.drafts.isNotEmpty()) InterestChip("Drafts", selected = state.tab == EventsTab.Drafts, onClick = { viewModel.setTab(EventsTab.Drafts) })
             InterestChip("Past", selected = state.tab == EventsTab.Past, onClick = { viewModel.setTab(EventsTab.Past) })
         }
         LazyRow(
@@ -102,11 +104,15 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
                 icon = VibeIcons.Events,
                 title = when (state.tab) {
                     EventsTab.MyEvents -> "No RSVPs yet"
+                    EventsTab.Saved -> "Nothing saved yet"
+                    EventsTab.Drafts -> "No drafts"
                     EventsTab.Past -> "No past events"
                     EventsTab.Upcoming -> "No events found"
                 },
                 message = when (state.tab) {
                     EventsTab.MyEvents -> "Events you mark as Going will show up here."
+                    EventsTab.Saved -> "Tap the bookmark on an event to keep it here."
+                    EventsTab.Drafts -> "Events you save as drafts stay private until you publish them."
                     EventsTab.Past -> "Events you attended will appear here."
                     EventsTab.Upcoming -> "Try a different search or category."
                 },
@@ -119,7 +125,10 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 items(state.visible, key = { it.id }) { event ->
-                    EventCard(event, onRsvpClick = { viewModel.openRsvp(event) }, onClick = { onOpenEvent(event.id) })
+                    EventCard(
+                        event, onRsvpClick = { viewModel.openRsvp(event) }, onClick = { onOpenEvent(event.id) },
+                        onSaveClick = if (viewModel.supportsSaving && !event.draft) ({ viewModel.toggleSaved(event) }) else null,
+                    )
                 }
             } }
         }

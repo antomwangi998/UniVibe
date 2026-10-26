@@ -33,6 +33,10 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,13 +46,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,58 +68,134 @@ import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.PostAudience
 import com.univibe.app.ui.theme.Spacing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+/** "2d 4h left", "5h 10m left", "12m left", "Less than a minute left". */
+fun pollTimeLeft(millis: Long): String {
+    val minutes = (millis / 60_000L).coerceAtLeast(0)
+    val days = minutes / 1440
+    val hours = (minutes % 1440) / 60
+    val mins = minutes % 60
+    return when {
+        days > 0 -> if (hours > 0) "${days}d ${hours}h left" else "${days}d left"
+        hours > 0 -> if (mins > 0) "${hours}h ${mins}m left" else "${hours}h left"
+        minutes > 0 -> "${minutes}m left"
+        else -> "Less than a minute left"
+    }
+}
+
 /**
- * A poll inside a post card. With [onVote] the options are tappable until the student has voted; without it
- * (read-only lists such as Saved) results are always shown.
+ * A poll inside a post card, directly under the question.
+ *
+ * Before voting: clean, tappable options with no bars and no numbers.
+ * After voting (or once the poll ended, or in read-only lists): every option fills with teal in proportion to its
+ * share, the percentage sits on the right, and the student's own choice gets a teal border and a check. The fills
+ * animate in when results first appear and whenever the numbers change. Only counts are ever shown, never who voted.
  */
 @Composable
 fun PostPoll(poll: Poll, onVote: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
-    val showResults = poll.myVote != null || onVote == null
+    // Re-checks the clock so a poll flips to "ended" on screen without needing a refresh.
+    val now by produceState(System.currentTimeMillis(), poll.endsAtMillis) {
+        while (poll.endsAtMillis != null && value < poll.endsAtMillis) {
+            val left = poll.endsAtMillis - value
+            delay(if (left < 90_000L) 1_000L else 30_000L)
+            value = System.currentTimeMillis()
+        }
+    }
+    val ended = poll.hasEnded(now)
+    val showResults = poll.myVote != null || onVote == null || ended
+    val canVote = !showResults
+    val topVotes = poll.options.maxOfOrNull { it.votes } ?: 0
+    val colors = MaterialTheme.colorScheme
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         poll.options.forEachIndexed { index, option ->
             val chosen = poll.myVote == index
             val share = if (poll.totalVotes == 0) 0f else option.votes.toFloat() / poll.totalVotes
-            val colors = MaterialTheme.colorScheme
+            val percent = (share * 100).roundToInt()
+            val leading = showResults && option.votes > 0 && option.votes == topVotes
+            // Starts full when results are already showing (scrolling past an old poll never replays it); animates
+            // from empty when the student votes, and glides to the new share when the numbers change.
+            val target = if (showResults) share.coerceIn(0f, 1f) else 0f
+            val fill = remember { Animatable(target) }
+            LaunchedEffect(target) { fill.animateTo(target, tween(durationMillis = 600, easing = FastOutSlowInEasing)) }
             val shape = RoundedCornerShape(14.dp)
+            // No borders: a soft track, the Follow-button teal for the leading option, a quieter teal for the rest.
+            // The leader's text flips to the button's own text colour where the fill sits behind it (see the overlay).
+            val dark = colors.background.luminance() < 0.5f
+            val trackColor = colors.surfaceContainerHigh
+            val fillColor = when {
+                leading -> colors.primary
+                else -> if (dark) Color(0xFF134E4A) else colors.primaryContainer.copy(alpha = 0.55f)
+            }
+            val optionRow: @Composable (Color, Color) -> Unit = { textColor, iconColor ->
+                Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        option.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                        fontWeight = if (leading || chosen) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (showResults) {
+                        if (chosen) {
+                            Icon(VibeIcons.CheckCircle, contentDescription = null, tint = iconColor, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text("$percent%", style = MaterialTheme.typography.labelLarge, color = textColor)
+                    }
+                }
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .clip(shape)
-                    .border(1.dp, if (chosen) colors.primary else colors.outlineVariant, shape)
-                    .then(
-                        if (!showResults && onVote != null) Modifier.clickable(role = Role.Button) { onVote(index) } else Modifier,
-                    )
+                    .background(trackColor)
+                    // Drawn behind the text at exactly this option's share of the width. Drawing (rather than a child
+                    // Box) keeps it independent of the row's height, which is unbounded inside a feed, and the
+                    // animation only redraws instead of recomposing every frame.
+                    .drawBehind {
+                        val width = size.width * fill.value.coerceIn(0f, 1f)
+                        if (width > 0.5f) drawRect(fillColor, size = Size(width, size.height))
+                    }
+                    .then(if (canVote && onVote != null) Modifier.clickable(role = Role.Button) { onVote(index) } else Modifier)
                     .semantics {
                         contentDescription = if (showResults) {
-                            "${option.text}, ${(share * 100).roundToInt()} percent${if (chosen) ", your vote" else ""}"
+                            "${option.text}, $percent percent${if (chosen) ", your vote" else ""}"
                         } else "Vote for ${option.text}"
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (showResults) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(share.coerceIn(0f, 1f)).background(colors.primaryContainer.copy(alpha = 0.6f)))
-                }
-                Row(Modifier.padding(horizontal = Spacing.md, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(option.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    if (showResults) {
-                        if (chosen) {
-                            Icon(VibeIcons.CheckCircle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text("${(share * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
-                    }
+                optionRow(colors.onSurface, colors.primary)
+                if (leading && fill.value > 0.001f) {
+                    // Same row again in the button's text colour, shown only over the filled part, so the text stays
+                    // readable on both the fill and the track in light and dark mode.
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .clearAndSetSemantics { }
+                            .drawWithContent {
+                                clipRect(right = size.width * fill.value.coerceIn(0f, 1f)) { this@drawWithContent.drawContent() }
+                            },
+                        contentAlignment = Alignment.CenterStart,
+                    ) { optionRow(colors.onPrimary, colors.onPrimary) }
                 }
             }
         }
         val total = poll.totalVotes
+        val votes = if (total == 1) "1 vote" else "$total votes"
+        val status = when {
+            ended -> "Poll ended"
+            poll.endsAtMillis != null -> pollTimeLeft(poll.endsAtMillis - now)
+            else -> null
+        }
         Text(
-            if (total == 1) "1 vote" else "$total votes",
+            if (status != null) "$votes · $status" else votes,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (ended) colors.primary else colors.onSurfaceVariant,
+            fontWeight = if (ended) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }

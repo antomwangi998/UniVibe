@@ -1,82 +1,160 @@
-# UniVibe — Connect. Share. Belong.
+<div align="center">
 
-Campus social network for students at one university. Kotlin · Jetpack Compose · Material 3 · Navigation Compose.
+# UniVibe
 
-## Open and run
-1. Android Studio Koala (2024.1.1) or newer, JDK 17.
-2. File ▸ Open ▸ select this folder. Let Gradle sync.
-   - There is no `gradlew`/wrapper jar in this zip. In Studio use
-     Settings ▸ Build ▸ Gradle ▸ "Use Gradle from: gradle-wrapper.properties", or run `gradle wrapper` once.
-3. Run the `app` configuration on an emulator/device (minSdk 26).
-4. Release build: `./gradlew assembleRelease` (add your own signing config; never commit keystores).
+**Connect. Share. Belong.**
 
-Application ID `com.univibe.app` is a placeholder.
+A social app made for university students: share posts, chat, join communities and find out what's happening on campus.
 
-## Status (honest)
-Written without access to Android SDK/Gradle, so **nothing here has been compiled, run or screenshotted yet.**
-Expect to fix a few compile errors on first sync; send them back and they'll be resolved.
+[Features](#-features) · [Get the app](#-get-the-app) · [Run it yourself](#-run-it-yourself) · [How it's built](#-how-its-built) · [Documentation](#-documentation) · [Roadmap](#-roadmap)
 
-| Item | State |
+</div>
+
+---
+
+## What is UniVibe?
+
+Most social networks are built for everyone, which makes them noisy for a campus. UniVibe is built for one university
+at a time. Students see their own campus feed, follow classmates, join clubs and societies, and never miss an event.
+
+It has two parts that work together:
+
+| Part | What it is | Where it lives |
+|---|---|---|
+| **Android app** | The app students use | `app/` |
+| **Backend API** | Accounts, posts, chat, media and notifications | `backend/` |
+
+## ✨ Features
+
+**Share**
+- Posts with photos, video and **polls**. Poll results fill in with animated teal bars, with single votes and countdowns for time-limited polls.
+- 24-hour **Stories** and short **Notes**.
+- Comments, likes, reposts, saved posts and link previews.
+
+**Talk**
+- One-to-one and **group chats** with photos, voice notes, typing indicators and read receipts you can switch off.
+- **Notifications** for messages and activity. You choose whether alerts show the message text or just say "New message".
+
+**Belong**
+- **Communities** for clubs, courses and interests, with channels, rules and moderators.
+- **Events** with RSVP (Going / Interested), categories and a venue map.
+- **Discover**: swipe through students who share your interests, with a suggested-people feed.
+
+**Safe by design**
+- Sign in with email and password or **Google**. Email verification is required.
+- Report and block tools, moderator queue and privacy settings (who can message you, who can see your profile).
+- Photos are re-encoded on upload, which strips location data.
+- Light theme, **pure-black dark theme**, adjustable text size, bold text, high contrast and reduce-motion settings.
+
+## 📱 Get the app
+
+UniVibe is an Android app (Android 8.0 or newer).
+
+1. Open this repository on GitHub and go to **Releases** to download the latest `.apk`.
+2. Open the file on your phone and allow "Install from this source" when asked.
+
+You can also download a test build from any green run under **Actions → Android CI → Artifacts**:
+`univibe-fast-apk` runs smoothly and is the one to use; `univibe-debug-apk` is for debugging.
+
+## 🛠 Run it yourself
+
+### The Android app
+
+You need [Android Studio](https://developer.android.com/studio) (Koala or newer) and JDK 17.
+
+1. Open this folder in Android Studio and let Gradle sync.
+2. Point the app at a backend by adding this line to `gradle.properties`:
+   ```
+   univibe.apiBaseUrl=https://your-backend.example.com
+   ```
+3. Press **Run** on an emulator or phone.
+
+No laptop? Push to GitHub. The **Android CI** workflow runs the tests and builds installable APKs for you.
+
+### The backend
+
+You need Node.js 20+ and a PostgreSQL database.
+
+```bash
+cd backend
+npm install
+export DATABASE_URL="postgres://user:pass@localhost:5432/univibe"
+export JWT_SECRET="at-least-32-random-characters-................"
+export CODE_PEPPER="another-32-random-characters-..............."
+npm run dev        # starts the API and applies database migrations automatically
+npm test           # runs the test suite
+```
+
+Everything else is optional and switches features on: `RESEND_API_KEY` (verification emails),
+`R2_*` (photo and video storage), `FCM_SERVICE_ACCOUNT_JSON` (push notifications) and `GOOGLE_WEB_CLIENT_ID`
+(Google sign-in). `backend/render.yaml` lists them all and deploys the API to [Render](https://render.com) in one step.
+
+## 🧱 How it's built
+
+| Layer | Technology |
 |---|---|
-| Gradle + version catalog (AGP 8.5.2, Kotlin 2.0.20, Compose BOM 2024.09.02) | written, unverified |
-| Theme: teal light/dark, shapes, spacing, DataStore-persisted System/Light/Dark | written, unverified |
-| Floating rounded bottom nav, edge-to-edge, saved tab state | written, unverified |
-| Components: Button, Card, TopBar, BottomBar, Avatar, Chip, TextField, BottomSheet, Skeleton, Empty/Error, ConfirmDialog, PostCard, DiscoveryCard, EventCard, Logo | written, unverified |
-| Screens: Home, Discover (swipe), Chats inbox, Events (RSVP + cancel confirm), Profile, Settings | written, unverified (mock data) |
-| Unit tests (mock repositories) | written, not run |
-| Previews (light + dark) | written, not viewed |
-| Contrast check | primary lightened to #0F766E for white text (≈5.5:1); other pairs not measured |
+| App | Kotlin, Jetpack Compose, Material 3, Navigation Compose |
+| Images and maps | Coil, osmdroid with OpenStreetMap (no API key, no location permission) |
+| Backend | Node.js, TypeScript, Fastify, WebSockets |
+| Database | PostgreSQL (hosted on Neon), plain SQL migrations in `backend/migrations/` |
+| Media | Cloudflare R2, `sharp` for resizing |
+| Security | Argon2 password hashing, signed tokens (JWT), rate limiting |
+| Email and push | Resend, Firebase Cloud Messaging |
+| Build and deploy | GitHub Actions (tests, APK builds, tagged releases), Render |
 
-## Not built yet
-Phase 2 auth (welcome, sign-up, login, verification, reset, onboarding, auth state machine), conversation screen,
-communities, create post, comments, notifications, photo picker, report/block flows, real images (Coil),
-Inter/Poppins font files, settings sub-screens (rows are placeholders), screenshot review, UI tests.
+### Project layout
 
-## Mock vs real
-Everything in `data/repository/MockRepositories.kt` is invented sample data. UI talks only to the interfaces in
-`Repositories.kt`; a real backend replaces the mocks without touching screens.
+```
+UniVibe/
+├── app/                  Android app
+│   └── src/main/java/com/univibe/app/
+│       ├── features/     one folder per screen area: home, chats, events, communities, ...
+│       ├── ui/           theme and reusable components
+│       ├── data/         models, repositories, networking
+│       └── push/         notification handling
+├── backend/              API server, database migrations, tests
+├── docs/                 guides for each part of the system
+└── .github/workflows/    automatic tests and builds
+```
 
-## Layout
-`app/` entry + theme VM · `navigation/` · `ui/theme` · `ui/components` · `data/{model,prefs,repository}` · `features/*`
+## 📚 Documentation
 
-## Fonts
-Drop Inter (or Poppins) `.ttf` files in `res/font/` and point `UniVibeFont` in `ui/theme/Type.kt` at a `FontFamily(Font(R.font...))`.
+| Topic | Guide |
+|---|---|
+| Sign-up, login and verification | [docs/AUTH_BACKEND.md](docs/AUTH_BACKEND.md) |
+| Sign in with Google | [docs/GOOGLE_SIGN_IN.md](docs/GOOGLE_SIGN_IN.md) |
+| Posts and polls | [docs/POSTS_API.md](docs/POSTS_API.md) |
+| Chat | [docs/CHAT_API.md](docs/CHAT_API.md) · [docs/REAL_CHAT.md](docs/REAL_CHAT.md) |
+| Communities | [docs/COMMUNITIES_API.md](docs/COMMUNITIES_API.md) |
+| Events and maps | [docs/EVENTS_API.md](docs/EVENTS_API.md) · [docs/MAPS.md](docs/MAPS.md) |
+| Discover | [docs/DISCOVER_FEED.md](docs/DISCOVER_FEED.md) · [docs/DISCOVER_PROFILE.md](docs/DISCOVER_PROFILE.md) |
+| Push notifications | [docs/PUSH_NOTIFICATIONS.md](docs/PUSH_NOTIFICATIONS.md) |
+| Deep links | [docs/DEEP_LINKS.md](docs/DEEP_LINKS.md) |
+| Backend API reference | [backend/docs/V1_API.md](backend/docs/V1_API.md) |
 
-## Building without a laptop
-Push to GitHub; the **Android CI** workflow runs unit tests and builds a debug APK.
-Download it from the run's *Artifacts* (`univibe-debug-apk`) and install on your phone.
-Failed build? Open the run log and send the first `e:` error lines.
+## 🗺 Roadmap
 
-## UI improvement pass (from the "UI improvement prompt")
-Done: animated story rings + online dots, post composer + create-post sheet, FAB above the floating bar, 16:9/4:5 media,
-save/like states, Discover filters + progress + info sheet + bouncy actions, profile cover/stat cards/photos/saved/groups/
-editable interests/privacy toggles, chats pinned section + filter + swipe mute/archive, events tabs (Upcoming/My/Past) +
-search + category filters + Going/Interested/Not going sheet, softer borders, Poppins, rounded nav icons.
-Not done: real photos (gradient placeholders), event details screen, comments, "Nearby" filter (skipped: needs location consent).
+- Multiple-choice polls
+- More sign-in options
+- Student ID verification
+- Screenshots and a short demo video for this page
 
-## Phase 2 — Authentication (mock backend)
-Welcome, sign-up, log-in, email verification (6-digit code, resend cooldown), forgot/reset password, 4-step onboarding,
-log out, and an `AuthState` machine in `AuthGate`. All data comes from `MockAuthRepository` (device-only, **not real
-authentication**). In debug builds the verification/reset code is shown in a labelled "DEV MODE" banner because no
-email is sent. See `docs/AUTH_BACKEND.md` for the endpoints a real backend needs.
-Unit tests: validators, repository state transitions, login view model.
-Not done: real backend, deep links, Google/other sign-in, student-ID document verification, UI tests.
+Ideas and bug reports are welcome: open an **Issue** on GitHub.
 
-## Settings, deep links, floating bar (update 5)
-- Full Settings tree: Account (change password, delete account), Privacy & safety (visibility, who can message,
-  read receipts, blocked students, safety tips), Notifications, Accessibility (text size, reduce motion), Help & support
-  (FAQ, report a problem by email, guidelines, about). Choices persist with DataStore; text size and reduce-motion apply app-wide.
-- Post menu: Report / Block feeds the blocked list (mock moderation; no server).
-- Deep links: see docs/DEEP_LINKS.md.
-- The bottom bar now hovers over edge-to-edge content and hides while scrolling content up, returning when scrolling back.
-- Placeholders to replace: support email in HelpScreens.kt, Terms/Privacy text, guideline wording.
+## 🤝 Contributing
 
-## Update 6 — comments, chat, profile screens, communities
-- Comments screen per post (add, like, delete own, report others).
-- Chat conversation: bubbles, photo messages, typing indicator, read receipts (honours the privacy setting), copy/delete, new chats from a student's profile.
-  Replies are **mock** (a fake auto-reply) so you can see the UI work.
-- Profile: Edit profile (discard-changes guard), Photos grid + viewer, Saved posts, Followers/Following, other students' profiles (follow, message, block, report).
-- Communities: list with search/categories, details, join/leave, mute, rules, moderator queue (mock).
-- Picked photos are copied into app storage, downscaled and re-encoded (strips location data). Coil displays them.
-- Mock data for these features is shared in one in-memory store: it resets when the app restarts, except settings and your profile edits/photos (DataStore + files).
-Not done: real uploads/backend, video, group chat creation, post/comment threads with replies, event details.
+1. Fork the repository and create a branch.
+2. Make your change and run the tests (`gradle testDebugUnitTest` for the app, `npm test` in `backend/`).
+3. Open a pull request that says what you changed and why.
+
+Never commit keystores, passwords or API keys.
+
+## 📄 License
+
+No license has been chosen yet, so all rights are reserved by default. Add a `LICENSE` file before accepting outside contributions.
+
+---
+
+<div align="center">
+Built in Kenya 🇰🇪 for students everywhere.
+</div>

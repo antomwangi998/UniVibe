@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats.notes
 
+import com.univibe.app.guide.guideTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,7 +44,9 @@ import com.univibe.app.data.model.NoteAudience
 import com.univibe.app.data.model.NoteDraftCheck
 import com.univibe.app.data.model.activeLabel
 import com.univibe.app.data.model.noteLength
+import com.univibe.app.ui.components.ActiveDot
 import com.univibe.app.ui.components.InterestChip
+import com.univibe.app.ui.components.StoryStatusRing
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeButton
@@ -53,7 +57,7 @@ import com.univibe.app.ui.theme.Spacing
 
 private val ItemWidth = 76.dp
 private val AvatarSize = 56.dp
-private val AvatarBox = 60.dp
+private val AvatarBox = 64.dp
 
 /** Space kept above every avatar for a thought bubble and its tail, so avatars line up. Zero when nobody has a Note. */
 private val BubbleSlot = 56.dp
@@ -73,9 +77,15 @@ fun NotesRow(
     onOpenAvatar: (authorId: String) -> Unit,
     onOpenNote: (authorId: String) -> Unit,
     modifier: Modifier = Modifier,
+    /** False until the Story viewer exists: then no ring is drawn and only people with a Note are listed. */
+    showStories: Boolean = false,
+    onOpenStories: (authorId: String) -> Unit = {},
+    /** People known to be active right now from the chat list (a Story-only person has no Note to say so). */
+    onlineIds: Set<String> = emptySet(),
 ) {
     val me = state.me ?: return
-    val slot = if (state.hasAnyNote) BubbleSlot else 0.dp
+    val people = state.people(showStories)
+    val slot = if (people.any { it.note != null } || state.myActive != null) BubbleSlot else 0.dp
     LazyRow(
         state = rememberLazyListState(),
         modifier = modifier.fillMaxWidth(),
@@ -84,16 +94,24 @@ fun NotesRow(
         verticalAlignment = Alignment.Bottom,
     ) {
         item(key = "me", contentType = "me") {
-            YourNoteItem(me = me, note = state.myActive, slot = slot, onAvatar = onAddNote, onNote = onOpenMyNote)
+            YourNoteItem(
+                me = me, note = state.myActive, slot = slot, hasStory = showStories && state.myStory != null,
+                onAvatar = onAddNote, onNote = onOpenMyNote,
+            )
         }
-        items(state.visibleOthers, key = { it.authorId }, contentType = { "note" }) { note ->
-            PersonNoteItem(note = note, slot = slot, onAvatar = { onOpenAvatar(note.authorId) }, onNote = { onOpenNote(note.authorId) })
+        items(people, key = { it.authorId }, contentType = { "person" }) { person ->
+            PersonItem(
+                person = person, slot = slot, online = person.online || person.authorId in onlineIds,
+                // A teal (or muted) ring means a Story is waiting: the avatar opens it. Otherwise the avatar opens the Note.
+                onAvatar = { if (person.story != null) onOpenStories(person.authorId) else onOpenAvatar(person.authorId) },
+                onNote = { onOpenNote(person.authorId) },
+            )
         }
     }
 }
 
 @Composable
-private fun YourNoteItem(me: NotesMe, note: Note?, slot: Dp, onAvatar: () -> Unit, onNote: () -> Unit) {
+private fun YourNoteItem(me: NotesMe, note: Note?, slot: Dp, hasStory: Boolean, onAvatar: () -> Unit, onNote: () -> Unit) {
     Column(Modifier.width(ItemWidth), horizontalAlignment = Alignment.CenterHorizontally) {
         BubbleArea(
             text = note?.text, slot = slot, onClick = onNote,
@@ -102,9 +120,15 @@ private fun YourNoteItem(me: NotesMe, note: Note?, slot: Dp, onAvatar: () -> Uni
         Box(
             Modifier
                 .size(AvatarBox)
+                .guideTarget("chats.myNote")
                 .clickable(role = Role.Button, onClickLabel = if (note == null) "Add a note" else "Your note options", onClick = onAvatar)
-                .semantics { contentDescription = if (note == null) "Add a note" else "Your profile photo. Edit or delete your note" },
+                .semantics {
+                    contentDescription = (if (note == null) "Add a note" else "Your profile photo. Edit or delete your note") +
+                        if (hasStory) ". You have an active story" else ""
+                },
         ) {
+            // My own ring is always the teal "active" one: I do not have to watch my own Story to keep it lit.
+            if (hasStory) StoryStatusRing(unviewed = true, modifier = Modifier.matchParentSize())
             // The person's real profile photo (initials only if they have not set one) is the item. The plus is a badge on it.
             StudentAvatar(me.name, size = AvatarSize, accent = me.id.hashCode(), imagePath = me.avatarUrl, modifier = Modifier.align(Alignment.Center))
             PlusBadge(Modifier.align(Alignment.BottomEnd))
@@ -125,22 +149,36 @@ private fun PlusBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PersonNoteItem(note: Note, slot: Dp, onAvatar: () -> Unit, onNote: () -> Unit) {
-    val active = if (note.online) ", active now" else ""
+private fun PersonItem(person: RowPerson, slot: Dp, online: Boolean, onAvatar: () -> Unit, onNote: () -> Unit) {
+    val note = person.note
+    val active = if (online) ", active now" else ""
+    val storyText = when {
+        person.story == null -> ""
+        person.hasUnviewedStory -> ". New story. Opens the story"
+        else -> ". Story seen. Opens the story"
+    }
     Column(Modifier.width(ItemWidth), horizontalAlignment = Alignment.CenterHorizontally) {
-        BubbleArea(text = note.text, slot = slot, onClick = onNote, description = "${note.authorName}'s note: ${note.text}. Opens the note.")
-        Box(
-            Modifier
-                .size(AvatarBox)
-                .clip(CircleShape)
-                .clickable(role = Role.Button, onClickLabel = "Open ${note.authorName}", onClick = onAvatar)
-                .semantics { contentDescription = "${note.authorName}$active" },
-            contentAlignment = Alignment.Center,
-        ) {
-            // The teal dot is activity (shown only when the person shares it). A Story ring is a different, larger thing.
-            StudentAvatar(note.authorName, size = AvatarSize, accent = note.authorId.hashCode(), online = note.online, imagePath = note.avatarUrl)
+        BubbleArea(
+            text = note?.text, slot = slot, onClick = onNote,
+            description = note?.let { "${person.name}'s note: ${it.text}. Opens the note." },
+        )
+        // The dot sits on this outer box. Only the inner tap area is clipped to a circle, so the dot is never cut off.
+        Box(Modifier.size(AvatarBox)) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button, onClickLabel = if (person.story != null) "Open ${person.name}'s story" else "Open ${person.name}", onClick = onAvatar)
+                    .semantics { contentDescription = "${person.name}$active$storyText" },
+                contentAlignment = Alignment.Center,
+            ) {
+                // Ring = a Story. The teal dot = active now (only when the person shares it). Two different things.
+                if (person.story != null) StoryStatusRing(unviewed = person.hasUnviewedStory, modifier = Modifier.matchParentSize())
+                StudentAvatar(person.name, size = AvatarSize, accent = person.authorId.hashCode(), imagePath = person.avatarUrl)
+            }
+            if (online) ActiveDot(Modifier.align(Alignment.BottomEnd).padding(end = 2.dp, bottom = 2.dp))
         }
-        ItemLabel(note.authorName.trim().substringBefore(' '))
+        ItemLabel(person.name.trim().substringBefore(' '))
     }
 }
 
@@ -284,7 +322,7 @@ private fun MyNoteSheet(note: Note, state: NotesUiState, vm: NotesViewModel) {
 @Composable
 private fun TheirNoteSheet(note: Note, state: NotesUiState, vm: NotesViewModel) {
     VibeBottomSheet(onDismiss = vm::closeSheet) {
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Column(Modifier.imePadding(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StudentAvatar(note.authorName, size = 40.dp, accent = note.authorId.hashCode(), imagePath = note.avatarUrl)
                 Column(Modifier.padding(start = Spacing.md)) {
@@ -296,6 +334,28 @@ private fun TheirNoteSheet(note: Note, state: NotesUiState, vm: NotesViewModel) 
                 }
             }
             NoteBody(note, state.nowMs)
+            // Reply: goes to the author as a chat message that quotes this Note.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                VibeTextField(
+                    value = state.replyText,
+                    onValueChange = vm::setReply,
+                    placeholder = "Reply to ${note.authorName.trim().substringBefore(' ')}",
+                    singleLine = false, minLines = 1, maxLines = 3,
+                    isError = state.replyError != null,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = vm::sendReply, enabled = state.canSendReply) {
+                    Icon(
+                        VibeIcons.Send, contentDescription = "Send reply",
+                        tint = if (state.canSendReply) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            state.replyError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            Text(
+                "Your reply goes to ${note.authorName.trim().substringBefore(' ')} as a message.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

@@ -63,10 +63,10 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     expect((await call('POST', `${V1}/events/${ev.id}/cancel`, org.token)).status).toBe(204);
     const kinds = async (t: string) => (await call('GET', `${V1}/notifications`, t)).body.items.filter((n: { type: string }) => n.type === 'event_update').map((n: { metadata: { kind: string } }) => n.metadata.kind);
     const titles = (await call('GET', `${V1}/notifications`, s2.token)).body.items.map((n: { metadata: { title: string } }) => n.metadata.title);
-    expect(titles).toEqual([ev.title]); // event notifications carry the title so the app can name the event
-    expect(await kinds(s2.token)).toEqual(['cancelled']);
-    expect(await kinds(s3.token)).toEqual(['cancelled']);
-    expect(await kinds(s1.token)).toEqual([]); // had cancelled their place
+    expect(titles).toEqual([ev.title, ev.title]); // event notifications carry the title so the app can name the event
+    expect((await kinds(s2.token)).sort()).toEqual(['cancelled', 'confirmed']);
+    expect((await kinds(s3.token)).sort()).toEqual(['cancelled', 'confirmed']);
+    expect(await kinds(s1.token)).toEqual(['confirmed']); // had cancelled their place, so no cancellation notice
     const closed = await call('POST', `${V1}/events/${ev.id}/register`, s1.token);
     expect(closed.status).toBe(409);
     expect(closed.body.error).toBe('event_closed');
@@ -92,14 +92,12 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await bad({ startsAt: new Date(Date.now() + 60_000).toISOString(), endsAt: inHours(2) }); // starts in 1 minute
     await bad({ startsAt: inHours(24 * 400), endsAt: inHours(24 * 400 + 2) }); // more than a year away
     await bad({ title: 'ab' }, 400);
-    await bad({ category: 'parties' });
+    await bad({ category: 'parties' }, 400);
     await bad({ capacity: 0 }, 400);
     await bad({ capacity: 5001 }, 400);
     await bad({ startsAt: 'tomorrow' }, 400);
     await bad({ organizerId: 'someone-else' }, 400);
-    const unknown = await call('GET', `${V1}/events?category=nonsense`, org.token); // a filter, not a write: matches nothing
-    expect(unknown.status).toBe(200);
-    expect(unknown.body.items ?? unknown.body).toEqual([]);
+    expect((await call('GET', `${V1}/events?category=BAD CODE`, org.token)).status).toBe(400);
   });
 
   it('limits upcoming events per organizer', async () => {
@@ -220,7 +218,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     const notGoing = await h.student();
     const ev = await create(org.token);
     await call('POST', `${V1}/events/${ev.id}/register`, going.token);
-    await pool.query("update events set starts_at = now() + interval '30 minutes', ends_at = now() + interval '3 hours' where id = $1", [ev.id]);
+    await pool.query("update events set starts_at = now() + interval '50 minutes', ends_at = now() + interval '3 hours' where id = $1", [ev.id]);
     const ctx = makeCtx(pool, testConfig(), new RateLimiter(), null);
     expect(await sendEventReminders(ctx)).toBeGreaterThanOrEqual(1);
     expect(await sendEventReminders(ctx)).toBe(0); // running again sends nothing new
@@ -356,13 +354,25 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await create(org.token, { category: 'robotics' });
   });
 
+  it('a cancelled event can be deleted even though people had registered', async () => {
+    const org = await h.student();
+    const s1 = await h.student();
+    const e = await create(org.token);
+    await call('POST', `${V1}/events/${e.id}/register`, s1.token);
+    const early = await call('DELETE', `${V1}/events/${e.id}`, org.token);
+    expect(early.status).toBe(409); // still live with a guest: cancel first
+    expect((await call('POST', `${V1}/events/${e.id}/cancel`, org.token)).status).toBe(204);
+    expect((await call('DELETE', `${V1}/events/${e.id}`, org.token)).status).toBe(204);
+    expect((await call('GET', `${V1}/events/${e.id}`, org.token)).status).toBe(404);
+  });
+
   it('v2: wording edits do not notify registrants, time and venue changes do', async () => {
     const org = await h.student();
     const s1 = await h.student();
     const e = await create(org.token);
     await call('POST', `${V1}/events/${e.id}/register`, s1.token);
     await call('PATCH', `${V1}/events/${e.id}`, org.token, { description: 'A longer description.' });
-    const n = () => pool.query("select count(*)::int as n from notifications where recipient_id = $1 and type = 'event_update' and entity_id = $2", [s1.id, e.id]);
+    const n = () => pool.query("select count(*)::int as n from notifications where recipient_id = $1 and type = 'event_update' and entity_id = $2 and metadata->>'kind' = 'changed'", [s1.id, e.id]);
     expect((await n()).rows[0].n).toBe(0);
     await call('PATCH', `${V1}/events/${e.id}`, org.token, { venueName: 'Main Hall' });
     expect((await n()).rows[0].n).toBe(1);

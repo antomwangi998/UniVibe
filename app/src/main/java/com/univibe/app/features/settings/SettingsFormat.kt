@@ -23,5 +23,7 @@ fun noticeActionLabel(action: String): String = when (action) {
     "unsuspend_user" -> "Suspension lifted"
     "remove_content" -> "Content removed"
     "restore_content" -> "Content restored"
+    "hide_event" -> "Event hidden"
+    "restore_event" -> "Event restored"
     else -> "Moderation update"
 }

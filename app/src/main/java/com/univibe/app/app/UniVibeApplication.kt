@@ -87,6 +87,7 @@ class UniVibeApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         DraftStore.init(this)
+        com.univibe.app.data.prefs.ChatAppearanceStore.init(this)
         AppContainer.init(this)
     }
 
@@ -113,7 +114,7 @@ object AppContainer {
         // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
         // Unsent drafts belong to the account that wrote them: a deliberate sign-out clears them.
-        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) com.univibe.app.data.prefs.DraftStore.clearAll() } }
+        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) { com.univibe.app.data.prefs.DraftStore.clearAll(); com.univibe.app.data.prefs.ChatAppearanceStore.clearAll() } } }
         // Saved screens belong to the signed-in account: switching accounts or signing out on purpose wipes them.
         appScope.launch {
             authRepository.session.collect { state ->
@@ -130,6 +131,7 @@ object AppContainer {
         (feedRepository as? RemoteFeedRepository)?.let { r ->
             outboxRunner.register("like") { r.deliverQueued(it) }
             outboxRunner.register("save") { r.deliverQueued(it) }
+            outboxRunner.register("repost") { r.deliverQueued(it) }
         }
         (messageRepository as? RemoteMessageRepository)?.let { r -> outboxRunner.register("message") { r.deliverQueued(it) } }
         runCatching {
@@ -175,6 +177,12 @@ object AppContainer {
     /** The server connection, when the app runs against a real backend (null in offline demo mode). */
     private val api: AuthedApi? get() = authRepository as? AuthedApi
 
+    /** The newest message of a conversation as alert text, or null (offline demo, signed out, no connection). */
+    suspend fun messagePreview(conversationId: String): com.univibe.app.push.MessagePreview? {
+        val authed = api ?: return null
+        return com.univibe.app.push.MessagePreviewLoader.load(authed, conversationId, accountOf(authRepository.session.value)?.id)
+    }
+
     /** The live connection (wss://.../api/v1/ws), only when the app talks to a real server. */
     private val chatSocket: ChatSocket? by lazy {
         val authed = api ?: return@lazy null
@@ -204,9 +212,17 @@ object AppContainer {
     val noteRepository: com.univibe.app.data.repository.NoteRepository by lazy {
         api?.let { com.univibe.app.data.repository.RemoteNoteRepository(it, chatSocket) } ?: com.univibe.app.data.repository.UnavailableNoteRepository
     }
+    val storyRepository: com.univibe.app.data.repository.StoryRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteStoryRepository(it, chatSocket, MediaUploader(it, UrlConnectionFileUploader())) } ?: com.univibe.app.data.repository.UnavailableStoryRepository
+    }
     val messageRepository: MessageRepository by lazy {
         api?.let { RemoteMessageRepository(it, MediaUploader(it, UrlConnectionFileUploader()), chatSocket) { accountOf(authRepository.session.value)?.id }.also { r -> r.outbox = outbox } }
             ?: UnavailableMessageRepository
+    }
+    /** Discussion channels: real server only (they have no offline demo form). */
+    val channelRepository: com.univibe.app.data.repository.ChannelRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteChannelRepository(it, chatSocket, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value)?.id } }
+            ?: com.univibe.app.data.repository.UnavailableChannelRepository
     }
     val communityRepository: CommunityRepository by lazy {
         api?.let {
@@ -231,11 +247,19 @@ object AppContainer {
     val discoverContentRepository: DiscoverContentRepository by lazy {
         api?.let { RemoteDiscoverContentRepository(it) } ?: FeedBackedDiscoverContent(feedRepository)
     }
+    /** Sponsored cards. Only the real server can serve them; the offline demo shows no ads. */
+    val sponsoredRepository: com.univibe.app.data.repository.SponsoredRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteSponsoredRepository(it) } ?: com.univibe.app.data.repository.NoSponsoredRepository
+    }
+    /** Businesses, promotions, payments and analytics. Needs the server; the offline demo says so. */
+    val promotionsRepository: com.univibe.app.data.repository.PromotionsRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemotePromotionsRepository(it) } ?: com.univibe.app.data.repository.NoPromotionsRepository
+    }
     /** Search the campus (students, posts, events). Needs the server; the offline demo says so. */
     val searchRepository: SearchRepository by lazy { api?.let { RemoteSearchRepository(it) } ?: UnavailableSearchRepository }
     val recentSearches: RecentSearches by lazy { PrefsRecentSearches(app) }
     val notificationRepository: NotificationRepository by lazy { api?.let { RemoteNotificationRepository(it, chatSocket) } ?: MockNotificationRepository() }
-    val eventRepository: EventRepository by lazy { api?.let { RemoteEventRepository(it) } ?: MockEventRepository(mockStore) }
+    val eventRepository: EventRepository by lazy { api?.let { RemoteEventRepository(it, MediaUploader(it, UrlConnectionFileUploader())) } ?: MockEventRepository(mockStore) }
     val profileRepository: ProfileRepository by lazy {
         MockProfileRepository(
             mockStore, DataStoreProfileLocalStore(app),
@@ -256,6 +280,9 @@ object AppContainer {
     }
 
     val settingsRepository: SettingsRepository by lazy { DataStoreSettingsRepository(app) }
+
+    /** Where the welcome screen and guided-tour progress are kept (on this phone, per account). */
+    val guideStore: com.univibe.app.guide.GuideProgressStore by lazy { com.univibe.app.guide.GuidePreferences(app) }
 
     /** Privacy choices and blocking. Real server: stored and enforced there. Offline preview build: this device only. */
     val privacyRepository: PrivacyRepository by lazy { api?.let { RemotePrivacyRepository(it, settingsRepository) } ?: LocalPrivacyRepository(settingsRepository) }

@@ -67,7 +67,7 @@ fun MessagingSettingsScreen(
                 SettingsSectionTitle("Alerts")
                 SettingsSwitchRow(
                     "Show message previews", device.showMessagePreview, { v -> settingsViewModel.update { it.copy(showMessagePreview = v) } },
-                    subtitle = if (device.showMessagePreview) "Message alerts show the text of the message." else "Message alerts say \"New message\" without the text.",
+                    subtitle = if (device.showMessagePreview) "Message alerts show who sent it and the text. Hidden on the lock screen." else "Message alerts say \"New message\" without the sender or text.",
                     icon = VibeIcons.Bell,
                 )
             }

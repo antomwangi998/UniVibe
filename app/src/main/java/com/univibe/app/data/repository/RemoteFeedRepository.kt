@@ -7,6 +7,7 @@ import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.NewPost
 import com.univibe.app.data.model.MembershipState
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostLimits
 import com.univibe.app.data.model.PostCommunity
 import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.Student
@@ -73,6 +74,9 @@ private fun buildPost(
     shareCount = o.optInt("shareCount", 0),
     likedByMe = o.optBoolean("likedByMe", false),
     savedByMe = o.optBoolean("savedByMe", false),
+    repostCount = o.optInt("repostCount", 0),
+    repostedByMe = o.optBoolean("repostedByMe", false),
+    viewCount = o.optInt("viewCount", 0),
     fromFollowing = fromFollowing,
     audience = when (o.optString("audience")) {
         "followers" -> PostAudience.Followers
@@ -90,6 +94,7 @@ private fun buildPost(
     announcement = o.optBoolean("announcement", false),
     // A malformed event never breaks the whole feed; the post then simply has no event card.
     event = o.optJSONObject("event")?.let { runCatching { parseCampusEvent(it) }.getOrNull() },
+    sharedEvent = o.optBoolean("sharedEvent", false),
     poll = parsePoll(o.optJSONObject("poll")),
     edited = o.optBoolean("edited", false),
     imagePath = images.firstOrNull(),
@@ -160,6 +165,13 @@ class RemoteFeedRepository(
 
     override suspend fun setSaved(postId: String, saved: Boolean) = toggleOrQueue("save", postId, saved)
 
+    override suspend fun setReposted(postId: String, reposted: Boolean) = toggleOrQueue("repost", postId, reposted)
+
+    override suspend fun recordViews(postIds: List<String>) {
+        if (postIds.isEmpty()) return
+        api.send("POST", "/posts/views", JSONObject().put("ids", JSONArray(postIds.take(50))), ok = NO_CONTENT)
+    }
+
     /** A like or save says what the end result should be, so sending it later (or twice) is harmless. */
     private suspend fun toggleOrQueue(kind: String, postId: String, on: Boolean) {
         try {
@@ -172,7 +184,7 @@ class RemoteFeedRepository(
     /** Sends one queued like or save. */
     suspend fun deliverQueued(entry: Outbox.Entry): OutboxResult {
         val postId = entry.data.optString("postId")
-        if (postId.isEmpty() || entry.kind !in setOf("like", "save")) return OutboxResult.Drop
+        if (postId.isEmpty() || entry.kind !in setOf("like", "save", "repost")) return OutboxResult.Drop
         return try {
             api.send(if (entry.data.optBoolean("on")) "PUT" else "DELETE", "/posts/$postId/${entry.kind}", ok = NO_CONTENT)
             OutboxResult.Done
@@ -194,10 +206,16 @@ class RemoteFeedRepository(
         imagePath: String?,
         videoPath: String?,
         pollOptions: List<String>,
+        pollHours: Int,
     ): Post {
         val body = JSONObject().put("text", text.trim()).put("audience", "campus")
         if (pollOptions.isNotEmpty()) {
-            body.put("poll", JSONObject().put("options", JSONArray(pollOptions.map { it.trim() })))
+            body.put(
+                "poll",
+                JSONObject()
+                    .put("options", JSONArray(pollOptions.map { it.trim() }))
+                    .put("durationHours", pollHours.coerceIn(1, PostLimits.MAX_POLL_HOURS)),
+            )
         }
         if (imagePath != null || videoPath != null) {
             val ids = uploadAll(listOfNotNull(imagePath).map { it to "image" } + listOfNotNull(videoPath).map { it to "video" })

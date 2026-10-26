@@ -3,14 +3,26 @@ package com.univibe.app.data.repository
 import com.univibe.app.core.eventDateParts
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventCategoryInfo
+import com.univibe.app.data.model.EventNotificationPrefs
+import com.univibe.app.data.model.EventNotificationPrefsChange
 import com.univibe.app.data.model.EventDiscoverFilter
 import com.univibe.app.data.model.EventDiscoverPage
 import com.univibe.app.data.model.EventSection
 import com.univibe.app.data.model.EventDetails
+import com.univibe.app.data.model.EventActivity
+import com.univibe.app.data.model.EventLink
+import com.univibe.app.data.model.EventUpdate
+import com.univibe.app.data.model.ShareTarget
 import com.univibe.app.data.model.NewEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.model.Venue
 import com.univibe.app.data.net.ApiException
+import com.univibe.app.data.net.MediaUploader
+import com.univibe.app.data.net.parseStudent
+import com.univibe.app.data.model.AttendeePage
+import com.univibe.app.data.model.EventAttendee
+import com.univibe.app.data.model.EventReportItem
+import com.univibe.app.data.model.ModeratorEvent
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.accentFor
 import com.univibe.app.data.net.send
@@ -51,12 +63,15 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
             "interested" -> RsvpState.Interested
             else -> if (o.isNull("myRegistration")) RsvpState.None else RsvpState.Going
         },
-        isPast = System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
+        isPast = o.optString("phase") == "ended" || System.currentTimeMillis() >= end, startMillis = start, endMillis = end,
         hostName = organizer.optString("fullName"), hostCommunityId = null,
         cancelled = o.optString("status") == "cancelled", mine = o.optBoolean("isOrganizer", false),
         coverUrl = if (o.isNull("coverUrl")) null else o.optString("coverUrl").ifBlank { null },
         saved = o.optBoolean("saved", false),
         reason = if (o.isNull("reason")) null else o.optString("reason").ifBlank { null },
+        revision = o.optInt("revision", 0), hidden = o.optBoolean("hidden", false),
+        draft = o.optString("status") == "draft", serverPhase = o.optString("phase").ifBlank { null },
+        remindersOn = if (o.isNull("remindersOn") || !o.has("remindersOn")) null else o.optBoolean("remindersOn", true),
     )
 }
 
@@ -64,10 +79,10 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
  * Campus events from the UniVibe server: real events, real registrations, capacity enforced by the server.
  *
  * What the server does not have, and so is not faked here:
- *  - A venue directory and map positions: venues are plain text, so [getVenues] is empty and no map is shown.
+ *  - A venue directory: [getVenues] is empty. Organizers drop a pin on the map instead, and that position is what the map shows.
  *  - Hosting for a community: communities are not on the server yet, so a draft that asks for it is refused.
  */
-class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
+class RemoteEventRepository(private val api: AuthedApi, private val uploader: MediaUploader? = null) : EventRepository {
     override val supportsInterested: Boolean get() = true
     override val supportsSaved: Boolean get() = true
 
@@ -77,6 +92,67 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
     }
 
     private fun toEvent(o: JSONObject): CampusEvent = parseCampusEvent(o)
+
+    // ---- Event notification settings (they refine the general "Event updates" switch)
+    override val supportsEventNotificationPrefs: Boolean get() = true
+
+    private fun parsePrefs(o: JSONObject) = EventNotificationPrefs(
+        confirmations = o.optBoolean("confirmations", true), reminders = o.optBoolean("reminders", true), changes = o.optBoolean("changes", true),
+        cancellations = o.optBoolean("cancellations", true), community = o.optBoolean("community", true), organizerUpdates = o.optBoolean("organizerUpdates", true),
+        reminderOffsets = o.optJSONArray("reminderOffsets")?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: listOf(1440, 60),
+    )
+
+    override suspend fun eventNotificationPrefs(): EventNotificationPrefs = parsePrefs(JSONObject(api.send("GET", "/api/v1/me/event-notification-preferences")))
+
+    override suspend fun saveEventNotificationPrefs(change: EventNotificationPrefsChange): EventNotificationPrefs {
+        val body = JSONObject()
+        change.confirmations?.let { body.put("confirmations", it) }
+        change.reminders?.let { body.put("reminders", it) }
+        change.changes?.let { body.put("changes", it) }
+        change.cancellations?.let { body.put("cancellations", it) }
+        change.community?.let { body.put("community", it) }
+        change.organizerUpdates?.let { body.put("organizerUpdates", it) }
+        change.reminderOffsets?.let { body.put("reminderOffsets", org.json.JSONArray(it)) }
+        return parsePrefs(JSONObject(api.send("PUT", "/api/v1/me/event-notification-preferences", body)))
+    }
+
+    // ---- Discover: the server ranks, filters and sections events; the app only draws what it returns.
+    override val supportsDiscover: Boolean get() = true
+
+    override suspend fun eventCategories(): List<EventCategoryInfo> {
+        val items = JSONObject(api.send("GET", "/api/v1/event-categories")).getJSONArray("items")
+        return (0 until items.length()).map { items.getJSONObject(it).let { c -> EventCategoryInfo(c.getString("code"), c.getString("label")) } }
+    }
+
+    override suspend fun discoverSections(): List<EventSection> {
+        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections")).getJSONArray("sections")
+        return (0 until sections.length()).map { i ->
+            val s = sections.getJSONObject(i)
+            val items = s.getJSONArray("items")
+            EventSection(s.getString("key"), s.getString("title"), (0 until items.length()).map { toEvent(items.getJSONObject(it)) })
+        }
+    }
+
+    override suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String?): EventDiscoverPage {
+        val q = mutableListOf("limit=20")
+        if (filter.categories.isNotEmpty()) q += "category=" + filter.categories.joinToString(",")
+        if (filter.onlineOnly) q += "format=online,hybrid"
+        filter.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
+        if (filter.registrationOpen) q += "registrationOpen=true"
+        if (filter.savedOnly) q += "saved=true"
+        cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
+        val body = JSONObject(api.send("GET", "/api/v1/discover/events?" + q.joinToString("&")))
+        val items = body.getJSONArray("items")
+        return EventDiscoverPage(
+            (0 until items.length()).map { toEvent(items.getJSONObject(it)) },
+            if (body.isNull("nextCursor")) null else body.optString("nextCursor").ifBlank { null },
+        )
+    }
+
+    override suspend fun setNotInterested(eventId: String, hidden: Boolean) = explained {
+        api.send(if (hidden) "PUT" else "DELETE", "/api/v1/discover/events/$eventId/not-interested")
+        Unit
+    }
 
     /** Upcoming events first, then the recently ended ones (the server keeps those for a week, for the Past tab). */
     override suspend fun getEvents(): List<CampusEvent> {
@@ -107,6 +183,14 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
             host = event.hostName,
             hostAccent = accentFor(o.getJSONObject("organizer").optString("id", event.id)),
             capacity = if (o.isNull("capacity")) null else o.optInt("capacity"),
+            latitude = o.optDouble("latitude", Double.NaN).takeIf { !it.isNaN() },
+            longitude = o.optDouble("longitude", Double.NaN).takeIf { !it.isNaN() },
+            eventType = o.optString("eventType", "in_person"),
+            onlineUrl = if (o.isNull("onlineUrl")) null else o.optString("onlineUrl").ifBlank { null },
+            registrationDeadlineMillis = if (o.isNull("registrationDeadline")) null else millis(o.getString("registrationDeadline")),
+            externalUrl = if (o.isNull("externalRegistrationUrl")) null else o.optString("externalRegistrationUrl").ifBlank { null },
+            categoryCode = o.optString("category"),
+            organizerId = o.getJSONObject("organizer").optString("id").ifBlank { null },
         )
     }
 
@@ -129,25 +213,148 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
         Unit
     }
 
-    private fun body(d: NewEvent): JSONObject {
-        check(d.hostCommunityId == null) { "Hosting for a community isn't available yet." }
-        return JSONObject()
+    /**
+     * What the server's create and edit routes accept. Editing never sends the community: the host can't change.
+     * An online event may leave the venue empty (the server names it "Online"); clearing an optional field sends null.
+     */
+    private fun body(d: NewEvent, creating: Boolean): JSONObject {
+        val o = JSONObject()
             .put("title", d.title).put("description", d.description)
-            .put("category", TO_SERVER[d.category] ?: throw IllegalArgumentException("Pick a category"))
-            .put("venueName", d.venue)
+            .put("category", d.categoryCode ?: TO_SERVER[d.category] ?: throw IllegalArgumentException("Pick a category"))
+            .put("eventType", d.eventType)
             .put("startsAt", Instant.ofEpochMilli(d.startMillis).toString())
             .put("endsAt", Instant.ofEpochMilli(d.endMillis).toString())
             .put("capacity", d.capacity ?: JSONObject.NULL)
+            .put("onlineUrl", d.onlineUrl ?: JSONObject.NULL)
+            .put("externalRegistrationUrl", d.externalUrl ?: JSONObject.NULL)
+            .put("registrationDeadline", d.registrationDeadlineMillis?.let { Instant.ofEpochMilli(it).toString() } ?: JSONObject.NULL)
+            .put("timezone", d.timezone ?: JSONObject.NULL)
+        if (d.eventType != "online" || d.venue.isNotBlank()) o.put("venueName", d.venue)
+        // The map pin travels with the venue. Online events and typed-only venues send null, which clears an old pin on edit.
+        val pinned = d.eventType != "online" && d.latitude != null && d.longitude != null
+        o.put("latitude", if (pinned) d.latitude else JSONObject.NULL)
+        o.put("longitude", if (pinned) d.longitude else JSONObject.NULL)
+        if (creating) {
+            o.put("communityId", d.hostCommunityId ?: JSONObject.NULL)
+            o.put("status", if (d.asDraft) "draft" else "published")
+        }
+        return o
     }
 
+    /** Uploads a picked cover first; the event only refers to it by id. Without an uploader (the demo) a cover is simply skipped. */
+    private suspend fun uploadCover(path: String?): String? = if (path == null || uploader == null) null else uploader.upload(path, "image", "event")
+
     override suspend fun createEvent(draft: NewEvent): String = explained {
-        JSONObject(api.send("POST", "/api/v1/events", body(draft).put("visibility", "university").put("attendeesVisible", true), ok = setOf(201)))
+        val cover = uploadCover(draft.coverPath)
+        JSONObject(api.send("POST", "/api/v1/events", body(draft, creating = true).put("attendeesVisible", true).apply { if (cover != null) put("coverMediaId", cover) }, ok = setOf(201)))
             .getString("id")
     }
 
     override suspend fun updateEvent(id: String, draft: NewEvent) = explained {
-        api.send("PATCH", "/api/v1/events/$id", body(draft))
+        val cover = uploadCover(draft.coverPath)
+        val patch = body(draft, creating = false)
+        if (cover != null) patch.put("coverMediaId", cover) else if (draft.removeCover) patch.put("coverMediaId", JSONObject.NULL)
+        api.send("PATCH", "/api/v1/events/$id", patch)
         Unit
+    }
+
+    // ---- Stage 6: updates, activity, links, sharing, reports
+    override val supportsOrganizerTools: Boolean get() = true
+
+    override suspend fun eventUpdates(eventId: String): List<EventUpdate> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events/$eventId/updates?limit=20")).getJSONArray("items")
+        (0 until items.length()).map { val o = items.getJSONObject(it); EventUpdate(o.getString("id"), o.getString("body"), millis(o.getString("createdAt"))) }
+    }
+
+    override suspend fun postEventUpdate(eventId: String, body: String) = explained {
+        api.send("POST", "/api/v1/events/$eventId/updates", JSONObject().put("body", body), ok = setOf(201)); Unit
+    }
+
+    override suspend fun eventActivity(eventId: String): List<EventActivity> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events/$eventId/audit?limit=50")).getJSONArray("items")
+        (0 until items.length()).map {
+            val o = items.getJSONObject(it)
+            val fields = o.optJSONArray("fields")?.let { a -> (0 until a.length()).map { i -> a.getString(i) } } ?: emptyList()
+            EventActivity(o.getLong("id"), o.getString("action"), o.optJSONObject("actor")?.optString("name")?.ifBlank { null }, millis(o.getString("at")), fields)
+        }
+    }
+
+    override suspend fun publishEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/publish"); Unit }
+
+    override suspend fun myDrafts(): List<CampusEvent> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/me/events?scope=upcoming&limit=$PAGE")).getJSONArray("items")
+        (0 until items.length()).map { toEvent(items.getJSONObject(it)) }.filter { it.draft && it.mine }
+    }
+
+    override suspend fun attendees(eventId: String, cursor: String?): AttendeePage = explained {
+        val q = "limit=50" + (cursor?.let { "&cursor=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: "")
+        val root = JSONObject(api.send("GET", "/api/v1/events/$eventId/attendees?$q"))
+        val items = root.getJSONArray("items")
+        AttendeePage(
+            (0 until items.length()).map { val o = items.getJSONObject(it); EventAttendee(parseStudent(o), if (o.has("checkedIn")) o.optBoolean("checkedIn") else null) },
+            if (root.isNull("nextCursor")) null else root.optString("nextCursor").ifBlank { null },
+        )
+    }
+
+    // ---- Moderator tools
+    @Volatile private var moderator: Boolean? = null
+
+    /** Asked once per sign-in session; the server answers 403 to everyone who is not a moderator. */
+    override suspend fun isModerator(): Boolean {
+        moderator?.let { return it }
+        return try {
+            api.send("GET", "/api/v1/moderation/access")
+            true.also { moderator = it }
+        } catch (e: ApiException) {
+            false.also { moderator = it } // 403: not a moderator. Remembered, so the question is asked once.
+        } catch (e: java.io.IOException) {
+            false // offline: not remembered, so the next screen asks again
+        }
+    }
+
+    override suspend fun eventReports(): List<EventReportItem> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/moderation/reports?targetType=event&status=open&limit=50")).getJSONArray("items")
+        (0 until items.length()).map {
+            val o = items.getJSONObject(it)
+            EventReportItem(o.getString("id"), o.getString("targetId"), o.optString("preview").ifBlank { "Event" }, o.optString("reason"), o.optString("details"), o.optInt("reportCount", 1), millis(o.getString("createdAt")))
+        }
+    }
+
+    override suspend fun moderatorEvent(id: String): ModeratorEvent? = explained {
+        val o = JSONObject(api.send("GET", "/api/v1/moderation/events/$id"))
+        val org = o.getJSONObject("organizer")
+        ModeratorEvent(
+            o.getString("id"), o.getString("title"), o.optString("description"), o.optString("venueName"), o.optString("status"), o.optBoolean("hidden"),
+            o.optInt("reportCount"), org.optString("name"), org.optString("handle"), org.optBoolean("suspended"),
+        )
+    }
+
+    override suspend fun setEventHidden(id: String, hide: Boolean, note: String, userMessage: String) = explained {
+        api.send("POST", "/api/v1/moderation/events/$id/${if (hide) "hide" else "restore"}", JSONObject().put("note", note).put("userMessage", userMessage)); Unit
+    }
+
+    override suspend fun completeEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/complete", ok = setOf(204)); Unit }
+
+    override suspend fun setEventReminders(id: String, enabled: Boolean) = explained {
+        api.send("PUT", "/api/v1/events/$id/reminders", JSONObject().put("enabled", enabled), ok = setOf(204)); Unit
+    }
+
+    override suspend fun communityEvents(communityId: String): List<CampusEvent> = explained {
+        val items = JSONObject(api.send("GET", "/api/v1/events?communityId=$communityId&scope=upcoming&limit=$PAGE")).getJSONArray("items")
+        (0 until items.length()).map { toEvent(items.getJSONObject(it)) }
+    }
+
+    override suspend fun eventLink(eventId: String): EventLink? = explained {
+        val o = JSONObject(api.send("GET", "/api/v1/events/$eventId/link"))
+        EventLink(o.getString("appLink"), if (o.isNull("webUrl")) null else o.getString("webUrl"), o.optBoolean("publicPreview", false))
+    }
+
+    override suspend fun shareEvent(eventId: String, target: ShareTarget, targetId: String, text: String) = explained {
+        api.send("POST", "/api/v1/events/$eventId/share", JSONObject().put("target", target.wire).put("targetId", targetId).put("text", text), ok = setOf(201)); Unit
+    }
+
+    override suspend fun report(targetType: String, targetId: String, reason: String) = explained {
+        api.send("POST", "/api/v1/reports", JSONObject().put("targetType", targetType).put("targetId", targetId).put("reason", reason).put("details", ""), ok = setOf(200, 201)); Unit
     }
 
     override suspend fun cancelEvent(id: String) = explained { api.send("POST", "/api/v1/events/$id/cancel", ok = setOf(204)); Unit }
@@ -156,47 +363,4 @@ class RemoteEventRepository(private val api: AuthedApi) : EventRepository {
 
     /** There is no venue directory on the server; the form takes a typed venue. */
     override suspend fun getVenues(): List<Venue> = emptyList()
-
-    override val supportsDiscover: Boolean get() = true
-
-    override suspend fun eventCategories(): List<EventCategoryInfo> {
-        val items = JSONObject(api.send("GET", "/api/v1/event-categories")).getJSONArray("items")
-        return (0 until items.length()).map { items.getJSONObject(it).let { c -> EventCategoryInfo(c.getString("code"), c.getString("label")) } }
-    }
-
-    /** Only filters that are on are sent, so an unfiltered query is just the page size. */
-    private fun discoverPath(f: EventDiscoverFilter, cursor: String?): String {
-        val q = mutableListOf("limit=20")
-        if (f.categories.isNotEmpty()) q += "category=" + f.categories.joinToString(",")
-        if (f.onlineOnly) q += "format=online,hybrid"
-        f.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
-        if (f.registrationOpen) q += "registrationOpen=true"
-        if (f.savedOnly) q += "saved=true"
-        cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
-        return "/api/v1/discover/events?" + q.joinToString("&")
-    }
-
-    private fun parseEvents(items: org.json.JSONArray): List<CampusEvent> =
-        (0 until items.length()).map { toEvent(items.getJSONObject(it)) }
-
-    override suspend fun discoverEvents(filter: EventDiscoverFilter, cursor: String?): EventDiscoverPage {
-        val body = JSONObject(api.send("GET", discoverPath(filter, cursor)))
-        return EventDiscoverPage(
-            events = parseEvents(body.getJSONArray("items")),
-            nextCursor = if (body.isNull("nextCursor")) null else body.optString("nextCursor").ifBlank { null },
-        )
-    }
-
-    override suspend fun discoverSections(): List<EventSection> {
-        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections")).getJSONArray("sections")
-        return (0 until sections.length()).map {
-            val s = sections.getJSONObject(it)
-            EventSection(s.getString("key"), s.getString("title"), parseEvents(s.getJSONArray("items")))
-        }
-    }
-
-    override suspend fun setNotInterested(eventId: String, notInterested: Boolean) = explained {
-        api.send(if (notInterested) "PUT" else "DELETE", "/api/v1/discover/events/$eventId/not-interested", ok = setOf(204))
-        Unit
-    }
 }

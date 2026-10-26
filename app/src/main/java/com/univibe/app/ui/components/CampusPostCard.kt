@@ -1,5 +1,6 @@
 package com.univibe.app.ui.components
 
+import com.univibe.app.guide.guideTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -36,6 +39,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.univibe.app.data.model.Post
@@ -58,8 +64,13 @@ fun CampusPostCard(
     onMore: () -> Unit = {},
     onAuthorClick: () -> Unit = {},
     onShare: () -> Unit = {},
+    onRepost: () -> Unit = {},
+    /** Called once when the post first appears on screen, so the server can count the view. */
+    onSeen: () -> Unit = {},
     /** Null makes any poll read-only (results shown, no voting). */
     onVote: ((Int) -> Unit)? = null,
+    /** Lets the guided tour point at this card's action bar and menu button. Only one card on screen sets it. */
+    guideTargets: Boolean = false,
 ) {
     // Event announcements are drawn by EventFeedCard (Home). Other lists don't have event actions yet, so they skip them
     // rather than show an empty post.
@@ -78,10 +89,16 @@ fun CampusPostCard(
         burst++
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
+    val seen = rememberUpdatedState(onSeen)
+    LaunchedEffect(post.id) {
+        // A short pause, so a post that only flies past during a fast scroll is not counted as read.
+        delay(700)
+        seen.value()
+    }
     Column(modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = Spacing.sm + 4.dp, end = Spacing.xs, top = Spacing.sm + 4.dp)) {
             post.community?.let { PostCommunityHeader(it, post.announcement) }
-            AuthorRow(post, onAuthorClick, onMore)
+            AuthorRow(post, onAuthorClick, onMore, guideTargets)
         }
         Box(Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onDoubleTap = { doubleTapLike.value() }) }) {
         Column {
@@ -112,34 +129,57 @@ fun CampusPostCard(
         DoubleTapHeart(burst, Modifier.align(Alignment.Center))
         }
         // The action bar always sits below the content, in its own row, so nothing can clip or overlap it.
+        // Four equal slots (reply, repost, like, views) spread across the width, then save and share pinned to the end.
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+            Modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.xs)
+                .then(if (guideTargets) Modifier.guideTarget("post.actions") else Modifier),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            AnimatedLikeButton(post.likedByMe, post.likeCount, onLike)
-            SocialActionButton(
-                icon = VibeIcons.Comment,
-                contentDescription = "Comments, ${post.commentCount}",
-                onClick = onComment,
-                count = post.commentCount,
-            )
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                SocialActionButton(
+                    icon = VibeIcons.Comment,
+                    contentDescription = "Comments, ${post.commentCount}",
+                    onClick = onComment,
+                    count = post.commentCount,
+                )
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                AnimatedRepostButton(post.repostedByMe, post.repostCount, onRepost)
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                AnimatedLikeButton(post.likedByMe, post.likeCount, onLike)
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                ViewsStat(post.viewCount)
+            }
+            AnimatedBookmarkButton(post.savedByMe, onSave)
             SocialActionButton(
                 icon = VibeIcons.Share,
                 contentDescription = "Share, ${post.shareCount}",
                 onClick = onShare,
-                count = post.shareCount,
             )
-            Spacer(Modifier.weight(1f))
-            AnimatedBookmarkButton(post.savedByMe, onSave)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
     }
     viewerIndex?.let { PhotoGalleryViewerDialog(photos, it, onDismiss = { viewerIndex = null }) }
 }
 
+/** How many students have looked at the post. A plain stat, not a button. */
 @Composable
-private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit) {
+private fun ViewsStat(count: Int) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier.heightIn(min = 48.dp).padding(horizontal = Spacing.sm).semantics(mergeDescendants = true) { contentDescription = "$count views" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(VibeIcons.Views, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(compactCount(count), style = MaterialTheme.typography.labelLarge, color = color)
+    }
+}
+
+@Composable
+private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit, guideTargets: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Row(
             Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthorClick),
@@ -173,6 +213,7 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit)
             icon = VibeIcons.More,
             contentDescription = "More options",
             onClick = onMore,
+            modifier = if (guideTargets) Modifier.guideTarget("post.more") else Modifier,
         )
     }
 }

@@ -6,8 +6,8 @@ package com.univibe.app.features.legal
  * feature, provider or retention period changes, change the matching clause here and bump [VERSION] and [UPDATED].
  */
 object PrivacyPolicy {
-    const val VERSION = "0.1"
-    const val UPDATED = "18 October 2026"
+    const val VERSION = "0.2"
+    const val UPDATED = "24 October 2026"
     const val TITLE = "Privacy Policy"
 
     private fun c(label: String, heading: String, text: String) = LegalClause(label, heading, text)
@@ -29,16 +29,16 @@ object PrivacyPolicy {
         LegalSection(3, "What personal data we collect", listOf(
             c("3.1", "Account details.", "Your full name, university email address, university, password (kept only as a scrambled hash, never as plain text), an optional admission number if you enter one, the date you accepted the Terms, and whether your email and student status are verified."),
             c("3.2", "Profile details.", "Your username (handle), bio, course, faculty, year of study, graduation year, interests, and your profile and cover photos, to the extent you add them."),
-            c("3.3", "Content you create.", "Posts and their photos or videos, captions, polls, comments, events you create, and anything else you submit. Content can mention or show other people; please respect their privacy."),
+            c("3.3", "Content you create.", "Posts and their photos or videos, captions, polls, comments, events you create (with a map pin if you add one), and anything else you submit. Content can mention or show other people; please respect their privacy."),
             c("3.4", "Activity.", "Who you follow and who follows you, likes, saves, poll votes, event registrations and check-ins, people you block, Discover choices (pass or connect), notification and privacy settings, and your reports."),
-            c("3.5", "Messages.", "Direct and group conversations you are in, the messages, photos and voice messages you send, replies, forwards, reactions, pinned messages, who is in each conversation, when messages were sent, edited or unsent, and how far you have read each conversation (we need this for unread counts and delivery)."),
+            c("3.5", "Messages.", "Direct and group conversations you are in, the messages, photos and voice messages you send, replies, forwards, reactions, pinned messages, who is in each conversation, when messages were sent, edited or unsent, and how far you have read each conversation (we need this for unread counts and delivery). Places you share in a chat (Section 8.8)."),
             c("3.6", "Notifications and devices.", "In-app notifications about your activity, your notification choices, and for push notifications a device token and installation ID. When you log in we store a short device label such as the make and model of your phone, so you can recognise your logins in Settings → Security → Login activity."),
             c("3.7", "Support and safety.", "Emails you send us, reports you make or that concern you (including the reason, any details and a short excerpt of the reported item), moderation decisions and notes, and a record of moderator actions."),
             c("3.8", "Technical data.", "Your IP address and basic request details are seen by our servers and hosting provider whenever the app connects, and are used for security and rate limiting. See Section 11."),
         )),
         LegalSection(4, "What we do not collect", listOf(
             c("4.1", "Not collected.", "UniVibe does not currently collect or ask for:"),
-            b("your precise or background location (event venues on a map are places organisers entered, not your location);"),
+            b("your location in the background, or your location at any time you haven't asked us to use it. We only look at where you are when you tap \"Send location\" in a chat or \"Use my location\" on a map. If you choose \"Live location\", UniVibe keeps updating your position for the time you picked (15 minutes, 1 hour or 8 hours), shows a notification while it does, and deletes the stored position the moment you stop or time runs out;"),
             b("your phone contacts or camera, or your microphone at any time other than while you are recording a voice message you chose to send;"),
             b("identity documents, student cards or government ID numbers;"),
             b("payment details (UniVibe is free and has no payments);"),
@@ -69,26 +69,27 @@ object PrivacyPolicy {
         )),
         LegalSection(8, "Messages and groups", listOf(
             c("8.1", "How we handle them.", "We store messages and photos on our servers so we can deliver them, show them on your devices, and support blocking, reporting and abuse checks."),
-            c("8.2", "Not end-to-end encrypted.", "UniVibe messages are not end-to-end encrypted. We take reasonable steps to protect them (Section 17), but they are stored in a form our systems can read. Please do not send passwords or highly sensitive information in messages."),
-            c("8.3", "Who can read them.", "The people in the conversation can read it. We do not read private messages as a matter of routine. Authorised moderators or safety staff may look at a message or conversation when someone reports it, or where needed to investigate abuse, a security problem or a legal request."),
+            c("8.2", "Not end-to-end encrypted.", "UniVibe messages are not end-to-end encrypted. They are encrypted while travelling between your phone and our servers, and our database provider encrypts stored data on its side, but UniVibe’s own systems can read them. Please do not send passwords or highly sensitive information in messages."),
+            c("8.3", "Who can read them.", "The people in the conversation can read it. We do not read private messages as a matter of routine. A report includes a short excerpt of the reported message for moderators. Authorised staff with access to our systems may read a message or conversation only when someone reports it, or where needed to investigate abuse, a security problem or a legal request. We do not use message content for advertising or recommendations."),
             c("8.4", "Groups.", "Members of a group can see its messages, name, image and member list. A member can copy or forward what you send. Leaving a group does not remove messages already delivered."),
             c("8.5", "Unsending.", "If you unsend a message, its text is removed from our database and it is replaced by a “deleted” notice in the conversation. People may already have read it or kept a copy, and a message that was reported may be kept as part of the report."),
             c("8.6", "Typing, online status and read marks.", "Typing indicators are held briefly in memory and never stored. Online status is shown only if you leave it switched on. We record how far you have read each conversation. The Read receipts switch in Settings affects whether your app shows you “seen” marks on messages you sent; it does not stop us recording what you have read."),
             c("8.7", "Messages you sent when you leave UniVibe.", "If you delete your account, messages you sent to other people may remain in their conversations, no longer linked to your account (Section 16)."),
+            c("8.8", "Places you share.", "If you send your location in a chat, the people in that conversation can see that spot on a map. If you share a live location, they see it move until you stop or the time you chose ends. We round positions to about 10 metres, and for a live location we keep only your latest position (Section 15.11). Only people in that conversation can see it."),
         )),
         LegalSection(9, "Notifications and device information", listOf(
             c("9.1", "Push notifications.", "We send push notifications through Google’s Firebase Cloud Messaging. Google receives your device’s push token and delivery details to route them."),
-            c("9.2", "What a push contains.", "A push message from us carries only identifiers (such as the type of alert and which conversation it belongs to), not the text of your message. Your app then fetches what it needs from our servers and shows the notification."),
+            c("9.2", "What a push contains.", "A push message from us carries only identifiers (such as the type of alert and which conversation it belongs to), not the text of your message. Your app then fetches what it needs from our servers and shows the notification. If you turn on Show message previews, your app also fetches the sender’s name and the message text from our servers after the alert arrives, so the text never passes through Google."),
             c("9.3", "Your choices.", "You can turn alerts on or off by type, and set quiet hours, in Settings → Notifications. You can also manage notifications in Android settings, which override UniVibe’s."),
-            c("9.4", "Lock screen.", "Notifications can show a sender’s name or part of a message on your lock screen, depending on your phone’s settings. Change your Android lock-screen notification setting if you want to hide this."),
+            c("9.4", "Lock screen.", "On a locked screen UniVibe shows only “New message”. Your phone’s lock-screen setting can allow full notification content, and Show message previews in Settings controls whether alerts show the sender and text. Change your Android lock-screen notification setting if you want to hide this."),
             c("9.5", "Device tokens.", "We stop using a push token that has not worked or been refreshed for 90 days, and delete it 30 days after we revoke it. We also delete tokens when you delete your account, or when Google tells us they are no longer valid."),
             c("9.6", "Logging in on several devices.", "The device label described in Section 3.6 is shown only to you, for you to recognise your logins. We never use it to make decisions about you, and we do not store your IP address or location against a login."),
         )),
         LegalSection(10, "Permissions on your phone", listOf(
-            c("10.1", "What the app asks for.", "UniVibe uses the internet and, on newer versions of Android, asks permission to show notifications and, the first time you record a voice message, to use the microphone. The microphone is used only while you are recording, and only the voice message you send is kept. UniVibe does not ask for your location, contacts or camera."),
+            c("10.1", "What the app asks for.", "UniVibe uses the internet and, on newer versions of Android, asks permission to show notifications and, the first time you record a voice message, to use the microphone. The microphone is used only while you are recording, and only the voice message you send is kept. UniVibe asks for your location only when you tap Send location or Use my location, and while you share a live location it shows a notification with a Stop button until you stop. It does not ask for your contacts."),
             c("10.2", "Photos.", "When you add a photo or video, you choose which one to upload. UniVibe does not ask for access to your whole photo library."),
             c("10.3", "Withdrawing permissions.", "You can change permissions in Android settings at any time. If you turn off notifications, you may miss alerts, but the rest of UniVibe keeps working."),
-            c("10.4", "Maps.", "Event pages can show a map. The map is drawn with data from OpenStreetMap, so your phone contacts OpenStreetMap’s servers to download map tiles for the area you are looking at, and they can see your IP address. UniVibe does not send them your account details."),
+            c("10.4", "Maps.", "Event pages, places shared in chats and the map you use to pin a venue can show a map. The map is drawn with data from OpenStreetMap, so your phone contacts OpenStreetMap’s servers to download map tiles for the area you are looking at, and they can see your IP address. UniVibe does not send them your account details."),
             c("10.5", "Backups.", "UniVibe turns off Android’s automatic app backup, so your UniVibe data is not copied into your Google backup."),
         )),
         LegalSection(11, "Technical data, analytics and cookies", listOf(
@@ -131,6 +132,7 @@ object PrivacyPolicy {
             c("15.8", "Reports and moderation.", "We keep reports, moderator notes and action records for as long as needed to protect users, prevent repeat abuse, review appeals and meet legal duties, and we review them from time to time."),
             c("15.9", "Server logs and backups.", "Technical logs and database backups are kept by our hosting providers for a limited time under their own settings. Deleted data may remain in backups until they expire, and is not restored to active use except to recover the Service."),
             c("15.10", "Legal holds.", "We may keep information longer where needed for a legal claim, a security investigation or a legal obligation."),
+            c("15.11", "Places you share.", "A one-time place stays in the conversation until the message is unsent. For a live location we keep only your latest position, never a trail. It is deleted when you stop sharing or the time runs out, and a clean-up runs every few minutes. A live location that has ended shows only that it ended. An event’s map pin stays with the event."),
         )),
         LegalSection(16, "Deleting your account and your data", listOf(
             c("16.1", "How.", "Go to Settings → Account → Delete account. You will need to enter your password and confirm. Deletion is permanent. If you cannot do this, email ${LegalContact.EMAIL}; we may need to verify the account is yours."),
@@ -145,6 +147,7 @@ object PrivacyPolicy {
             b("verification and reset codes are stored only in scrambled form, expire after 10 minutes and allow only a few attempts;"),
             b("logins use short-lived access tokens and renewable session tokens, and you can end other sessions in Settings → Security → Login activity;"),
             b("data travels between the app and our servers over an encrypted HTTPS connection, and the app keeps your login in the Android Keystore;"),
+            b("our database and file-storage providers encrypt stored data on their side;"),
             b("rate limits slow down password guessing and abuse;"),
             b("photos and videos are kept in private storage and are shown through temporary links, not public addresses;"),
             b("access to personal data is limited to people who need it to run, secure and moderate the Service."),
@@ -192,7 +195,7 @@ object PrivacyPolicy {
         LegalSection(25, "Your privacy in short", listOf(
             b("We collect what is needed to run UniVibe: your account, profile, posts, messages, activity and a phone token for notifications."),
             b("We do not sell your data, show ads, or use analytics or advertising trackers."),
-            b("We do not collect your location, contacts, camera, payments or ID documents. The microphone is used only to record voice messages you choose to send."),
+            b("We do not collect your contacts, payments or ID documents. We look at your location only when you choose to share it in a chat or use it on a map, and the microphone is used only to record voice messages you choose to send."),
             b("Messages are stored on our servers and are not end-to-end encrypted."),
             b("Your posts are visible to signed-in students in the audience you choose, never to the public web."),
             b("You can delete your account any time in Settings → Account → Delete account."),

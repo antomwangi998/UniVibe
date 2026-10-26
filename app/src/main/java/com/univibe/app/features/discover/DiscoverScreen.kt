@@ -1,5 +1,6 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.guide.guideTarget
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
 import androidx.compose.animation.core.Animatable
@@ -109,7 +110,7 @@ fun DiscoverScreen(
         PostActions(
             onLike = viewModel::toggleLike, onSave = viewModel::toggleSave, onComment = onOpenComments,
             onAuthor = onOpenStudent, onMore = viewModel::openMenu, onShared = viewModel::noteShared,
-            onExplain = viewModel::explain, onVote = viewModel::vote,
+            onExplain = viewModel::explain, onVote = viewModel::vote, onRepost = viewModel::toggleRepost,
         )
     }
     LaunchedEffect(state.notice) {
@@ -120,8 +121,8 @@ fun DiscoverScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        VibeTopBar("Discover", actions = { VibeIconButton(VibeIcons.Search, "Search", onOpenSearch) })
-        CategoryChips(state.category, viewModel::select)
+        VibeTopBar("Discover", actions = { VibeIconButton(VibeIcons.Search, "Search", onOpenSearch, Modifier.guideTarget("discover.search")) })
+        Box(Modifier.guideTarget("discover.categories")) { CategoryChips(state.category, viewModel::select) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state.category) {
                 DiscoverCategory.People -> PeopleDeck(onOpenStudent, peopleViewModel)

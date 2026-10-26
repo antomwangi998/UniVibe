@@ -58,6 +58,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         val reduceMotion = booleanPreferencesKey("reduce_motion")
         val textScale = stringPreferencesKey("text_scale")
         val font = stringPreferencesKey("app_font")
+        val boldText = booleanPreferencesKey("bold_text")
+        val highContrast = booleanPreferencesKey("high_contrast")
+        val haptics = booleanPreferencesKey("haptic_feedback")
         val feedFilter = stringPreferencesKey("feed_filter")
     }
 
@@ -86,6 +89,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
             reduceMotion = this[K.reduceMotion] ?: d.reduceMotion,
             textScale = this[K.textScale]?.let { runCatching { TextScale.valueOf(it) }.getOrNull() } ?: d.textScale,
             font = this[K.font]?.let { runCatching { AppFont.valueOf(it) }.getOrNull() } ?: d.font,
+            boldText = this[K.boldText] ?: d.boldText,
+            highContrast = this[K.highContrast] ?: d.highContrast,
+            hapticFeedback = this[K.haptics] ?: d.hapticFeedback,
             feedFilter = this[K.feedFilter]?.let { runCatching { FeedFilter.valueOf(it) }.getOrNull() } ?: d.feedFilter,
         )
     }
@@ -110,6 +116,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
         this[K.reduceMotion] = s.reduceMotion
         this[K.textScale] = s.textScale.name
         this[K.font] = s.font.name
+        this[K.boldText] = s.boldText
+        this[K.highContrast] = s.highContrast
+        this[K.haptics] = s.hapticFeedback
         this[K.feedFilter] = s.feedFilter.name
     }
 }

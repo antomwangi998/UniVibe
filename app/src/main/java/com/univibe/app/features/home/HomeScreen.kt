@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.ui.components.SuggestedPeopleCarousel
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIconButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,6 +31,9 @@ import androidx.compose.foundation.border
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.media.VideoStore
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
 import com.univibe.app.data.model.PostLimits
 import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.sharePost
@@ -67,6 +71,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -130,9 +135,19 @@ import com.univibe.app.data.prefs.DraftStore
 import kotlinx.coroutines.delay
 import com.univibe.app.ui.components.UndoBar
 import com.univibe.app.ui.components.EventFeedCard
+import com.univibe.app.ui.components.SponsoredCardView
+import com.univibe.app.ui.components.openSponsoredLink
 import com.univibe.app.ui.components.shareEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.features.events.RsvpOption
+import com.univibe.app.guide.guideTarget
+
+/** Feed positions (0-based) after which a suggestions row appears: 5th post, and 20th post. */
+private const val SUGGEST_FIRST_AFTER = 4
+
+/** The sponsored card appears once, after the third post, and only when the feed has at least that many. */
+private const val SPONSORED_AFTER = 2
+private const val SUGGEST_SECOND_AFTER = 19
 
 @Composable
 fun HomeScreen(
@@ -143,6 +158,7 @@ fun HomeScreen(
     onCreatePost: () -> Unit = {},
     unreadNotifications: Int = 0,
     onOpenNotifications: () -> Unit = {},
+    onOpenDiscover: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -186,6 +202,9 @@ fun HomeScreen(
             }
         }
 
+        // The first ordinary post (not an event card) carries the tour's pointers to its action bar and menu.
+        val firstPostId = remember(state.visiblePosts) { state.visiblePosts.firstOrNull { it.event == null }?.id }
+
         VibePullToRefresh(refreshing = state.refreshing, onRefresh = viewModel::pullRefresh) { LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -197,14 +216,14 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     UniVibeLockup(Modifier.weight(1f))
-                    NotificationBell(unreadNotifications, onOpenNotifications)
+                    NotificationBell(unreadNotifications, onOpenNotifications, Modifier.guideTarget("home.bell"))
                 }
             }
             if (state.visibleStories.isNotEmpty()) item(key = "stories") {
                 Box(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)) { StoriesRow(state.visibleStories) }
             }
             item(key = "composer") {
-                Box(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)) {
+                Box(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs).guideTarget("home.composer")) {
                     Composer(
                         fullName = state.me?.name.orEmpty(),
                         avatarUrl = state.me?.avatarUrl,
@@ -214,7 +233,7 @@ fun HomeScreen(
                         postedCount = state.postedCount,
                         focusRequester = composerFocus,
                         onOpenEvents = onOpenEvents,
-                        onPost = { text, media, imagePath, videoPath, poll -> viewModel.publish(text, media, imagePath, videoPath, poll) },
+                        onPost = { text, media, imagePath, videoPath, poll, hours -> viewModel.publish(text, media, imagePath, videoPath, poll, hours) },
                     )
                 }
             }
@@ -236,7 +255,8 @@ fun HomeScreen(
                         )
                     }
                 }
-                else -> items(state.visiblePosts, key = { it.id }, contentType = { if (it.event != null) "event" else "post" }) { post ->
+                else -> itemsIndexed(state.visiblePosts, key = { _, p -> p.id }, contentType = { _, p -> if (p.event != null) "event" else "post" }) { index, post ->
+                  Column {
                     val announced = post.event
                     if (announced != null) {
                         EventFeedCard(
@@ -260,7 +280,36 @@ fun HomeScreen(
                             else viewModel.explain("Only campus-wide posts can be shared outside UniVibe.")
                         },
                         onVote = { index -> viewModel.vote(post.id, index) },
+                        onRepost = { viewModel.toggleRepost(post.id) },
+                        onSeen = { viewModel.noteSeen(post.id) },
+                        guideTargets = post.id == firstPostId,
                     )
+                    // "Suggested for you": only on the campus feed, once near the top and once much further down.
+                    if (state.filter == FeedFilter.Campus) {
+                        val batch = when (index) {
+                            SUGGEST_FIRST_AFTER -> state.visibleSuggestions.take(6)
+                            SUGGEST_SECOND_AFTER -> state.visibleSuggestions.drop(6).take(6)
+                            else -> emptyList()
+                        }
+                        SuggestedPeopleCarousel(
+                            people = batch, onOpenStudent = onOpenStudent,
+                            onFollow = viewModel::followSuggestion, onDismiss = viewModel::dismissSuggestion, onSeeAll = onOpenDiscover,
+                        )
+                        if (index == SPONSORED_AFTER) state.sponsoredCard?.let { ad ->
+                            val opensTarget = ad.targetId != null && (ad.targetType == "event" || ad.targetType == "post")
+                            SponsoredCardView(
+                                card = ad,
+                                onShown = viewModel::sponsoredShown,
+                                onOpen = if (opensTarget) ({
+                                    viewModel.sponsoredClicked()
+                                    if (ad.targetType == "event") onOpenEvent(ad.targetId!!) else onOpenComments(ad.targetId!!)
+                                }) else null,
+                                onCta = ad.ctaUrl?.let { url -> { viewModel.sponsoredClicked(); openSponsoredLink(context, url) } },
+                                onReport = viewModel::reportSponsored,
+                            )
+                        }
+                    }
+                  }
                 }
             }
             if (state.loadingMore) item(key = "more") {
@@ -428,7 +477,7 @@ private fun Composer(
     postedCount: Int,
     focusRequester: FocusRequester,
     onOpenEvents: () -> Unit,
-    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>) -> Unit,
+    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>, pollHours: Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -439,6 +488,7 @@ private fun Composer(
     var attachedPath by rememberSaveable { mutableStateOf<String?>(null) }
     // Poll options are kept as one newline-joined string so the draft survives rotation.
     var pollDraft by rememberSaveable { mutableStateOf("") }
+    var pollHours by rememberSaveable { mutableStateOf(PostLimits.DEFAULT_POLL_HOURS) }
     var buildingPoll by remember { mutableStateOf(false) }
     var seenPosts by rememberSaveable { mutableStateOf(postedCount) }
     val pollOptions = if (pollDraft.isEmpty()) emptyList() else pollDraft.split("\n")
@@ -456,6 +506,7 @@ private fun Composer(
             attached = null
             attachedPath = null
             pollDraft = ""
+            pollHours = PostLimits.DEFAULT_POLL_HOURS
             seenPosts = postedCount
         }
     }
@@ -531,7 +582,7 @@ private fun Composer(
                 VibeButton(
                     text = "Post",
                     onClick = {
-                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions)
+                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions, pollHours)
                     },
                     enabled = !tooLong && !needsQuestion,
                     loading = publishing,
@@ -541,7 +592,7 @@ private fun Composer(
         }
 
         Row(
-            Modifier.fillMaxWidth().padding(top = Spacing.xs),
+            Modifier.fillMaxWidth().padding(top = Spacing.xs).guideTarget("home.composerActions"),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             if (supportsMedia) {
@@ -560,18 +611,22 @@ private fun Composer(
     if (buildingPoll) {
         PollBuilderSheet(
             initial = pollOptions,
+            initialHours = pollHours,
             onDismiss = { buildingPoll = false },
-            onDone = { options ->
+            onDone = { options, hours ->
                 if (attached != null) discardAttachment()
                 pollDraft = options.joinToString("\n")
+                pollHours = hours
                 buildingPoll = false
             },
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun PollBuilderSheet(initial: List<String>, onDismiss: () -> Unit, onDone: (List<String>) -> Unit) {
+private fun PollBuilderSheet(initial: List<String>, initialHours: Int, onDismiss: () -> Unit, onDone: (List<String>, Int) -> Unit) {
+    var hours by remember { mutableStateOf(initialHours) }
     val options = remember { mutableStateListOf<String>().apply { addAll(if (initial.size >= PostLimits.MIN_POLL_OPTIONS) initial else listOf("", "")) } }
     val trimmed = options.map { it.trim() }
     val duplicate = trimmed.map { it.lowercase() }.toSet().size != trimmed.size
@@ -600,8 +655,15 @@ private fun PollBuilderSheet(initial: List<String>, onDismiss: () -> Unit, onDon
         if (options.size < PostLimits.MAX_POLL_OPTIONS) {
             ComposerAction(VibeIcons.Add, "Add option") { options.add("") }
         }
+        Text("Poll length", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = Spacing.md, bottom = Spacing.xs))
+        // Longest first; a poll never runs past 3 days.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            PostLimits.POLL_DURATIONS.forEach { (h, label) ->
+                FilterChip(selected = hours == h, onClick = { hours = h }, label = { Text(label) })
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(top = Spacing.md, bottom = Spacing.md), horizontalArrangement = Arrangement.End) {
-            VibeButton(text = "Add poll", onClick = { onDone(trimmed) }, enabled = valid)
+            VibeButton(text = "Add poll", onClick = { onDone(trimmed, hours) }, enabled = valid)
         }
     }
 }
@@ -724,7 +786,7 @@ private fun FeedFilterButton(filter: FeedFilter, onClick: () -> Unit, modifier: 
 @Composable
 private fun FeedToolbar(filter: FeedFilter, onOpenFilters: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-        FeedFilterButton(filter, onOpenFilters)
+        FeedFilterButton(filter, onOpenFilters, Modifier.guideTarget("home.filter"))
     }
 }
 

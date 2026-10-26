@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.data.repository.DiscoverRepository
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -31,6 +32,9 @@ import com.univibe.app.ui.components.UNDO_WINDOW_MS
 
 const val MAX_POST_LENGTH = PostLimits.MAX_TEXT
 
+/** Two rows of six: one early in the feed, one much further down. */
+const val SUGGESTION_LIMIT = 12
+
 data class HomeUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
@@ -57,16 +61,23 @@ data class HomeUiState(
     val endReached: Boolean = false,
     /** The event announcement whose RSVP sheet is open. */
     val rsvpPost: Post? = null,
+    /** Students you might follow, best match first. Shown a few at a time between posts, never on every screenful. */
+    val suggestions: List<Student> = emptyList(),
+    /** The one paid card the server chose for this feed, if any. Never more than one. */
+    val sponsoredCard: com.univibe.app.data.repository.SponsoredCard? = null,
 ) {
+    val visibleSuggestions: List<Student> get() = suggestions.filter { it.id !in blocked }
     val visiblePosts: List<Post> get() = posts.filter { it.author.id !in blocked }
     val visibleStories: List<Student> get() = stories.filter { it.id !in blocked }
 }
 
 class HomeViewModel(
     private val repository: FeedRepository = AppContainer.feedRepository,
+    private val discover: DiscoverRepository = AppContainer.discoverRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
     private val privacy: PrivacyRepository = AppContainer.privacyRepository,
     private val events: EventRepository = AppContainer.eventRepository,
+    private val sponsored: com.univibe.app.data.repository.SponsoredRepository = AppContainer.sponsoredRepository,
 ) : ViewModel() {
     val supportsInterested: Boolean get() = events.supportsInterested
     val supportsSavedEvents: Boolean get() = events.supportsSaved
@@ -105,12 +116,69 @@ class HomeViewModel(
                         endReached = if (onlyFirstPage) page.size < PAGE_SIZE else cur.endReached,
                     )
                 }
+                // Quiet refreshes keep the row the student is looking at; it only reshuffles on a fresh load or pull.
+                if (!silent || _state.value.suggestions.isEmpty()) loadSuggestions()
+                // Paid cards belong to the campus feed only, and a quiet refresh keeps the one already shown.
+                if (_state.value.filter == FeedFilter.Campus && (!silent || _state.value.sponsoredCard == null)) loadSponsored()
             } catch (e: Exception) {
                 _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
                 _state.update { it.copy(loading = false, error = "We couldn't load your feed. Check your connection and try again.") }
             }
         }
+    }
+
+    private val reportedSeen = HashSet<String>()
+
+    private fun loadSponsored() {
+        viewModelScope.launch {
+            // No card, or any failure, simply means no ad. The feed never waits for or depends on this.
+            val card = runCatching { sponsored.card("home_feed") }.getOrNull()
+            _state.update { it.copy(sponsoredCard = card) }
+        }
+    }
+
+    /** Called once the card has been on screen long enough. Each served card is reported at most once from here. */
+    fun sponsoredShown() {
+        val card = _state.value.sponsoredCard ?: return
+        if (!reportedSeen.add(card.impressionToken)) return
+        viewModelScope.launch { runCatching { sponsored.impression(card) } }
+    }
+
+    fun sponsoredClicked() {
+        val card = _state.value.sponsoredCard ?: return
+        viewModelScope.launch { runCatching { sponsored.click(card) } }
+    }
+
+    fun reportSponsored(reason: String) {
+        val card = _state.value.sponsoredCard ?: return
+        _state.update { it.copy(sponsoredCard = null) }
+        viewModelScope.launch {
+            val sent = runCatching { sponsored.report(card, reason) }.isSuccess
+            explain(if (sent) "Thanks. We'll review this ad." else "We couldn't send that report. Try again later.")
+        }
+    }
+
+    /** Who to suggest: the same eligible people as Discover (never someone already followed, passed on or blocked). */
+    private fun loadSuggestions() {
+        viewModelScope.launch {
+            runCatching { discover.getCandidates() }.onSuccess { list ->
+                val best = list.sortedByDescending { it.shared.size + if (it.sameCourse) 1 else 0 }.take(SUGGESTION_LIMIT)
+                _state.update { it.copy(suggestions = best) }
+            }
+        }
+    }
+
+    /** Follow from the feed is Discover's "connect": the server follows them and remembers it. */
+    fun followSuggestion(id: String) {
+        _state.update { s -> s.copy(suggestions = s.suggestions.filter { it.id != id }) }
+        viewModelScope.launch { runCatching { discover.recordDecision(id, true) } }
+    }
+
+    /** The X on a suggestion: the server remembers the pass, so they do not come back here or in Discover. */
+    fun dismissSuggestion(id: String) {
+        _state.update { s -> s.copy(suggestions = s.suggestions.filter { it.id != id }) }
+        viewModelScope.launch { runCatching { discover.recordDecision(id, false) } }
     }
 
     /** Fetches the next page when the student nears the bottom. Does nothing while loading or at the end. */
@@ -163,6 +231,32 @@ class HomeViewModel(
         val nowSaved = !target.savedByMe
         updatePost(postId) { it.copy(savedByMe = nowSaved) }
         viewModelScope.launch { runCatching { repository.setSaved(postId, nowSaved) } }
+    }
+
+    fun toggleRepost(postId: String) {
+        val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
+        val now = !target.repostedByMe
+        updatePost(postId) { it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) }
+        viewModelScope.launch { runCatching { repository.setReposted(postId, now) } }
+    }
+
+    // Posts the student has looked at are reported in small batches; each id is sent once per session.
+    private val seenIds = mutableSetOf<String>()
+    private val unsentViews = mutableListOf<String>()
+    private var viewFlush: Job? = null
+
+    fun noteSeen(postId: String) {
+        if (!seenIds.add(postId)) return
+        unsentViews += postId
+        if (viewFlush?.isActive == true) return
+        viewFlush = viewModelScope.launch {
+            while (unsentViews.isNotEmpty()) {
+                delay(2_000)
+                val batch = unsentViews.take(50)
+                unsentViews.subList(0, batch.size).clear()
+                runCatching { repository.recordViews(batch) }
+            }
+        }
     }
 
     // ---- event announcements: every change goes to the event itself, so the Events tab and details agree with Home.
@@ -308,6 +402,7 @@ class HomeViewModel(
     fun vote(postId: String, optionIndex: Int) {
         val before = _state.value.posts.firstOrNull { it.id == postId }?.poll ?: return
         if (before.myVote != null || optionIndex !in before.options.indices) return
+        if (before.hasEnded()) { _state.update { it.copy(notice = "This poll has ended.") }; return }
         updatePost(postId) { post ->
             val poll = post.poll ?: return@updatePost post
             val options = poll.options.mapIndexed { i, o -> if (i == optionIndex) o.copy(votes = o.votes + 1) else o }
@@ -315,8 +410,9 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             try { repository.vote(postId, optionIndex) } catch (e: Exception) {
-                updatePost(postId) { it.copy(poll = before) }
-                _state.update { it.copy(notice = "Couldn't record your vote. Please try again.") }
+                val closed = e is ApiException && e.code == "poll_ended"
+                updatePost(postId) { it.copy(poll = if (closed) before.copy(endsAtMillis = System.currentTimeMillis()) else before) }
+                _state.update { it.copy(notice = if (closed) "This poll has ended." else "Couldn't record your vote. Please try again.") }
             }
         }
     }
@@ -335,6 +431,7 @@ class HomeViewModel(
         imagePath: String?,
         videoPath: String? = null,
         pollOptions: List<String> = emptyList(),
+        pollHours: Int = PostLimits.DEFAULT_POLL_HOURS,
     ) {
         val clean = text.trim()
         val options = pollOptions.map { it.trim() }
@@ -344,7 +441,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _state.update { it.copy(publishing = true, publishError = null) }
             try {
-                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options)
+                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options, pollHours)
                 _state.update { it.copy(publishing = false, posts = listOf(post) + it.posts, postedCount = it.postedCount + 1) }
             } catch (e: Exception) {
                 val message = when {

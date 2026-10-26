@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Ctx } from './context';
 import { communityRoutes } from './modules/communities';
+import { communityChannelRoutes } from './modules/community_channels';
 import { discoverRoutes } from './modules/discover';
 import { discoverFeedRoutes } from './modules/discover_feed';
 import { discoverEventRoutes } from './modules/discover_events';
@@ -11,12 +12,17 @@ import { groupRoutes } from './modules/groups';
 import { noteRoutes } from './modules/notes';
 import { storyRoutes } from './modules/stories';
 import { moderationRoutes } from './modules/moderation';
+import { adminRoutes } from './modules/admin';
+import { adminDirectoryRoutes } from './modules/admin_directory';
 import { notificationRoutes } from './modules/notifications';
 import { privacyRoutes } from './modules/privacy';
 import { searchRoutes } from './modules/search';
 import { accountStatusRoutes } from './modules/account_status';
 import { sessionRoutes } from './modules/sessions';
 import { wsRoutes } from './modules/ws';
+import { advertiserRoutes } from './modules/monetization/advertiser_routes';
+import { sponsoredRoutes } from './modules/monetization/sponsored_routes';
+import { monetizationAdminRoutes } from './modules/monetization/admin_routes';
 import { Hub } from './realtime';
 
 /**
@@ -33,14 +39,20 @@ export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
     await app.register(groupRoutes(ctx, hub));
     await app.register(chatExtraRoutes(ctx, hub));
     await app.register(wsRoutes(ctx, hub));
-    await app.register(eventRoutes(ctx));
+    await app.register(eventRoutes(ctx, hub));
     await app.register(moderationRoutes(ctx));
+    await app.register(adminRoutes(ctx));
+    await app.register(adminDirectoryRoutes(ctx));
     await app.register(searchRoutes(ctx));
     await app.register(sessionRoutes(ctx));
     await app.register(accountStatusRoutes(ctx));
     await app.register(notificationRoutes(ctx, hub));
     await app.register(communityRoutes(ctx, hub));
+    await app.register(communityChannelRoutes(ctx, hub));
     await app.register(noteRoutes(ctx, hub));
     await app.register(storyRoutes(ctx, hub));
+    await app.register(advertiserRoutes(ctx));
+    await app.register(monetizationAdminRoutes(ctx));
+    await app.register(sponsoredRoutes(ctx));
   };
 }

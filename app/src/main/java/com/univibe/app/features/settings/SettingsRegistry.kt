@@ -31,6 +31,8 @@ object SettingsCategories {
     const val DATA = "Data & storage"
     const val STATUS = "Account status"
     const val HELP = "Help & support"
+    const val CAMPUS = "Campus & community"
+    const val LEGAL = "Legal & About"
 }
 
 object SettingsRegistry {
@@ -43,6 +45,8 @@ object SettingsRegistry {
         e("edit-profile", "Edit profile", "Photo, bio, course and interests", AppRoutes.EDIT_PROFILE, SettingsCategories.ACCOUNT, "Edit profile", keywords = listOf("bio", "photo", "avatar", "interests", "course")),
         e("password", "Change password", "Choose a new password; other devices are logged out", SettingsRoutes.PASSWORD, SettingsCategories.ACCOUNT, "Change password", keywords = listOf("passcode", "credentials")),
         e("delete", "Delete account", "Permanently delete your account and content", SettingsRoutes.DELETE, SettingsCategories.ACCOUNT, "Delete account", keywords = listOf("remove account", "close account", "erase")),
+        e("deactivate", "Deactivate account", "Hide your account without deleting it; log in again to bring it back", SettingsRoutes.DEACTIVATE, SettingsCategories.ACCOUNT, "Deactivate account", keywords = listOf("hide account", "pause account", "take a break", "temporarily", "disable")),
+        e("data-export", "Download your data", "Get a copy of your own data as a file", SettingsRoutes.DATA_EXPORT, SettingsCategories.ACCOUNT, "Download your data", keywords = listOf("export", "download my information", "copy of my data", "my data", "archive", "gdpr")),
         // Security
         e("security", "Security", "Password and where you are logged in", SettingsRoutes.SECURITY, SettingsCategories.SECURITY, keywords = listOf("protect")),
         e("login-activity", "Login activity", "See your logged-in devices and log out the others", SettingsRoutes.LOGIN_ACTIVITY, SettingsCategories.SECURITY, "Login activity",
@@ -50,17 +54,21 @@ object SettingsRegistry {
         e("security-password", "Password", "Change your password", SettingsRoutes.PASSWORD, SettingsCategories.SECURITY, "Password", keywords = listOf("change password")),
         // Privacy
         e("privacy", "Privacy & safety", "Who can find and message you, and who you've blocked", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, keywords = listOf("private")),
-        e("discoverable", "Appear in Discover", "Let other students find you in Discover", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Appear in Discover", keywords = listOf("discoverable", "visibility", "find me", "hide profile")),
-        e("who-can-message", "Who can message you", "Everyone, people you follow, or nobody", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Who can message you", keywords = listOf("message requests", "dm", "direct messages")),
-        e("online-status", "Online status", "Show when you're online", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Online status", keywords = listOf("active", "last seen", "activity status")),
-        e("read-receipts", "Read receipts", "Show when you've read a message", SettingsRoutes.PRIVACY, SettingsCategories.PRIVACY, "Read receipts", keywords = listOf("seen", "read status")),
+        e("privacy-visibility", "Visibility", "Whether other students can find your profile", SettingsRoutes.PRIVACY_VISIBILITY, SettingsCategories.PRIVACY, "Visibility", keywords = listOf("who can see me", "profile visibility")),
+        e("discoverable", "Appear in Discover", "Let other students find you in Discover", SettingsRoutes.PRIVACY_VISIBILITY, SettingsCategories.PRIVACY, "Visibility", "Appear in Discover", keywords = listOf("discoverable", "visibility", "find me", "hide profile")),
+        e("privacy-messages", "Messages", "Who can message you, read receipts and typing", SettingsRoutes.PRIVACY_MESSAGES, SettingsCategories.PRIVACY, "Messages", keywords = listOf("dm", "direct messages", "message privacy")),
+        e("who-can-message", "Who can message you", "Everyone, people you follow, or nobody", SettingsRoutes.MESSAGE_POLICY, SettingsCategories.PRIVACY, "Messages", "Who can message you", keywords = listOf("message requests", "dm", "direct messages")),
+        e("online-status", "Online status", "Show when you're online", SettingsRoutes.ACTIVITY_STATUS, SettingsCategories.PRIVACY, "Activity status", "Online status", keywords = listOf("active", "last seen", "activity status")),
+        e("read-receipts", "Read receipts", "Show when you've read a message", SettingsRoutes.READ_RECEIPTS, SettingsCategories.PRIVACY, "Messages", "Read receipts", keywords = listOf("seen", "read status")),
         e("blocked", "Blocked students", "Students you've blocked", SettingsRoutes.BLOCKED, SettingsCategories.PRIVACY, "Blocked students", keywords = listOf("block", "unblock", "blocked users", "blocked accounts")),
         e("discover-profile", "Discover profile", "Your card photo, preview and who sees it", SettingsRoutes.DISCOVER_PROFILE, SettingsCategories.PRIVACY, "Discover profile", keywords = listOf("card", "photo", "preview")),
         e("safety", "Safety tips", "Staying safe on campus and online", SettingsRoutes.SAFETY, SettingsCategories.PRIVACY, "Safety tips"),
         // Notifications
         e("notifications", "Notifications", "Choose which alerts you get", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, keywords = listOf("alerts", "push", "mute notifications")),
-        e("notify-types", "Likes, comments, messages and events", "Pick which activity notifies you and which alerts reach your phone", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Alert types", keywords = listOf("likes", "comments", "messages", "events", "communities")),
-        e("quiet-hours", "Quiet hours", "No alerts on this phone from 10 PM to 7 AM", SettingsRoutes.NOTIFICATIONS, SettingsCategories.NOTIFICATIONS, "Quiet hours", keywords = listOf("do not disturb", "silence", "night")),
+        e("push-alerts", "Phone alerts", "Which alerts also pop up on this phone", SettingsRoutes.NOTIFICATIONS_PUSH, SettingsCategories.NOTIFICATIONS, "Phone alerts", keywords = listOf("push", "push notifications", "mute notifications", "turn off notifications", "message alerts")),
+        e("notify-types", "Activity in your list", "Choose which activity creates a notification", SettingsRoutes.NOTIFICATIONS_ACTIVITY, SettingsCategories.NOTIFICATIONS, "Activity in your list", keywords = listOf("likes", "comments", "replies", "followers", "messages", "events", "communities", "groups", "story reactions", "alert types")),
+        e("event-notices", "Event notices", "Confirmations, reminders, changes and cancellations", SettingsRoutes.NOTIFICATIONS_EVENTS, SettingsCategories.NOTIFICATIONS, "Event notices", keywords = listOf("event reminders", "reminders", "cancellations", "registrations")),
+        e("quiet-hours", "Quiet hours", "No alerts on this phone from 10 PM to 7 AM", SettingsRoutes.NOTIFICATIONS_QUIET, SettingsCategories.NOTIFICATIONS, "Quiet hours", keywords = listOf("do not disturb", "silence", "night")),
         // Messages
         e("messages", "Messages", "Chat privacy, alerts and writing", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, keywords = listOf("chat", "chats", "dm", "direct messages", "conversations")),
         e("enter-to-send", "Enter key sends", "Send with the keyboard's Enter key", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, "Enter key sends", keywords = listOf("enter key", "send key", "new line", "keyboard")),
@@ -68,12 +76,25 @@ object SettingsRegistry {
         e("typing-indicators", "Typing indicators", "Show when you're typing", SettingsRoutes.MESSAGING, SettingsCategories.MESSAGES, "Typing indicators", keywords = listOf("typing", "is typing")),
         e("muted-chats", "Muted conversations", "Chats whose alerts you turned off", SettingsRoutes.MUTED_CHATS, SettingsCategories.MESSAGES, "Muted conversations", keywords = listOf("mute", "unmute", "muted chats", "silence chat")),
         // Appearance
-        e("appearance", "Appearance", "Theme, font and text size", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, keywords = listOf("theme", "font", "typeface")),
-        e("theme", "Theme", "System, Light or Dark", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, "Theme", keywords = listOf("dark mode", "light mode", "night mode", "system default")),
+        e("appearance", "Appearance", "Theme, font and text size", SettingsRoutes.APPEARANCE, SettingsCategories.APPEARANCE, keywords = listOf("look", "display", "customize")),
+        e("theme", "Theme", "System, Light or Dark", SettingsRoutes.APPEARANCE_THEME, SettingsCategories.APPEARANCE, "Theme", keywords = listOf("dark mode", "light mode", "night mode", "system default")),
+        e("font", "Font", "Choose the typeface UniVibe uses", SettingsRoutes.APPEARANCE_FONT, SettingsCategories.APPEARANCE, "Font", keywords = listOf("typeface", "serif", "monospace", "poppins")),
         // Accessibility
-        e("accessibility", "Accessibility", "Text size and motion", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY),
-        e("text-size", "Text size", "Make text larger", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY, "Text size", keywords = listOf("font", "bigger text", "font scaling", "large")),
-        e("reduce-motion", "Reduce motion", "Fewer animations", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY, "Reduce motion", keywords = listOf("animations", "transitions")),
+        e("accessibility", "Accessibility", "Text, contrast, motion and haptics", SettingsRoutes.ACCESSIBILITY, SettingsCategories.ACCESSIBILITY),
+        e("text-and-display", "Text and display", "Text size, bold text and high contrast", SettingsRoutes.ACCESSIBILITY_DISPLAY, SettingsCategories.ACCESSIBILITY, "Text and display"),
+        e("text-size", "Text size", "Make text larger", SettingsRoutes.ACCESSIBILITY_TEXT_SIZE, SettingsCategories.ACCESSIBILITY, "Text and display", "Text size", keywords = listOf("font", "bigger text", "font scaling", "large")),
+        e("bold-text", "Bold text", "Heavier letters throughout UniVibe", SettingsRoutes.ACCESSIBILITY_DISPLAY, SettingsCategories.ACCESSIBILITY, "Text and display", "Bold text", keywords = listOf("heavier", "thicker text")),
+        e("high-contrast", "High contrast", "Stronger secondary text and borders", SettingsRoutes.ACCESSIBILITY_DISPLAY, SettingsCategories.ACCESSIBILITY, "Text and display", "High contrast", keywords = listOf("contrast", "low vision", "readability")),
+        e("reduce-motion", "Reduce motion", "Fewer animations", SettingsRoutes.ACCESSIBILITY_MOTION, SettingsCategories.ACCESSIBILITY, "Motion", "Reduce motion", keywords = listOf("animations", "transitions")),
+        e("haptics", "Haptic feedback", "Vibration on long-press and swipe to reply", SettingsRoutes.ACCESSIBILITY_INTERACTION, SettingsCategories.ACCESSIBILITY, "Touch and haptics", "Haptic feedback", keywords = listOf("vibration", "vibrate", "touch feedback")),
+        // Campus & community
+        e("campus", "Campus & community", "Your campus, default feed and communities", SettingsRoutes.CAMPUS, SettingsCategories.CAMPUS, keywords = listOf("university", "college", "students")),
+        e("campus-identity", "Campus identity", "Your university and verified student status", SettingsRoutes.CAMPUS_IDENTITY, SettingsCategories.CAMPUS, "Campus identity", keywords = listOf("university", "verified student", "verification", "change campus")),
+        e("default-feed", "Default feed", "Choose whether Home opens on Campus or Following", SettingsRoutes.DEFAULT_FEED, SettingsCategories.CAMPUS, "Default feed", keywords = listOf("home feed", "following feed", "campus feed", "timeline")),
+        e("course-year", "Course and year", "Set your course and year of study", AppRoutes.EDIT_PROFILE, SettingsCategories.CAMPUS, "Course and year", keywords = listOf("academic", "study", "major")),
+        e("communities", "Communities", "Find, join and manage your communities", AppRoutes.COMMUNITIES, SettingsCategories.CAMPUS, "Communities", keywords = listOf("clubs", "societies", "groups")),
+        // Legal & About
+        e("legal", "Legal & About", "Terms, privacy policy and app version", SettingsRoutes.LEGAL, SettingsCategories.LEGAL, keywords = listOf("version", "build", "licenses", "licences")),
         // Permissions
         e("permissions", "Permissions", "What UniVibe is allowed to do on your phone", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, keywords = listOf("allow", "access", "android settings")),
         e("perm-notifications", "Notification permission", "Allow or block alerts from UniVibe", SettingsRoutes.PERMISSIONS, SettingsCategories.PERMISSIONS, "Notifications", keywords = listOf("notifications blocked", "turn on notifications")),
@@ -89,9 +110,9 @@ object SettingsRegistry {
         e("faq", "Frequently asked questions", "Quick answers", SettingsRoutes.FAQ, SettingsCategories.HELP, "FAQ", keywords = listOf("questions", "how do i")),
         e("report", "Report a problem", "Tell us about a bug or a problem", SettingsRoutes.REPORT, SettingsCategories.HELP, "Report a problem", keywords = listOf("bug", "feedback", "issue")),
         e("guidelines", "Community guidelines", "What's okay on UniVibe", SettingsRoutes.GUIDELINES, SettingsCategories.HELP, "Community guidelines", keywords = listOf("rules")),
-        e("terms", "Terms of Service", "Read the rules for using UniVibe", SettingsRoutes.TERMS, SettingsCategories.HELP, "Terms of Service", keywords = listOf("terms", "terms and conditions", "legal", "agreement", "tos", "policy")),
-        e("privacy-policy", "Privacy Policy", "How UniVibe uses and protects your data", SettingsRoutes.PRIVACY_POLICY, SettingsCategories.HELP, "Privacy Policy", keywords = listOf("privacy policy", "data protection", "personal data", "legal", "my data")),
-        e("about", "About UniVibe", "Version and information", SettingsRoutes.ABOUT, SettingsCategories.HELP, "About UniVibe", keywords = listOf("version", "build", "legal")),
+        e("terms", "Terms of Service", "Read the rules for using UniVibe", SettingsRoutes.TERMS, SettingsCategories.LEGAL, "Terms of Service", keywords = listOf("terms", "terms and conditions", "legal", "agreement", "tos", "policy")),
+        e("privacy-policy", "Privacy Policy", "How UniVibe uses and protects your data", SettingsRoutes.PRIVACY_POLICY, SettingsCategories.LEGAL, "Privacy Policy", keywords = listOf("privacy policy", "data protection", "personal data", "legal", "my data")),
+        e("about", "About UniVibe", "Version and information", SettingsRoutes.ABOUT, SettingsCategories.LEGAL, "About UniVibe", keywords = listOf("version", "build", "legal")),
     )
 
     /** Entries whose [SettingsEntry.path] starts with [category], in registry order. */

@@ -166,11 +166,14 @@ class RemoteChatRepository(
         // `mediaCount` is newer than some servers: when it is missing, an empty message is treated as a photo, as before.
         val voice = if (last == null || deleted) 0 else last.optInt("audioCount", 0)
         val photos = if (last == null || deleted) 0 else if (last.has("mediaCount")) last.optInt("mediaCount", 0) else if (text == null) 1 else 0
+        val docs = if (last == null || deleted) 0 else last.optInt("documentCount", 0)
         val kind = when {
             last == null -> LastKind.None
             deleted -> LastKind.Deleted
             voice > 0 -> LastKind.Voice
             photos > 0 -> LastKind.Photo
+            docs > 0 -> LastKind.File
+            last.optBoolean("hasLocation", false) && text == null -> LastKind.Location
             else -> LastKind.Text
         }
         val preview = when (kind) {
@@ -178,7 +181,9 @@ class RemoteChatRepository(
             LastKind.Deleted -> "Message deleted"
             LastKind.Voice -> "Voice message"
             LastKind.Photo -> text ?: if (photos > 1) "$photos photos" else "Photo"
-            LastKind.Text -> text ?: ""
+            LastKind.File -> text ?: "Document"
+            LastKind.Location -> "Location"
+            LastKind.Text -> text ?: if (last?.optBoolean("hasEvent", false) == true) "Event" else ""
         }
         val memberArr = o.optJSONArray("members")
         val members = buildList {

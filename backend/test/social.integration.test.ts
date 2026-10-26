@@ -160,6 +160,48 @@ describe.skipIf(!url)('posts, comments and people (needs TEST_DATABASE_URL)', ()
     expect((await call('POST', `/posts/${plain.id}/vote`, b.token, { optionIndex: 0 })).status).toBe(400);
   });
 
+  it('polls run for at most 3 days and stop taking votes when they end', async () => {
+    const [a, b] = [await student(), await student()];
+    expect((await call('POST', '/posts', a.token, { text: 'q', poll: { options: ['a', 'b'], durationHours: 73 } })).status).toBe(400);
+    expect((await call('POST', '/posts', a.token, { text: 'q', poll: { options: ['a', 'b'], durationHours: 0 } })).status).toBe(400);
+    const p = await post(a, { text: 'Which day?', poll: { options: ['Sat', 'Sun'], durationHours: 72 } });
+    expect(p.poll.ended).toBe(false);
+    expect(p.poll.secondsLeft).toBeGreaterThan(71 * 3600);
+    expect(p.poll.secondsLeft).toBeLessThanOrEqual(72 * 3600);
+    const short = await post(a, { text: 'Quick one', poll: { options: ['x', 'y'] } }); // default: 24 hours
+    expect(short.poll.secondsLeft).toBeLessThanOrEqual(24 * 3600);
+    await call('POST', `/posts/${p.id}/vote`, b.token, { optionIndex: 0 });
+    await pool.query("update posts set poll_ends_at = now() - interval '1 minute' where id = $1", [p.id]);
+    const ended = (await call('GET', `/posts/${p.id}`, a.token)).body;
+    expect(ended.poll.ended).toBe(true);
+    expect(ended.poll.secondsLeft).toBe(0);
+    expect(ended.poll.options.map((o: { votes: number }) => o.votes)).toEqual([1, 0]); // results stay
+    const late = await call('POST', `/posts/${p.id}/vote`, a.token, { optionIndex: 1 });
+    expect(late.status).toBe(409);
+    expect(late.body.code ?? late.body.error).toBe('poll_ended');
+  });
+
+  // ---- reposts and views
+  it('reposts toggle once per student and views count once per student', async () => {
+    const [a, b, c] = [await student(), await student(), await student()];
+    const p = await post(a, { text: 'worth a repost' });
+    expect((await call('PUT', `/posts/${p.id}/repost`, b.token)).status).toBe(204);
+    expect((await call('PUT', `/posts/${p.id}/repost`, b.token)).status).toBe(204); // repeating changes nothing
+    const seen = (await call('GET', `/posts/${p.id}`, b.token)).body;
+    expect(seen.repostCount).toBe(1);
+    expect(seen.repostedByMe).toBe(true);
+    expect((await call('GET', `/posts/${p.id}`, c.token)).body.repostedByMe).toBe(false);
+    await call('DELETE', `/posts/${p.id}/repost`, b.token);
+    expect((await call('GET', `/posts/${p.id}`, b.token)).body.repostCount).toBe(0);
+
+    await call('POST', '/posts/views', b.token, { ids: [p.id] });
+    await call('POST', '/posts/views', b.token, { ids: [p.id] });
+    await call('POST', '/posts/views', c.token, { ids: [p.id] });
+    await call('POST', '/posts/views', a.token, { ids: [p.id] }); // the author's own look is not a view
+    expect((await call('GET', `/posts/${p.id}`, a.token)).body.viewCount).toBe(2);
+    expect((await call('POST', '/posts/views', b.token, { ids: [] })).status).toBe(400);
+  });
+
   // ---- editing and deleting
   it('only the author edits or deletes a post', async () => {
     const [a, b] = [await student(), await student()];

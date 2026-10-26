@@ -224,6 +224,13 @@ class SavedPostsViewModel(
         viewModelScope.launch { runCatching { repository.setLiked(id, liked) } }
     }
 
+    fun toggleRepost(id: String) {
+        val post = _state.value.posts.firstOrNull { it.id == id } ?: return
+        val now = !post.repostedByMe
+        _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) else it }) }
+        viewModelScope.launch { runCatching { repository.setReposted(id, now) } }
+    }
+
     fun noteShared(id: String) {
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(shareCount = it.shareCount + 1) else it }) }
         viewModelScope.launch { runCatching { repository.recordShare(id) } }
@@ -237,6 +244,8 @@ data class FollowListUiState(val loading: Boolean = true, val refreshing: Boolea
 
 class FollowListViewModel(
     private val kind: FollowKind,
+    /** Null: the signed-in student's own list. Otherwise that student's list. */
+    private val studentId: String? = null,
     private val repository: ProfileRepository = AppContainer.profileRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FollowListUiState())
@@ -250,7 +259,12 @@ class FollowListViewModel(
         viewModelScope.launch {
             if (pull) _state.update { it.copy(refreshing = true) }
             try {
-                val list = if (kind == FollowKind.Followers) repository.getFollowers() else repository.getFollowing()
+                val list = when {
+                    studentId != null && kind == FollowKind.Followers -> repository.getFollowersOf(studentId)
+                    studentId != null -> repository.getFollowingOf(studentId)
+                    kind == FollowKind.Followers -> repository.getFollowers()
+                    else -> repository.getFollowing()
+                }
                 _state.update { it.copy(loading = false, refreshing = false, error = null, entries = list) }
             } catch (e: Exception) {
                 // A failed pull keeps the list that is already on screen.

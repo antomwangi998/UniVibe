@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { withTx } from './db';
+import { DOCUMENT_MAX_BYTES, DOCUMENT_TYPES, cleanFileName, documentLooksRight } from './documents';
 import { HttpError } from './errors';
 import { ImageRejected, type ImagePurpose, type ProcessedImage } from './imaging';
 import { RouteContext, paramId } from './shared';
@@ -17,6 +18,8 @@ export const MEDIA_LIMITS = {
   video: { maxBytes: 50 * 1024 * 1024, types: ['video/mp4', 'video/quicktime', 'video/webm'] },
   /** Voice messages: up to five minutes of speech, which is well under this. */
   audio: { maxBytes: 5 * 1024 * 1024, types: ['audio/mp4', 'audio/aac', 'audio/webm', 'audio/ogg'] },
+  /** Files shared in a chat: see documents.ts for exactly which kinds. */
+  document: { maxBytes: DOCUMENT_MAX_BYTES, types: Object.keys(DOCUMENT_TYPES) },
   maxAudioMs: 5 * 60 * 1000,
   /** A video Story may be at most this long. The app reports the length; the server cannot measure video, so it also caps the size. */
   maxStoryVideoMs: 30 * 1000,
@@ -30,6 +33,7 @@ const EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
   'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm',
   'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/webm': 'weba', 'audio/ogg': 'ogg',
+  ...DOCUMENT_TYPES,
 };
 
 /** Does the start of the file look like what it claims to be? A wrong label is not enough to get a file accepted. */
@@ -46,12 +50,12 @@ export function looksLike(contentType: string, b: Uint8Array): boolean {
     case 'audio/ogg': return b.length >= 4 && ascii(0, 4) === 'OggS';
     case 'audio/webm':
     case 'video/webm': return b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
-    default: return false;
+    default: return documentLooksRight(contentType, b); // false for anything that is not a document type
   }
 }
 
 const uploadSchema = z.object({
-  kind: z.enum(['image', 'video', 'audio']),
+  kind: z.enum(['image', 'video', 'audio', 'document']),
   purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group', 'community', 'story']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
@@ -60,6 +64,10 @@ const uploadSchema = z.object({
   height: z.number().int().positive().max(20000).optional(),
   /** Length of a voice message, in milliseconds. Required for audio, not allowed for anything else. */
   durationMs: z.number().int().positive().max(5 * 60 * 1000).optional(),
+  /** Voice messages only: up to 64 bar heights from 0 to 100, drawn as the message's waveform. */
+  waveform: z.array(z.number().int().min(0).max(100)).min(1).max(64).optional(),
+  /** Documents only: the name the person sees. It is cleaned by the server, so it is only ever a label. */
+  fileName: z.string().min(1).max(255).optional(),
 }).refine((v) => (v.width === undefined) === (v.height === undefined), { message: 'Send both width and height, or neither.' });
 const photosSchema = z.object({
   avatarMediaId: z.string().uuid().nullable().optional(),
@@ -81,6 +89,19 @@ export async function cleanupPendingMedia(pool: Pool, storage: Storage): Promise
   );
   if (rows.length > 0) await storage.remove(rows.map((r) => r.object_key)).catch(() => undefined);
   return rows.length;
+}
+
+/**
+ * Removes files that were queued for deletion (see storage_garbage): link-card pictures whose card is gone, however it went.
+ * A file is only forgotten once storage has accepted the removal, so a failed run is simply tried again next time.
+ */
+export async function cleanupStorageGarbage(pool: Pool, storage: Storage, batch = 200): Promise<number> {
+  const { rows } = await pool.query<{ object_key: string }>('select object_key from storage_garbage order by queued_at limit $1', [batch]);
+  if (rows.length === 0) return 0;
+  const keys = rows.map((r) => r.object_key);
+  await storage.remove(keys);
+  await pool.query('delete from storage_garbage where object_key = any($1::text[])', [keys]);
+  return keys.length;
 }
 
 export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): void {
@@ -111,6 +132,10 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (b.kind === 'audio' && (b.purpose !== 'message' || !b.durationMs)) {
       throw new HttpError(400, 'validation', 'Audio can only be a voice message, and needs its length.');
     }
+    if (b.kind === 'document' && (b.purpose !== 'message' || !b.fileName)) throw new HttpError(400, 'validation', 'A document can only be sent in a chat, and needs its name.');
+    if (b.kind !== 'document' && b.fileName !== undefined) throw new HttpError(400, 'validation', 'Only documents have a file name.');
+    if (b.kind === 'document' && (b.width !== undefined || b.durationMs !== undefined || b.waveform)) throw new HttpError(400, 'validation', 'A document has no size in pixels or length.');
+    if (b.waveform && b.kind !== 'audio') throw new HttpError(400, 'validation', 'Only voice messages have a waveform.');
     if (b.kind !== 'audio' && !(b.kind === 'video' && b.purpose === 'story') && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages and video Stories have a length.');
     if ((b.purpose === 'group' || b.purpose === 'community') && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
     const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
@@ -122,8 +147,8 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     }
     const key = `${user.id}/${randomUUID()}.${EXTENSIONS[b.contentType]}`;
     const created = await pool.query<{ id: string }>(
-      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id',
-      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null],
+      'insert into media (owner_id, kind, purpose, content_type, size_bytes, object_key, width, height, duration_ms, waveform, file_name) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id',
+      [user.id, b.kind, b.purpose, b.contentType, b.size, key, b.width ?? null, b.height ?? null, b.durationMs ?? null, b.waveform ?? null, b.kind === 'document' ? cleanFileName(b.fileName ?? '', b.contentType) : null],
     );
     const uploadUrl = await storage.presignUpload(key, b.contentType, UPLOAD_LINK_SECONDS);
     return reply.status(201).send({
@@ -139,7 +164,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     const user = await ctx.requireUser(req);
     const storage = needStorage(ctx);
     const id = paramId(req);
-    const { rows } = await pool.query<{ kind: 'image' | 'video' | 'audio'; purpose: ImagePurpose; content_type: string; object_key: string; status: string }>(
+    const { rows } = await pool.query<{ kind: 'image' | 'video' | 'audio' | 'document'; purpose: ImagePurpose; content_type: string; object_key: string; status: string }>(
       'select kind, purpose, content_type, object_key, status from media where id = $1 and owner_id = $2',
       [id, user.id],
     );
@@ -157,7 +182,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (!head) throw new HttpError(400, 'upload_missing', 'The file did not arrive. Please try again.');
     if (head.size <= 0 || head.size > MEDIA_LIMITS[m.kind].maxBytes) return reject('That file is too large.');
     if ((head.contentType ?? '').split(';')[0].trim() !== m.content_type) return reject('The file type does not match.');
-    if (!looksLike(m.content_type, await storage.peek(m.object_key, 16))) return reject('That is not a valid photo or video.');
+    if (!looksLike(m.content_type, await storage.peek(m.object_key, 16))) return reject(m.kind === 'document' ? 'That file does not look like what it says it is.' : 'That is not a valid photo or video.');
 
     if (m.kind === 'image' && ctx.images) {
       // Re-encode what arrived: upright, no metadata (location!), bounded size, plus a feed thumbnail for post photos.

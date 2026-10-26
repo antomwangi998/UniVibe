@@ -6,14 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.DoneAll
-import androidx.compose.material.icons.outlined.PeopleOutline
-import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.Sensors
-import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,8 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.univibe.app.data.settings.MessagePolicy
-import com.univibe.app.data.settings.PrivacyChange
 import com.univibe.app.ui.components.BannerKind
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.MessageBanner
@@ -34,70 +24,52 @@ import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.theme.Spacing
 import androidx.compose.ui.unit.dp
 
+/**
+ * The Privacy & safety hub. It only links to the screens where each choice is made and shows each current value.
+ * The values come from the local copy of the server settings (kept in step by PrivacyRepository after every load and
+ * save), so the hub opens instantly and is up to date when you come back from a child screen.
+ */
 @Composable
 fun PrivacyScreen(
     onBack: () -> Unit,
+    onVisibility: () -> Unit,
+    onMessages: () -> Unit,
+    onActivityStatus: () -> Unit,
     onBlocked: () -> Unit,
     onSafety: () -> Unit,
-    onDiscoverProfile: () -> Unit = {},
-    viewModel: PrivacyViewModel = viewModel(),
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
     val s by settingsViewModel.settings.collectAsStateWithLifecycle()
     SettingsPage("Privacy & safety", onBack) {
-        when (val st = state) {
-            PrivacyState.Loading -> item {
-                Row(Modifier.fillMaxWidth().padding(Spacing.xl), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
-            }
-            is PrivacyState.Failed -> item { ErrorState(st.message, onRetry = viewModel::load) }
-            is PrivacyState.Ready -> {
-                val p = st.privacy
-                st.error?.let { item { MessageBanner(it, BannerKind.Error) } }
-                item {
-                    SettingsGroup {
-                        SettingsSectionTitle("Visibility")
-                        SettingsSwitchRow("Show me in Discover", p.discoverable, { v -> viewModel.change(PrivacyChange(discoverable = v)) },
-                            subtitle = "Other students can find your profile.", icon = VibeIcons.Visibility, enabled = !st.saving)
-                        RowDivider()
-                        SettingsNavRow(VibeIcons.Photo, "Discover profile", onDiscoverProfile, subtitle = "Choose your card photo and preview it.")
-                        RowDivider()
-                        SettingsSwitchRow("Show online status", p.showOnline, { v -> viewModel.change(PrivacyChange(showOnline = v)) },
-                            subtitle = "Let others see when you're active.", icon = VibeIcons.Sensors, enabled = !st.saving)
-                    }
-                }
-                item {
-                    SettingsGroup {
-                        SettingsSectionTitle("Who can message you")
-                        MessagePolicy.entries.forEach { policy ->
-                            SettingsRadioRow(policy.label, policy.description, p.messagePolicy == policy) {
-                                if (!st.saving && p.messagePolicy != policy) viewModel.change(PrivacyChange(messagePolicy = policy))
-                            }
-                        }
-                        RowDivider()
-                        SettingsSwitchRow("Read receipts", p.readReceipts, { v -> viewModel.change(PrivacyChange(readReceipts = v)) },
-                            subtitle = if (p.readReceipts) "People can see when you've read their message." else "People can't see when you've read their message, and you can't see when they've read yours.",
-                            icon = VibeIcons.DoubleCheck, enabled = !st.saving)
-                    }
-                }
-                item {
-                    SettingsGroup {
-                        SettingsNavRow(
-                            VibeIcons.Block, "Blocked students", onBlocked,
-                            subtitle = if (s.blocked.isEmpty()) "No one blocked" else "${s.blocked.size} blocked",
-                        )
-                        RowDivider()
-                        SettingsNavRow(VibeIcons.Shield, "Safety tips", onSafety)
-                    }
-                }
-                item {
-                    SettingsNote(
-                        if (st.synced) "These choices are saved to your account, so they apply on every device and to what other students can see. UniVibe never collects your precise location."
-                        else "Preview build: these choices are saved on this device only. UniVibe never collects your precise location.",
-                    )
-                }
+        item {
+            SettingsGroup {
+                SettingsNavRow(
+                    VibeIcons.Visibility, "Visibility", onVisibility,
+                    subtitle = if (s.discoverable) "Shown in Discover" else "Hidden from Discover",
+                )
+                RowDivider()
+                SettingsNavRow(
+                    VibeIcons.Chats, "Messages", onMessages,
+                    subtitle = "Who can message you: ${s.messagePolicy.label}",
+                )
+                RowDivider()
+                SettingsNavRow(
+                    VibeIcons.Sensors, "Activity status", onActivityStatus,
+                    subtitle = if (s.showOnline) "Online status is shown" else "Online status is hidden",
+                )
             }
         }
+        item {
+            SettingsGroup {
+                SettingsNavRow(
+                    VibeIcons.Block, "Blocked students", onBlocked,
+                    subtitle = if (s.blocked.isEmpty()) "No one blocked" else "${s.blocked.size} blocked",
+                )
+                RowDivider()
+                SettingsNavRow(VibeIcons.Shield, "Safety tips", onSafety)
+            }
+        }
+        item { SettingsNote("UniVibe never collects your precise location.") }
     }
 }
 

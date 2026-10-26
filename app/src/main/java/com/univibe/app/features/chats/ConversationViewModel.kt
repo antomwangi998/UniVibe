@@ -1,5 +1,7 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.data.repository.LiveShareStarted
+import com.univibe.app.data.repository.MAX_MESSAGE_PHOTOS
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -13,6 +15,10 @@ import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.ChatRepository
 import com.univibe.app.data.repository.GroupRepository
 import com.univibe.app.data.repository.MessageRepository
+import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.prefs.ChatAppearanceStore
+import com.univibe.app.data.prefs.StoredChatAppearance
+import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,9 +37,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 const val MAX_MESSAGE = 1000
+
+/** Photos waiting to go out together, with their caption. */
+class PhotoBatch(val paths: List<String>, val caption: String)
+
+/** A file waiting to go out, with its caption. */
+class FileToSend(val file: com.univibe.app.data.media.PickedFile, val caption: String)
 const val MAX_FORWARD_TARGETS = 5
 
 data class ConversationUiState(
+    /** This phone's look for the conversation (theme and wallpaper), see ChatAppearanceStore. */
+    val themeId: String = "default",
+    val wallpaperId: String = "none",
+    val wallpaperPhoto: String? = null,
     val loading: Boolean = true,
     val notFound: Boolean = false,
     val chat: Chat? = null,
@@ -72,6 +88,10 @@ data class ConversationUiState(
     val failedPhoto: String? = null,
     /** A voice message that could not be sent; the recording is kept so Retry can send it again. */
     val failedVoice: Recording? = null,
+    /** Photos (with their caption) that could not be sent; the screen offers Retry. */
+    val failedPhotos: PhotoBatch? = null,
+    /** A file (with its caption) that could not be sent; the screen offers Retry. */
+    val failedFile: FileToSend? = null,
 ) {
     val canSend get() = input.isNotBlank() && input.length <= MAX_MESSAGE
     /** False in admins-only groups for non-admins. The server enforces this as well. */
@@ -105,7 +125,7 @@ data class ConversationUiState(
 }
 
 fun replyPreview(m: Message): String =
-    if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else m.text.take(120)
+    if (m.text.isBlank() && m.file != null) "File: ${m.file.name}" else if (m.text.isBlank() && m.voice != null) "Voice message" else if (m.text.isBlank() && m.imagePath != null) "Photo" else if (m.text.isBlank() && (m.location != null || m.live != null)) "Location" else m.text.take(120)
 
 fun canEditMessage(m: Message, now: Long = System.currentTimeMillis()): Boolean =
     m.isMine && m.text.isNotBlank() && now - m.timeMillis <= EDIT_WINDOW_MILLIS
@@ -116,6 +136,7 @@ class ConversationViewModel(
     private val messages: MessageRepository = AppContainer.messageRepository,
     private val groups: GroupRepository = AppContainer.groupRepository,
     private val settings: SettingsRepository = AppContainer.settingsRepository,
+    private val privacy: PrivacyRepository = AppContainer.privacyRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ConversationUiState())
     val state: StateFlow<ConversationUiState> = _state.asStateFlow()
@@ -128,6 +149,11 @@ class ConversationViewModel(
     private var latestMessages: List<Message> = emptyList()
 
     private fun publishMessages() = _state.update { s -> s.copy(messages = latestMessages.filterNot { it.id in hiddenIds }) }
+
+    init {
+        val look = ChatAppearanceStore.get(chatId)
+        _state.update { it.copy(themeId = look.themeId, wallpaperId = look.wallpaperId, wallpaperPhoto = look.wallpaperPhoto) }
+    }
 
     init {
         _state.update { it.copy(input = DraftStore.get(draftKey)) }
@@ -231,21 +257,92 @@ class ConversationViewModel(
         }
     }
 
-    fun sendVoice(path: String, durationMs: Int) {
+    /** Sends the chosen photos together as one message, with the caption the person wrote (may be empty). */
+    fun sendPhotos(paths: List<String>, caption: String) {
+        if (paths.isEmpty()) return
+        if (!_state.value.canPost) { paths.forEach { runCatching { java.io.File(it).delete() } }; return }
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        val batch = PhotoBatch(paths.take(MAX_MESSAGE_PHOTOS), caption)
+        viewModelScope.launch {
+            try { messages.sendPhotos(chatId, batch.caption, batch.paths, reply) }
+            catch (e: Exception) { _state.update { it.copy(failedPhotos = batch) }; fail(e, if (batch.paths.size == 1) "Couldn't send the photo." else "Couldn't send the photos.") }
+        }
+    }
+
+    /** Sends the chosen file as one message, with the caption the person wrote (may be empty). */
+    fun sendFile(file: com.univibe.app.data.media.PickedFile, caption: String) {
+        if (!_state.value.canPost) { runCatching { java.io.File(file.path).delete() }; return }
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { messages.sendFile(chatId, caption, file, reply) }
+            catch (e: Exception) { _state.update { it.copy(failedFile = FileToSend(file, caption)) }; fail(e, "Couldn't send the file.") }
+        }
+    }
+
+    fun sendLocation(latitude: Double, longitude: Double) {
+        if (!_state.value.canPost) return
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { messages.sendLocation(chatId, latitude, longitude, reply) }
+            catch (e: Exception) { fail(e, "Couldn't send your location.") }
+        }
+    }
+
+    /** Starts a live share and, once the server has it, lets the screen start the service that keeps it fresh. */
+    fun shareLive(latitude: Double, longitude: Double, minutes: Int, onStarted: (LiveShareStarted) -> Unit) {
+        if (!_state.value.canPost) return
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { onStarted(messages.sendLiveLocation(chatId, latitude, longitude, minutes, reply)) }
+            catch (e: Exception) { fail(e, "Couldn't start sharing your location.") }
+        }
+    }
+
+    fun retryFailedFile() {
+        val f = _state.value.failedFile ?: return
+        _state.update { it.copy(failedFile = null) }
+        sendFile(f.file, f.caption)
+    }
+
+    fun dismissFailedFile() {
+        _state.value.failedFile?.let { runCatching { java.io.File(it.file.path).delete() } }
+        _state.update { it.copy(failedFile = null) }
+    }
+
+    fun retryFailedPhotos() {
+        val b = _state.value.failedPhotos ?: return
+        _state.update { it.copy(failedPhotos = null) }
+        sendPhotos(b.paths, b.caption)
+    }
+
+    fun dismissFailedPhotos() {
+        _state.value.failedPhotos?.paths?.forEach { runCatching { java.io.File(it).delete() } }
+        _state.update { it.copy(failedPhotos = null) }
+    }
+
+    fun sendVoice(path: String, durationMs: Int, waveform: List<Int> = emptyList()) {
         if (!_state.value.canPost) { java.io.File(path).delete(); return }
         val s = _state.value
         val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
         _state.update { it.copy(replyTo = null) }
         viewModelScope.launch {
-            try { messages.sendVoice(chatId, path, durationMs, reply) }
-            catch (e: Exception) { _state.update { it.copy(failedVoice = Recording(path, durationMs)) }; fail(e, "Couldn't send the voice message.") }
+            try { messages.sendVoice(chatId, path, durationMs, reply, waveform) }
+            catch (e: Exception) { _state.update { it.copy(failedVoice = Recording(path, durationMs, waveform)) }; fail(e, "Couldn't send the voice message.") }
         }
     }
 
     fun retryFailedVoice() {
         val r = _state.value.failedVoice ?: return
         _state.update { it.copy(failedVoice = null) }
-        sendVoice(r.path, r.durationMs)
+        sendVoice(r.path, r.durationMs, r.waveform)
     }
 
     fun dismissFailedVoice() {
@@ -270,6 +367,77 @@ class ConversationViewModel(
             try { chats.setMuted(chatId, muted) }
             catch (e: Exception) { _state.update { it.copy(chat = it.chat?.copy(muted = !muted), notice = "Couldn't change notifications. Try again.") } }
         }
+    }
+
+    /** Pins or unpins this conversation in the chat list; put back if the server says no. */
+    fun togglePin() {
+        val chat = _state.value.chat ?: return
+        val pinned = !chat.pinned
+        _state.update { it.copy(chat = chat.copy(pinned = pinned)) }
+        viewModelScope.launch {
+            try { chats.setPinned(chatId, pinned) }
+            catch (e: Exception) { _state.update { it.copy(chat = it.chat?.copy(pinned = !pinned), notice = if (pinned) "Couldn't pin the chat. Try again." else "Couldn't unpin the chat. Try again.") } }
+        }
+    }
+
+    /** Sets the "marked unread" flag, then [onDone] (the screen leaves, so opening the chat again does not undo it at once). */
+    fun markUnread(onDone: () -> Unit) {
+        viewModelScope.launch {
+            try { chats.markUnread(chatId); onDone() }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't mark as unread. Try again.") } }
+        }
+    }
+
+    fun archiveChat(onDone: () -> Unit) {
+        viewModelScope.launch {
+            try { chats.archive(chatId); onDone() }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't archive the chat. Try again.") } }
+        }
+    }
+
+    /** Hides the history for this person only. The other person keeps theirs. */
+    fun clearHistory() {
+        viewModelScope.launch {
+            try {
+                messages.clearChat(chatId)
+                latestMessages = emptyList(); publishMessages()
+                _state.update { it.copy(notice = "Chat cleared") }
+            } catch (e: Exception) { _state.update { it.copy(notice = "Couldn't clear the chat. Try again.") } }
+        }
+    }
+
+    /** 1:1 chats only. The block is the same one the profile menu makes, and can be undone in Settings. */
+    fun blockPerson(onDone: () -> Unit) {
+        val chat = _state.value.chat ?: return
+        val id = chat.studentId ?: return
+        viewModelScope.launch {
+            try { privacy.block(id, chat.title); onDone() }
+            catch (e: java.io.IOException) { _state.update { it.copy(notice = "Couldn't block ${chat.title}. Check your connection and try again.") } }
+            catch (e: Exception) { _state.update { it.copy(notice = "Couldn't block ${chat.title}. Try again.") } }
+        }
+    }
+
+    // ---- theme and wallpaper (kept on this phone only)
+
+    private fun saveLook() = _state.value.let { ChatAppearanceStore.set(chatId, StoredChatAppearance(it.themeId, it.wallpaperId, it.wallpaperPhoto)) }
+
+    fun setChatTheme(id: String) { _state.update { it.copy(themeId = id) }; saveLook() }
+
+    fun setWallpaper(id: String) { _state.update { it.copy(wallpaperId = id) }; saveLook() }
+
+    /** A picked picture becomes the wallpaper. The one it replaces is deleted from app storage. */
+    fun setWallpaperPhoto(path: String) {
+        val old = _state.value.wallpaperPhoto
+        _state.update { it.copy(wallpaperId = "photo", wallpaperPhoto = path) }
+        saveLook()
+        if (old != null && old != path) PhotoStore.delete(old)
+    }
+
+    fun resetLook() {
+        val old = _state.value.wallpaperPhoto
+        _state.update { it.copy(themeId = "default", wallpaperId = "none", wallpaperPhoto = null) }
+        saveLook()
+        PhotoStore.delete(old)
     }
 
     fun openMenu(message: Message?) = _state.update { it.copy(menuMessage = message) }

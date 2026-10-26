@@ -46,6 +46,14 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://settings/status` | Account status |
 | `univibe://profile/saved` | Saved posts |
 | `univibe://profile/followers` `univibe://profile/following` | Follower lists |
+| `univibe://promotions` | Your promotions and their results |
+| `univibe://promotion-new` | New promotion (opens an empty form; a link never buys or posts anything) |
+| `univibe://promotion/{campaignId}` | One promotion: payment, status and performance (yours only; others see "not found") |
+| `univibe://my-businesses` | Businesses you run |
+| `univibe://business-new` | Add a business (opens an empty form) |
+| `univibe://business-edit/{businessId}` | Edit a business (people who run it only) |
+| `univibe://businesses` | Campus business directory |
+| `univibe://business/{businessId}` | One business (approved listings, or your own) |
 
 ## Try it from Termux (app installed)
 ```
@@ -58,3 +66,6 @@ or `termux-open-url "univibe://events"`.
   and `android:autoVerify="true"`. Add them once you own a domain.
 - Email verification / password-reset links can reuse the same mechanism (see docs/AUTH_BACKEND.md).
 - Ids in links are untrusted input: screens look them up and show a "not found" state for unknown ids.
+
+## Event share links (stage 6)
+`univibe://events/{id}` opens the event (already supported). The web link `<PUBLIC_BASE_URL>/e/{id}` is served by the backend as a page with an "Open in UniVibe" button that uses the app link. Android App Links (opening the https link straight in the app) are NOT set up: they need a verified domain and an `assetlinks.json`, so for now the web page is the bridge.
