@@ -30,6 +30,7 @@ import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.EventCard
 import com.univibe.app.ui.components.InterestChip
+import com.univibe.app.ui.components.SponsoredSlot
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.VibePullToRefresh
@@ -271,6 +272,8 @@ private fun ServerEventsList(
                     }
                 }
             }
+            // One paid, labelled card under the filters. It shows nothing when the server has no card to give.
+            if (!state.loading && state.error == null && !state.isEmpty) item(key = "sponsored") { SponsoredSlot("discover_events") }
             when {
                 state.loading -> item(key = "loading") { Box(Modifier.padding(horizontal = Spacing.md)) { LoadingSkeleton() } }
                 state.error != null -> item(key = "error") { Box(Modifier.padding(horizontal = Spacing.md)) { ErrorState(state.error, onRetry = vm::load) } }
