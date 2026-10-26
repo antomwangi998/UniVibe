@@ -26,6 +26,8 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   /** A live, paid, approved event promotion (free package, so no payment step), plus the organizer and a staff account. */
   async function liveCampaign(over: { cap?: number | null; frequency?: number } = {}) {
+    // Also retire campaigns left by earlier tests in this file: one card per request, fewest impressions first, so a leftover would win.
+    await pool.query("update campaigns set ends_at = now() where ends_at > now() and advertiser_id in (select id from users where university_id = 'sponsored-test')");
     const admin = await student();
     await pool.query("update users set role = 'admin' where id = $1", [admin.id]);
     const pkg = await call('POST', `${V1}/admin/monetization/packages`, admin.token, {
