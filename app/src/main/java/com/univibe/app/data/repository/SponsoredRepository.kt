@@ -2,6 +2,7 @@ package com.univibe.app.data.repository
 
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.send
+import com.univibe.app.features.promotions.sponsoredEventLine
 import org.json.JSONObject
 
 /**
@@ -21,6 +22,12 @@ data class SponsoredCard(
     val targetId: String?,
     val eventLine: String?,
     val impressionToken: String,
+    /** Optional, real data only: the server sends them when the campaign or business has them. */
+    val advertiserLogoUrl: String? = null,
+    val imageUrl: String? = null,
+    val imageWidth: Int? = null,
+    val imageHeight: Int? = null,
+    val category: String? = null,
 )
 
 interface SponsoredRepository {
@@ -45,6 +52,8 @@ fun parseSponsoredCard(o: JSONObject): SponsoredCard? {
     val cta = o.optJSONObject("cta")
     val advertiser = o.optJSONObject("advertiser")
     val event = o.optJSONObject("event")
+    val image = o.optJSONObject("image")
+    val business = o.optJSONObject("business")
     return SponsoredCard(
         campaignId = o.optString("campaignId").ifEmpty { return null },
         advertiser = advertiser?.optString("name").orEmpty().ifEmpty { "Advertiser" },
@@ -55,8 +64,13 @@ fun parseSponsoredCard(o: JSONObject): SponsoredCard? {
         ctaUrl = cta?.optString("url")?.takeIf { it.startsWith("https://") },
         targetType = target?.optString("type")?.ifEmpty { null },
         targetId = target?.optString("id")?.ifEmpty { null },
-        eventLine = event?.optString("venue")?.ifEmpty { null },
+        eventLine = event?.let { sponsoredEventLine(it.optString("startsAt").ifEmpty { null }, it.optString("venue").ifEmpty { null }) },
         impressionToken = token,
+        advertiserLogoUrl = advertiser?.optString("logoUrl")?.takeIf { it.startsWith("https://") },
+        imageUrl = image?.optString("url")?.takeIf { it.startsWith("https://") },
+        imageWidth = image?.optInt("width", 0)?.takeIf { it > 0 },
+        imageHeight = image?.optInt("height", 0)?.takeIf { it > 0 },
+        category = business?.optString("category")?.ifEmpty { null },
     )
 }
 

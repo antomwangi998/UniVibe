@@ -7,6 +7,7 @@ import { HttpError } from '../../errors';
 import { idParam } from '../../http';
 import { visible } from '../../posts';
 import { eventVisible } from '../events';
+import { signedUrl } from '../cards';
 import { issueToken, verifyToken, viewerKey } from './sponsored_token';
 
 const PLACEMENTS = ['home_feed', 'discover_feed', 'discover_events', 'business_directory'] as const;
@@ -28,6 +29,7 @@ interface CardRow {
   event_id: string | null; business_id: string | null; post_id: string | null;
   business_name: string | null; business_verification: string | null; business_category: string | null; business_location: string | null;
   event_title: string | null; event_starts_at: Date | null; event_venue: string | null; organizer_name: string | null;
+  logo_key: string | null; image_key: string | null; image_width: number | null; image_height: number | null;
 }
 
 const UTC_DAY = "(date_trunc('day', now() at time zone 'UTC') at time zone 'UTC')";
@@ -58,11 +60,14 @@ export function sponsoredRoutes(ctx: Ctx) {
       const { rows } = await pool.query<CardRow>(
         `select c.id, c.kind, c.headline, c.body, c.cta_label, c.cta_url, c.event_id, c.business_id, c.post_id,
                 b.name as business_name, b.verification as business_verification, b.category as business_category, b.location_text as business_location,
-                e.title as event_title, e.starts_at as event_starts_at, e.venue_name as event_venue, org.full_name as organizer_name
+                e.title as event_title, e.starts_at as event_starts_at, e.venue_name as event_venue, org.full_name as organizer_name,
+                lm.object_key as logo_key, im.object_key as image_key, im.width as image_width, im.height as image_height
            from campaigns c
            join orders o on o.id = c.order_id and o.status = 'paid'
            join users adv on adv.id = c.advertiser_id
            left join businesses b on b.id = c.business_id
+           left join media lm on lm.id = b.logo_media_id and lm.status = 'ready'
+           left join media im on im.id = c.image_media_id and im.status = 'ready'
            left join events e on e.id = c.event_id
            left join users org on org.id = e.organizer_id
           where c.status = 'active' and c.review_status = 'approved' and c.starts_at <= now() and c.ends_at > now()
@@ -81,19 +86,22 @@ export function sponsoredRoutes(ctx: Ctx) {
 
       return {
         refreshAfterSeconds: REFRESH_SECONDS,
-        items: rows.map((r) => {
+        items: await Promise.all(rows.map(async (r) => {
           const { token } = issueToken(secret, me.id, r.id, placement);
+          const imageUrl = await signedUrl(ctx, r.image_key);
           const target = r.event_id ? { type: 'event', id: r.event_id } : r.post_id ? { type: 'post', id: r.post_id } : r.business_id ? { type: 'business', id: r.business_id } : null;
           return {
             campaignId: r.id, label: 'Sponsored', placement, kind: r.kind,
             // Attribution: the business when there is one, otherwise the organizer, whose name the event page already shows.
-            advertiser: { name: r.business_name ?? r.organizer_name ?? 'Advertiser', verified: r.business_verification === 'verified' },
+            advertiser: { name: r.business_name ?? r.organizer_name ?? 'Advertiser', verified: r.business_verification === 'verified', logoUrl: await signedUrl(ctx, r.logo_key) },
             headline: r.headline, body: r.body, cta: r.cta_label && r.cta_url ? { label: r.cta_label, url: r.cta_url } : null, target,
             event: r.event_id ? { title: r.event_title, startsAt: r.event_starts_at, venue: r.event_venue } : null,
             business: r.business_id ? { category: r.business_category, location: r.business_location } : null,
+            // Only when the campaign has a ready image. The app draws nothing for a missing one.
+            image: imageUrl ? { url: imageUrl, width: r.image_width, height: r.image_height } : null,
             impressionToken: token,
           };
-        }),
+        })),
       };
     });
 

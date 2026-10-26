@@ -155,3 +155,28 @@ fun whoLabel(by: String): String = when (by) {
     "admin" -> "UniVibe team"
     else -> "Automatic"
 }
+
+/** "Sat 22 Nov, 6:00 PM · KICC" from what the server sent. Parts that are missing or unreadable are left out, never guessed. */
+fun sponsoredEventLine(
+    startsAtIso: String?, venue: String?,
+    zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault(),
+): String? {
+    val whenText = startsAtIso?.let { iso ->
+        runCatching { DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", locale).format(Instant.parse(iso).atZone(zone)) }.getOrNull()
+    }
+    return listOfNotNull(whenText, venue?.takeIf { it.isNotBlank() }).joinToString(" · ").ifEmpty { null }
+}
+
+/** Width over height for campaign media, kept between 1:1 and 2:1 so a card is never a sliver or a tower. 16:9 when unknown. */
+fun sponsoredMediaAspect(width: Int?, height: Int?): Float {
+    if (width == null || height == null || width <= 0 || height <= 0) return 16f / 9f
+    return (width.toFloat() / height).coerceIn(1f, 2f)
+}
+
+/** Used only when the campaign has no button label of its own but does open something real inside the app. */
+fun sponsoredDefaultCta(targetType: String?): String? = when (targetType) {
+    "event" -> "View event"
+    "business" -> "View business"
+    "post" -> "View post"
+    else -> null
+}
