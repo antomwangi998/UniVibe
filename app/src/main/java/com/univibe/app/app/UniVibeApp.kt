@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Density
 import com.univibe.app.ui.components.LocalCommunityMembership
+import com.univibe.app.ui.components.LocalGlassEnabled
 import com.univibe.app.ui.components.LocalReduceMotion
 import com.univibe.app.ui.components.systemAnimationsOff
 import androidx.compose.runtime.getValue
@@ -51,7 +52,13 @@ fun UniVibeApp(appViewModel: AppViewModel = viewModel()) {
     val haptics = LocalHapticFeedback.current
     val reduceMotion = remember(settings.reduceMotion) { settings.reduceMotion || systemAnimationsOff(context) }
 
+    // Glass is skipped on low-RAM phones and in High contrast; those get flat surfaces with the same layout.
+    val glassEnabled = remember(settings.highContrast) {
+        !settings.highContrast && !(context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice ?: false)
+    }
+
     CompositionLocalProvider(
+        LocalGlassEnabled provides glassEnabled,
         LocalDensity provides Density(density.density, (density.fontScale * settings.textScale.factor).coerceAtMost(2f)),
         LocalReduceMotion provides reduceMotion,
         LocalHapticFeedback provides if (settings.hapticFeedback) haptics else NoHaptics,
