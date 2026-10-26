@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -36,6 +35,7 @@ import androidx.compose.runtime.remember
 import com.univibe.app.guide.guideTarget
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -61,6 +61,7 @@ fun VibeBottomBar(
     selectedRoute: String?,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    backdrop: GlassBackdropState? = null,
 ) {
     Box(
         modifier
@@ -68,12 +69,13 @@ fun VibeBottomBar(
             .navigationBarsPadding()
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
     ) {
+        val barShape = RoundedCornerShape(GlassTokens.ComposerCorner)
+        val barStyle = rememberGlassStyle(GlassTone.Chrome)
+        // Glass: translucent gradient, thin border, no drop shadow. The bar sits still, so it never re-draws while scrolling.
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 10.dp,
-            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+            modifier = Modifier.fillMaxWidth().glassBackdropTarget(backdrop).glass(barShape, barStyle),
+            shape = barShape,
+            color = Color.Transparent,
         ) {
             Row(
                 Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.sm).selectableGroup(),
@@ -98,7 +100,7 @@ private fun BarItem(item: VibeBarItem, selected: Boolean, onClick: () -> Unit, m
         transitionSpec = { spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow) },
     ) { if (it) 1f else 0f }
     val tint by transition.animateColor(label = "tint", transitionSpec = { tween(180) }) {
-        if (it) colors.primary else colors.onSurfaceVariant
+        if (it) colors.primary else colors.onSurface.copy(alpha = 0.68f)
     }
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,

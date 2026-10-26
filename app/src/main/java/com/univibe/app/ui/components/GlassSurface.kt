@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -43,6 +44,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -75,7 +77,19 @@ object GlassTokens {
     const val PressMillis = 90
     /** Timestamps and ticks sit quietly beside the text. */
     const val MetaAlpha = 0.66f
+    /** Real backdrop blur behind the bottom tab bar on Android 12+. Set false to turn it off everywhere. */
+    const val BackdropBlur = true
+    val BlurRadius = 20.dp
 }
+
+/**
+ * False on low-RAM phones and in Settings > Accessibility > High contrast. Glass then falls back to flat, opaque
+ * surfaces with a plain border: same shapes and layout, no gradients, nothing extra to draw. Provided once in UniVibeApp.
+ */
+val LocalGlassEnabled = compositionLocalOf { true }
+
+/** True inside [GlassHeaderBar], so every [VibeIconButton] in a screen's top bar turns into a [GlassIconButton] by itself. */
+val LocalInGlassBar = compositionLocalOf { false }
 
 enum class GlassTone {
     /** Messages from the other person: charcoal / navy glass. */
@@ -86,6 +100,8 @@ enum class GlassTone {
     Chrome,
     /** Small controls: icon buttons, date chips, the jump-to-latest button. */
     Control,
+    /** Feed and list cards: FLAT glass (solid tonal fill + thin border, no gradients), cheap enough for scrolling lists. */
+    Card,
 }
 
 @Immutable
@@ -125,6 +141,11 @@ private fun glassStyle(tone: GlassTone, dark: Boolean, primary: Color, onSurface
             border = vertical(primary.copy(alpha = 0.45f), Color.White.copy(alpha = 0.07f)),
             content = onSurface, quoteFill = Color.White.copy(alpha = 0.07f), quoteBar = primary,
         )
+        GlassTone.Card -> GlassStyle(
+            fill = SolidColor(Color(0xFF111A24).copy(alpha = 0.78f)), sheen = SolidColor(Color.Transparent),
+            border = SolidColor(Color.White.copy(alpha = 0.10f)),
+            content = onSurface, quoteFill = Color.White.copy(alpha = 0.07f), quoteBar = primary,
+        )
         GlassTone.Control -> GlassStyle(
             fill = vertical(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.04f)),
             sheen = sheenDark,
@@ -150,6 +171,11 @@ private fun glassStyle(tone: GlassTone, dark: Boolean, primary: Color, onSurface
             border = vertical(primary.copy(alpha = 0.35f), slate.copy(alpha = 0.08f)),
             content = onSurface, quoteFill = slate.copy(alpha = 0.06f), quoteBar = primary,
         )
+        GlassTone.Card -> GlassStyle(
+            fill = SolidColor(Color.White.copy(alpha = 0.90f)), sheen = SolidColor(Color.Transparent),
+            border = SolidColor(slate.copy(alpha = 0.10f)),
+            content = onSurface, quoteFill = slate.copy(alpha = 0.06f), quoteBar = primary,
+        )
         GlassTone.Control -> GlassStyle(
             fill = vertical(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.60f)),
             sheen = sheenLight,
@@ -166,7 +192,30 @@ fun rememberGlassStyle(tone: GlassTone): GlassStyle {
     val dark = colors.background.luminance() < 0.5f
     val primary = colors.primary
     val onSurface = colors.onSurface
-    return remember(tone, dark, primary, onSurface) { glassStyle(tone, dark, primary, onSurface) }
+    val enabled = LocalGlassEnabled.current
+    val flatBase = when (tone) {
+        GlassTone.Incoming, GlassTone.Chrome -> colors.surfaceContainerHigh
+        GlassTone.Control -> colors.surfaceContainerHighest
+        GlassTone.Card -> colors.surface
+        GlassTone.Outgoing -> primary.copy(alpha = if (dark) 0.28f else 0.18f).compositeOver(colors.background)
+    }
+    val outline = colors.outlineVariant
+    return remember(tone, dark, primary, onSurface, enabled, flatBase, outline) {
+        val glass = glassStyle(tone, dark, primary, onSurface)
+        if (enabled) glass else GlassStyle(
+            fill = SolidColor(flatBase), sheen = SolidColor(Color.Transparent), border = SolidColor(outline),
+            content = onSurface, quoteFill = glass.quoteFill, quoteBar = glass.quoteBar,
+        )
+    }
+}
+
+/** Nearly opaque colour for popups and sheets (they live in their own window, so they cannot show the wallpaper). */
+@Composable
+fun glassPopupColor(): Color {
+    val colors = MaterialTheme.colorScheme
+    if (!LocalGlassEnabled.current) return colors.surface
+    val dark = colors.background.luminance() < 0.5f
+    return if (dark) Color(0xFF111B26).copy(alpha = 0.96f) else Color.White.copy(alpha = 0.97f)
 }
 
 /** Fill, sheen and border in one modifier. Draw it before any clip so the border is not cut. [borderOverride] is for error / focus. */
@@ -237,7 +286,7 @@ fun GlassIconButton(
 fun GlassHeaderBar(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
     val style = rememberGlassStyle(GlassTone.Chrome)
     val shape = RoundedCornerShape(GlassTokens.HeaderCorner)
-    CompositionLocalProvider(LocalContentColor provides style.content) {
+    CompositionLocalProvider(LocalContentColor provides style.content, LocalInGlassBar provides true) {
         Row(
             modifier.fillMaxWidth().statusBarsPadding()
                 .padding(horizontal = Spacing.sm + 4.dp, vertical = Spacing.sm)
@@ -324,13 +373,12 @@ fun GlassDropdownMenu(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val style = rememberGlassStyle(GlassTone.Chrome)
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
         shape = RoundedCornerShape(GlassTokens.BubbleCorner),
-        containerColor = if (dark) Color(0xFF111B26).copy(alpha = 0.96f) else Color.White.copy(alpha = 0.97f),
+        containerColor = glassPopupColor(),
         tonalElevation = 0.dp,
         shadowElevation = 8.dp,
         border = BorderStroke(GlassTokens.BorderWidth, style.border),
