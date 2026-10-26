@@ -92,7 +92,7 @@ describe.skipIf(!url)('events (needs TEST_DATABASE_URL)', () => {
     await bad({ startsAt: new Date(Date.now() + 60_000).toISOString(), endsAt: inHours(2) }); // starts in 1 minute
     await bad({ startsAt: inHours(24 * 400), endsAt: inHours(24 * 400 + 2) }); // more than a year away
     await bad({ title: 'ab' }, 400);
-    await bad({ category: 'parties' }, 400);
+    await bad({ category: 'parties' }); // well-formed but not in event_categories: 422
     await bad({ capacity: 0 }, 400);
     await bad({ capacity: 5001 }, 400);
     await bad({ startsAt: 'tomorrow' }, 400);
