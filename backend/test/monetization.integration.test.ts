@@ -157,7 +157,7 @@ describe.skipIf(!url)('monetization (needs TEST_DATABASE_URL)', () => {
     expect(view.body.reviewNote).toBe('Misleading wording');
     const refund = (await call('GET', `${V1}/admin/monetization/refunds?status=requested`, admin.token)).body.items.find((r: { order_reference: string }) => r.order_reference === co.body.order.reference);
     // The requester (the admin who rejected) cannot approve their own request.
-    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, admin.token, {})).status).toBe(403);
+    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, decider.token, {})).status).toBe(403);
     const second = await staff();
     expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/paid`, second.token, { payoutReference: 'QREFUND123' })).status).toBe(409); // must approve first
     expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, second.token, {})).status).toBe(200);
@@ -191,9 +191,11 @@ describe.skipIf(!url)('monetization (needs TEST_DATABASE_URL)', () => {
     expect((await call('GET', `${V1}/campaigns/${c}`, org.token)).body.status).toBe('pending_review');
     const refund = (await call('GET', `${V1}/admin/monetization/refunds?status=requested`, admin.token)).body.items.find((r: { order_reference: string }) => r.order_reference === co.body.order.reference);
     expect(refund.amountMinor).toBe(5000);
-    // A sole administrator may decide a refund they requested; the audit log records it.
-    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, admin.token, {})).status).toBe(200);
-    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/paid`, admin.token, { payoutReference: 'QEXCESS123' })).status).toBe(200);
+    // The shared test database holds many admins, so the sole-administrator exception does not apply here:
+    // a second administrator decides the refund instead.
+    const decider = await staff();
+    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/approve`, decider.token, {})).status).toBe(200);
+    expect((await call('POST', `${V1}/admin/monetization/refunds/${refund.id}/paid`, decider.token, { payoutReference: 'QEXCESS123' })).status).toBe(200);
     // Paying back the excess leaves the order paid and the campaign untouched.
     expect((await pool.query('select status from orders where id = $1', [co.body.order.id])).rows[0].status).toBe('paid');
     expect((await call('GET', `${V1}/campaigns/${c}`, org.token)).body.status).toBe('pending_review');

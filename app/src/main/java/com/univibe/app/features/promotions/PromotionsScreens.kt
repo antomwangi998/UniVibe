@@ -214,7 +214,7 @@ fun NewPromotionScreen(
     Column(Modifier.fillMaxSize()) {
         VibeTopBar(
             "New promotion", compactTitle = true,
-            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back") { if (kind == null) onBack() else viewModel.back() } },
+            navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", { if (kind == null) onBack() else viewModel.back() }) },
         )
         if (kind == null) {
             LazyColumn(
