@@ -280,6 +280,21 @@ describe.skipIf(!url)('push, jobs, reactions, settings, sync, search (needs TEST
       expect((await call('GET', `${V1}/notifications`, alice.token)).body.items).toHaveLength(1);
       expect((await pool.query("select push_status from notifications where recipient_id = $1", [alice.id])).rows[0].push_status).toBe('skipped');
     });
+    it('promotion notices push with a fixed label, follow only the master switch, and carry no text', async () => {
+      const { notifyPromotion } = await import('../src/modules/monetization/service');
+      const [alice, bob] = [await h.student(), await h.student()];
+      await register(alice, 'install-alice-001', TOKEN('al'));
+      await register(bob, 'install-bob-0001', TOKEN('bo'));
+      await call('PUT', `${V1}/me/notification-preferences`, alice.token, { pushSocial: false, pushEvents: false }); // finer switches do not apply
+      await call('PUT', `${V1}/me/notification-preferences`, bob.token, { pushEnabled: false }); // the master switch does
+      await notifyPromotion(pool, alice.id, 'payment_confirmed', null);
+      await notifyPromotion(pool, bob.id, 'payment_confirmed', null);
+      await work();
+      expect(sent).toHaveLength(1);
+      expect(sent[0].message.data).toMatchObject({ kind: 'notification', type: 'promotion', promotionKind: 'payment_confirmed' });
+      expect(Object.values(sent[0].message.data).join(' ')).not.toMatch(/KES|receipt|refund/i);
+      expect((await pool.query("select push_status from notifications where recipient_id = $1", [bob.id])).rows[0].push_status).toBe('skipped');
+    });
     it('records "accepted" only when FCM accepted the request', async () => {
       const [alice, bob] = [await h.student(), await h.student()];
       await register(alice, 'install-alice-001', TOKEN('al'));

@@ -46,6 +46,14 @@ Links only navigate; they never perform actions (delete, block, etc.).
 | `univibe://settings/status` | Account status |
 | `univibe://profile/saved` | Saved posts |
 | `univibe://profile/followers` `univibe://profile/following` | Follower lists |
+| `univibe://promotions` | Your promotions and their results |
+| `univibe://promotion-new` | New promotion (opens an empty form; a link never buys or posts anything) |
+| `univibe://promotion/{campaignId}` | One promotion: payment, status and performance (yours only; others see "not found") |
+| `univibe://my-businesses` | Businesses you run |
+| `univibe://business-new` | Add a business (opens an empty form) |
+| `univibe://business-edit/{businessId}` | Edit a business (people who run it only) |
+| `univibe://businesses` | Campus business directory |
+| `univibe://business/{businessId}` | One business (approved listings, or your own) |
 
 ## Try it from Termux (app installed)
 ```

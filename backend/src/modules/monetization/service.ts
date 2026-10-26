@@ -1,7 +1,9 @@
-import { randomInt } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 import type { Pool, PoolClient } from 'pg';
+import { notSuspended } from '../../access';
 import { HttpError } from '../../errors';
 import { audit } from '../moderation';
+import { notify } from '../notify';
 import {
   type Actor, type CampaignStatus, TransitionError, assertTransition, clockTarget, refundEligibleOnCancel,
   type DeliveryFacts,
@@ -9,6 +11,30 @@ import {
 import { newOrderReference } from './money';
 
 export type Q = Pick<PoolClient, 'query'>;
+
+export type PromotionNotice =
+  | 'receipt_submitted' | 'payment_confirmed' | 'payment_rejected' | 'campaign_approved' | 'campaign_rejected' | 'campaign_paused'
+  | 'campaign_stopped' | 'refund_approved' | 'refund_declined' | 'refund_paid'
+  | 'business_approved' | 'business_rejected' | 'business_suspended' | 'business_restored' | 'business_verified';
+
+/**
+ * Tells a person something happened to their promotion. The text lives in the app, keyed by `kind`, so the server never
+ * sends free text and nothing private travels in a notification. Each notice gets its own id because notifications are
+ * de-duplicated per entity; the campaign id travels in the metadata.
+ */
+export async function notifyPromotion(q: Q, recipientId: string | null, kind: PromotionNotice, campaignId: string | null, businessId: string | null = null): Promise<void> {
+  if (!recipientId) return;
+  await notify(q, {
+    recipientId, actorId: null, type: 'promotion', entityType: businessId ? 'business' : 'campaign', entityId: randomUUID(),
+    metadata: { kind, ...(campaignId ? { campaignId } : {}), ...(businessId ? { businessId } : {}) },
+  });
+}
+
+/** Every staff member who can confirm payments (the platform has few). */
+export async function notifyStaff(q: Q, kind: PromotionNotice, campaignId: string | null): Promise<void> {
+  const staff = await q.query<{ id: string }>(`select u.id from users u where u.role = 'admin' and ${notSuspended('u')} limit 20`);
+  for (const s of staff.rows) await notifyPromotion(q, s.id, kind, campaignId);
+}
 
 export const isUnique = (e: unknown) => (e as { code?: string } | null)?.code === '23505';
 
@@ -166,6 +192,7 @@ export async function sweepCampaigns(pool: Pool): Promise<SweepResult> {
       const finished = c.event_id ? (await client.query("select 1 from events where id = $1 and status in ('published','completed') and ends_at <= now()", [c.event_id])).rowCount : 0;
       if (finished && c.status === 'active') await moveCampaign(client, c, 'completed', 'system', null, 'event ended');
       else await stopCampaign(client, c, 'system', null, 'The event is no longer available to promote.');
+      await notifyPromotion(client, c.advertiser_id, 'campaign_stopped', c.id);
       await audit(client, null, 'campaign.event_ineligible', 'campaign', c.id, { to: c.status });
       out.stopped++;
     });
@@ -188,4 +215,23 @@ export async function sweepCampaigns(pool: Pool): Promise<SweepResult> {
     });
   }
   return out;
+}
+
+/**
+ * Housekeeping for ad events. Re-computes the last three full UTC days of totals from the raw rows (safe to run any
+ * number of times), then deletes raw rows older than 90 days. Totals in `campaign_daily` are what long-range reports read.
+ */
+export async function rollupCampaignEvents(pool: Pool): Promise<{ days: number; purged: number }> {
+  const today = "(date_trunc('day', now() at time zone 'UTC') at time zone 'UTC')";
+  const up = await pool.query(
+    `insert into campaign_daily (campaign_id, day, placement, impressions, clicks, reach)
+     select campaign_id, (created_at at time zone 'UTC')::date, placement,
+            count(*) filter (where kind = 'impression'), count(*) filter (where kind = 'click'),
+            count(distinct viewer_key) filter (where kind = 'impression')
+       from campaign_events where created_at >= ${today} - interval '3 days' and created_at < ${today}
+      group by 1, 2, 3
+     on conflict (campaign_id, day, placement) do update set impressions = excluded.impressions, clicks = excluded.clicks, reach = excluded.reach`);
+  // Never delete a day that has not been rolled up: only rows older than the roll-up window and the 90-day retention.
+  const gone = await pool.query("delete from campaign_events where created_at < now() - interval '90 days'");
+  return { days: up.rowCount ?? 0, purged: gone.rowCount ?? 0 };
 }

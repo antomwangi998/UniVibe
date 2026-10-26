@@ -26,6 +26,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.univibe.app.ui.theme.Spacing
 
+/**
+ * Screen top bar. By default it is the glass header (one rounded bar; icon buttons inside it become glass buttons on
+ * their own). Pass [glass] = false for the old flat bar.
+ */
 @Composable
 fun VibeTopBar(
     title: String,
@@ -34,7 +38,27 @@ fun VibeTopBar(
     titleContent: (@Composable () -> Unit)? = null,
     compactTitle: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
+    glass: Boolean = true,
 ) {
+    if (glass) {
+        GlassHeaderBar(modifier) {
+            navigationIcon?.invoke()
+            if (titleContent != null) {
+                Row(Modifier.weight(1f).padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) { titleContent() }
+            } else {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = Spacing.sm).semantics { heading() },
+                )
+            }
+            actions()
+        }
+        return
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -71,6 +95,10 @@ fun VibeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (LocalInGlassBar.current) {
+        GlassIconButton(icon, contentDescription, onClick, modifier)
+        return
+    }
     SocialActionButton(
         icon = icon,
         contentDescription = contentDescription,

@@ -5,12 +5,14 @@ import type { Ctx } from '../../context';
 import { withTx } from '../../db';
 import { HttpError } from '../../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../../http';
+import { notSuspended } from '../../access';
 import { audit } from '../moderation';
+import { type AnalyticsCampaign, loadAnalytics, rangeFor } from './analytics';
 import { resumeTarget } from './campaign_state';
 import { formatMoney } from './money';
 import { packageView } from './advertiser_routes';
 import {
-  PLACEMENTS_FOR_PACKAGE, advanceByClock, eventPromotable, factsOf, isUnique, lockCampaign, moveCampaign, orderStatusOf,
+  PLACEMENTS_FOR_PACKAGE, advanceByClock, eventPromotable, isUnique, lockCampaign, moveCampaign, notifyPromotion, orderStatusOf,
   requestRefundIfPaid, stopCampaign, sweepCampaigns, type CampaignRow,
 } from './service';
 
@@ -121,6 +123,70 @@ export function monetizationAdminRoutes(ctx: Ctx) {
       return { ok: true };
     });
 
+    // ------------------------------------------------------------ revenue overview
+    /**
+     * Money figures, with the accounting rules spelled out in `rules` so nobody mistakes one number for another:
+     *  - received: cash confirmed from advertisers (gross payment volume), including any excess that is later handed back
+     *  - refunded: refunds actually paid out (including excess handed back)
+     *  - net collected: received minus refunded
+     *  - recognised revenue: the part of paid orders treated as earned. Completed or cancelled-after-delivery campaigns count in full;
+     *    scheduled, active and paused ones count in proportion to the days run; anything not yet started, unreviewed or awaiting refund counts as zero
+     *  - deferred: net paid-for orders not yet recognised (money held for work still to be delivered)
+     * Costs and operating surplus are not tracked yet.
+     */
+    app.get('/admin/monetization/overview', async (req) => {
+      await need(req, 'finance.view');
+      const one = async <T>(sql: string) => (await pool.query(sql)).rows as T[];
+      const [pay] = await one<{ received: string; pending: string; failed: string }>(
+        `select coalesce(sum(coalesce(received_minor, amount_minor)) filter (where status in ('confirmed', 'refunded')), 0) as received,
+                count(*) filter (where status = 'awaiting_verification') as pending,
+                count(*) filter (where status = 'failed' and created_at > now() - interval '30 days') as failed from payments`);
+      const [ref] = await one<{ paid_out: string; open_n: string; open_minor: string }>(
+        `select coalesce(sum(amount_minor) filter (where status = 'paid_out'), 0) as paid_out,
+                count(*) filter (where status in ('requested', 'approved')) as open_n,
+                coalesce(sum(amount_minor) filter (where status in ('requested', 'approved')), 0) as open_minor from refunds`);
+      const byKind = await one<{ kind: string; paid: string; recognised: string }>(
+        `select c.kind, coalesce(sum(o.amount_minor), 0)::bigint as paid,
+                coalesce(sum(round(o.amount_minor * (case c.status when 'completed' then 1.0 when 'cancelled' then 1.0
+                  when 'active' then f.frac when 'paused' then f.frac when 'scheduled' then f.frac else 0 end))), 0)::bigint as recognised
+           from campaigns c join orders o on o.id = c.order_id and o.status = 'paid'
+           cross join lateral (select greatest(0, least(1, extract(epoch from (least(now(), c.ends_at) - c.starts_at)) / nullif(extract(epoch from (c.ends_at - c.starts_at)), 0))) as frac) f
+          group by c.kind order by c.kind`);
+      const [cnt] = await one<{ active_paid: string; pending_review: string; reported: string }>(
+        `select (select count(*) from campaigns c join orders o on o.id = c.order_id where c.status = 'active' and o.status = 'paid' and o.amount_minor > 0) as active_paid,
+                (select count(*) from campaigns where status = 'pending_review') as pending_review,
+                (select count(distinct campaign_id) from campaign_reports where status = 'open') as reported`);
+      const months = await one<{ month: string; received: string; refunded: string }>(
+        `with r as (select to_char(date_trunc('month', confirmed_at at time zone 'UTC'), 'YYYY-MM') as month, sum(coalesce(received_minor, amount_minor)) as received
+                      from payments where status in ('confirmed', 'refunded') and confirmed_at is not null and confirmed_at > now() - interval '12 months' group by 1),
+              f as (select to_char(date_trunc('month', e.created_at at time zone 'UTC'), 'YYYY-MM') as month, sum(rf.amount_minor) as refunded
+                      from refunds rf join payment_events e on e.payment_id = rf.payment_id and e.kind = (case rf.kind when 'full' then 'refunded' else 'excess_refunded' end)
+                     where rf.status = 'paid_out' and e.created_at > now() - interval '12 months' group by 1)
+         select coalesce(r.month, f.month) as month, coalesce(r.received, 0) as received, coalesce(f.refunded, 0) as refunded
+           from r full join f on f.month = r.month order by 1`);
+      const received = Number(pay.received);
+      const refunded = Number(ref.paid_out);
+      const paid = byKind.reduce((n, k) => n + Number(k.paid), 0);
+      const recognised = byKind.reduce((n, k) => n + Number(k.recognised), 0);
+      return {
+        currency: 'KES',
+        payments: { receivedMinor: received, refundedMinor: refunded, netCollectedMinor: received - refunded, awaitingConfirmation: Number(pay.pending), failedLast30Days: Number(pay.failed) },
+        refunds: { open: Number(ref.open_n), openMinor: Number(ref.open_minor), paidOutMinor: refunded },
+        revenue: { recognisedMinor: recognised, deferredMinor: paid - recognised, paidOrdersMinor: paid, byKind: byKind.map((k) => ({ kind: k.kind, paidMinor: Number(k.paid), recognisedMinor: Number(k.recognised) })) },
+        campaigns: { activePaid: Number(cnt.active_paid), pendingReview: Number(cnt.pending_review), withOpenAdReports: Number(cnt.reported) },
+        byMonth: months.map((m) => ({ month: m.month, receivedMinor: Number(m.received), refundedMinor: Number(m.refunded) })),
+        costs: null,
+        rules: {
+          received: 'Cash confirmed from advertisers, before refunds. This is payment volume, not earnings.',
+          refunded: 'Refunds actually paid out, including any excess handed back.',
+          netCollected: 'Received minus refunded.',
+          recognised: 'The part of paid orders treated as earned: finished campaigns in full, running ones by days elapsed, nothing for campaigns not yet started or awaiting refund.',
+          deferred: 'Paid for but not yet earned. Money held for promotion still to be delivered.',
+          costs: 'Not tracked yet, so no operating surplus is shown.',
+        },
+      };
+    });
+
     // ------------------------------------------------------------ payments
     app.get('/admin/monetization/payments', async (req) => {
       await need(req, 'payments.view');
@@ -153,7 +219,7 @@ export function monetizationAdminRoutes(ctx: Ctx) {
     app.post('/admin/monetization/payments/:id/confirm', async (req) => {
       const me = await need(req, 'payments.confirm');
       const id = idParam((req.params as { id?: string }).id);
-      const b = z.object({ receivedMinor: z.number().int().min(0).max(MAX_PRICE_MINOR * 10), note: z.string().trim().max(300).default('') }).strict().parse(req.body ?? {});
+      const b = z.object({ receivedMinor: z.number().int().min(0).max(MAX_PRICE_MINOR * 10), refundExcess: z.boolean().default(false), note: z.string().trim().max(300).default('') }).strict().parse(req.body ?? {});
       const res = await withTx(pool, async (client) => {
         const p = (await client.query<{ id: string; order_id: string; status: string; amount_minor: string; provider_reference: string | null }>(
           'select id, order_id, status, amount_minor, provider_reference from payments where id = $1 for update', [id])).rows[0];
@@ -164,7 +230,10 @@ export function monetizationAdminRoutes(ctx: Ctx) {
           'select id, advertiser_id, status, reference from orders where id = $1 for update', [p.order_id])).rows[0];
         // Nobody confirms their own payment.
         if (o.advertiser_id === me.id) throw new HttpError(403, 'conflict_of_interest', 'You cannot confirm your own payment.');
-        if (b.receivedMinor !== Number(p.amount_minor)) {
+        const expected = Number(p.amount_minor);
+        const excess = b.receivedMinor - expected;
+        // Short payments never confirm. Extra money confirms only when staff say the excess will be handed back.
+        if (b.receivedMinor < expected || (excess > 0 && !b.refundExcess)) {
           await client.query("update payments set received_minor = $2, reconciliation = 'mismatch', updated_at = now() where id = $1", [id, b.receivedMinor]);
           await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'amount_mismatch', $2, $3)", [id, me.id, JSON.stringify({ expected: Number(p.amount_minor), received: b.receivedMinor })]);
           await audit(client, me.id, 'payment.mismatch', 'payment', id, { order: o.reference, expected: Number(p.amount_minor), received: b.receivedMinor });
@@ -173,7 +242,12 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         await client.query(
           "update payments set status = 'confirmed', received_minor = $2, reconciliation = 'reconciled', confirmed_by = $3, confirmed_at = now(), updated_at = now() where id = $1",
           [id, b.receivedMinor, me.id]);
-        await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'confirmed', $2, $3)", [id, me.id, JSON.stringify({ note: b.note })]);
+        await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'confirmed', $2, $3)", [id, me.id, JSON.stringify({ note: b.note, excess: Math.max(0, excess) })]);
+        if (excess > 0) {
+          await client.query(
+            "insert into refunds (payment_id, order_id, amount_minor, reason, requested_by, kind) values ($1, $2, $3, 'Overpayment: the excess over the order price.', $4, 'overpayment')",
+            [id, o.id, excess, me.id]);
+        }
         const late = o.status !== 'pending_payment';
         await client.query("update orders set status = 'paid', paid_at = now(), updated_at = now() where id = $1", [o.id]);
         const cid = (await client.query<{ id: string }>('select id from campaigns where order_id = $1', [o.id])).rows[0]?.id;
@@ -187,10 +261,11 @@ export function monetizationAdminRoutes(ctx: Ctx) {
             }
           }
         }
-        await audit(client, me.id, 'payment.confirm', 'payment', id, { order: o.reference, amountMinor: Number(p.amount_minor), late });
+        await notifyPromotion(client, o.advertiser_id, 'payment_confirmed', cid ?? null);
+        await audit(client, me.id, 'payment.confirm', 'payment', id, { order: o.reference, amountMinor: expected, excessMinor: Math.max(0, excess), late });
         return { result: 'confirmed' as const, repeat: false };
       });
-      if (res.result === 'mismatch') throw new HttpError(422, 'amount_mismatch', 'The amount received does not match the order. Nothing was confirmed; reject this payment or ask the advertiser to contact support.');
+      if (res.result === 'mismatch') throw new HttpError(422, 'amount_mismatch', 'The amount received does not match the order. Nothing was confirmed. If it is short, reject this payment. If it is more, confirm again with refundExcess to hand the difference back.');
       return { status: 'confirmed' };
     });
 
@@ -204,6 +279,9 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         if (p.status !== 'awaiting_verification') throw new HttpError(409, 'invalid_state', 'This payment is not waiting for confirmation.');
         await client.query("update payments set status = 'failed', failure_reason = $2, updated_at = now() where id = $1", [id, reason]);
         await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, 'rejected', $2, $3)", [id, me.id, JSON.stringify({ reason })]);
+        const who = (await client.query<{ advertiser_id: string | null; cid: string | null }>(
+          'select o.advertiser_id, (select c.id from campaigns c where c.order_id = o.id) as cid from payments p join orders o on o.id = p.order_id where p.id = $1', [id])).rows[0];
+        await notifyPromotion(client, who?.advertiser_id ?? null, 'payment_rejected', who?.cid ?? null);
         await audit(client, me.id, 'payment.reject', 'payment', id, {});
       });
       return { status: 'failed' };
@@ -220,7 +298,7 @@ export function monetizationAdminRoutes(ctx: Ctx) {
       if (cur) { params.push(cur.t, cur.id); where += ` and (r.created_at, r.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`; }
       params.push(q.limit + 1);
       const { rows } = await pool.query(
-        `select r.id, r.status, r.amount_minor, r.reason, r.decision_note, r.payout_reference, r.created_at, o.reference as order_reference, p.provider_reference, ${tsText('r.created_at')} as "cursorT"
+        `select r.id, r.status, r.kind, r.amount_minor, r.reason, r.decision_note, r.payout_reference, r.created_at, o.reference as order_reference, p.provider_reference, ${tsText('r.created_at')} as "cursorT"
            from refunds r join orders o on o.id = r.order_id join payments p on p.id = r.payment_id where ${where} order by r.created_at desc, r.id desc limit $${params.length}`, params);
       const page = toPage(rows as (Record<string, unknown> & { cursorT: string; id: string })[], q.limit);
       return { nextCursor: page.nextCursor, items: page.items.map((r) => ({ ...r, amount: formatMoney(Number(r.amount_minor)), amount_minor: undefined, amountMinor: Number(r.amount_minor) })) };
@@ -233,11 +311,14 @@ export function monetizationAdminRoutes(ctx: Ctx) {
       if (step === 'reject' && b.note.length < 3) throw new HttpError(422, 'validation', 'Say why the refund is declined.');
       if (step === 'paid' && !b.payoutReference) throw new HttpError(422, 'validation', 'Enter the M-Pesa reference of the refund you sent.');
       return withTx(pool, async (client) => {
-        const r = (await client.query<{ id: string; status: string; payment_id: string; order_id: string; requested_by: string | null }>(
-          'select id, status, payment_id, order_id, requested_by from refunds where id = $1 for update', [id])).rows[0];
+        const r = (await client.query<{ id: string; status: string; payment_id: string; order_id: string; requested_by: string | null; kind: 'full' | 'overpayment' }>(
+          'select id, status, payment_id, order_id, requested_by, kind from refunds where id = $1 for update', [id])).rows[0];
         if (!r) throw new HttpError(404, 'not_found', 'Not found.');
-        // The person who asked for a refund cannot also approve it.
-        if (step !== 'paid' && r.requested_by === me.id) throw new HttpError(403, 'conflict_of_interest', 'Someone else must decide a refund you requested.');
+        // The person who asked for a refund cannot also approve it, unless they are the only active administrator
+        // (a one-person team could otherwise never refund anyone). That case is written to the audit log.
+        const admins = Number((await client.query<{ n: string }>(`select count(*) as n from users u where u.role = 'admin' and ${notSuspended('u')}`)).rows[0].n);
+        const soleAdmin = admins <= 1;
+        if (step !== 'paid' && r.requested_by === me.id && !soleAdmin) throw new HttpError(403, 'conflict_of_interest', 'Someone else must decide a refund you requested.');
         const cid = (await client.query<{ id: string }>('select id from campaigns where order_id = $1', [r.order_id])).rows[0]?.id;
         if (step === 'approve') {
           if (r.status !== 'requested') throw new HttpError(409, 'invalid_state', 'This refund is not waiting for a decision.');
@@ -245,16 +326,21 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         } else if (step === 'reject') {
           if (r.status !== 'requested') throw new HttpError(409, 'invalid_state', 'This refund is not waiting for a decision.');
           await client.query("update refunds set status = 'rejected', decided_by = $2, decided_at = now(), decision_note = $3 where id = $1", [id, me.id, b.note]);
-          if (cid) { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'cancelled', 'admin', me.id, 'refund declined'); }
+          if (cid && r.kind === 'full') { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'cancelled', 'admin', me.id, 'refund declined'); }
         } else {
           if (r.status !== 'approved') throw new HttpError(409, 'invalid_state', 'Approve the refund before recording the payout.');
           await client.query("update refunds set status = 'paid_out', payout_reference = $2 where id = $1", [id, b.payoutReference]);
-          await client.query("update payments set status = 'refunded', updated_at = now() where id = $1", [r.payment_id]);
-          await client.query("update orders set status = 'refunded', updated_at = now() where id = $1", [r.order_id]);
-          await client.query("insert into payment_events (payment_id, kind, actor_id) values ($1, 'refunded', $2)", [r.payment_id, me.id]);
-          if (cid) { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'refunded', 'admin', me.id, 'refund paid'); }
+          // Handing back an overpayment changes nothing about the campaign; a full refund ends it.
+          await client.query("insert into payment_events (payment_id, kind, actor_id, detail) values ($1, $2, $3, '{}')", [r.payment_id, r.kind === 'full' ? 'refunded' : 'excess_refunded', me.id]);
+          if (r.kind === 'full') {
+            await client.query("update payments set status = 'refunded', updated_at = now() where id = $1", [r.payment_id]);
+            await client.query("update orders set status = 'refunded', updated_at = now() where id = $1", [r.order_id]);
+          }
+          if (cid && r.kind === 'full') { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'refunded', 'admin', me.id, 'refund paid'); }
         }
-        await audit(client, me.id, `refund.${step}`, 'refund', id, {});
+        const adv = (await client.query<{ advertiser_id: string | null }>('select advertiser_id from orders where id = $1', [r.order_id])).rows[0]?.advertiser_id ?? null;
+        await notifyPromotion(client, adv, step === 'approve' ? 'refund_approved' : step === 'reject' ? 'refund_declined' : 'refund_paid', cid ?? null);
+        await audit(client, me.id, `refund.${step}`, 'refund', id, { kind: r.kind, ...(soleAdmin && r.requested_by === me.id ? { soleAdmin: true } : {}) });
         return { status: step === 'approve' ? 'approved' : step === 'reject' ? 'rejected' : 'paid_out' };
       });
     }
@@ -290,6 +376,16 @@ export function monetizationAdminRoutes(ctx: Ctx) {
       return { campaign: c, history };
     });
 
+    // Same figures the advertiser sees, plus signals that engagement may not be genuine. Aggregates only: no students are named.
+    app.get('/admin/monetization/campaigns/:id/analytics', async (req) => {
+      await need(req, 'campaigns.review');
+      const id = idParam((req.params as { id?: string }).id);
+      const q = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict().parse(req.query ?? {});
+      const c = (await pool.query<AnalyticsCampaign>('select * from campaigns where id = $1', [id])).rows[0];
+      if (!c) throw new HttpError(404, 'not_found', 'Not found.');
+      return loadAnalytics(pool, ctx.config.CODE_PEPPER, c, rangeFor(q.from, q.to, c), { integrity: true });
+    });
+
     async function review(req: Parameters<Ctx['auth']>[0], action: 'approve' | 'reject' | 'pause' | 'resume' | 'cancel') {
       const me = await need(req, 'campaigns.review');
       const id = idParam((req.params as { id?: string }).id);
@@ -320,11 +416,48 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         } else {
           await stopCampaign(client, c, 'admin', me.id, b.note, b.refund);
         }
+        if (action !== 'resume') {
+          const notice = { approve: 'campaign_approved', reject: 'campaign_rejected', pause: 'campaign_paused', cancel: 'campaign_stopped' } as const;
+          await notifyPromotion(client, c.advertiser_id, notice[action], id);
+        }
         await audit(client, me.id, `campaign.${action}`, 'campaign', id, { status: c.status });
         return { status: c.status };
       });
     }
     for (const a of ['approve', 'reject', 'pause', 'resume', 'cancel'] as const) app.post(`/admin/monetization/campaigns/:id/${a}`, (req) => review(req, a));
+
+    // ------------------------------------------------------------ ad reports
+    // Campaigns with open student reports, most reported first. Capped at 100; resolving one removes it from the list.
+    app.get('/admin/monetization/ad-reports', async (req) => {
+      await need(req, 'campaigns.review');
+      const { rows } = await pool.query(
+        `select c.id as campaign_id, c.headline, c.status, u.handle as advertiser, count(*) filter (where r.status = 'open')::int as open_reports,
+                array_agg(distinct r.reason) filter (where r.status = 'open') as reasons, min(r.created_at) filter (where r.status = 'open') as oldest
+           from campaign_reports r join campaigns c on c.id = r.campaign_id left join users u on u.id = c.advertiser_id
+          group by c.id, c.headline, c.status, u.handle
+         having count(*) filter (where r.status = 'open') > 0
+          order by open_reports desc, oldest limit 100`);
+      return { items: rows };
+    });
+
+    /** upheld: the ad breaks the rules, so a live campaign is paused for staff to act on. dismissed: reports closed, the ad is released. */
+    app.post('/admin/monetization/ad-reports/:campaignId/resolve', async (req) => {
+      const me = await need(req, 'campaigns.review');
+      const id = idParam((req.params as { campaignId?: string }).campaignId);
+      const b = z.object({ decision: z.enum(['upheld', 'dismissed']), note: z.string().trim().max(500).default('') }).strict().parse(req.body ?? {});
+      if (b.decision === 'upheld' && b.note.length < 3) throw new HttpError(422, 'validation', 'Say why (at least 3 characters).');
+      return withTx(pool, async (client) => {
+        const c = await lockCampaign(client, id);
+        const done = await client.query("update campaign_reports set status = $2, reviewed_by = $3, reviewed_at = now() where campaign_id = $1 and status = 'open'", [id, b.decision, me.id]);
+        if (!done.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
+        if (b.decision === 'upheld' && (c.status === 'active' || c.status === 'scheduled')) {
+          await moveCampaign(client, c, 'paused', 'admin', me.id, `Ad reports upheld: ${b.note}`.slice(0, 500), { paused_by: 'admin' });
+          await notifyPromotion(client, c.advertiser_id, 'campaign_paused', id);
+        }
+        await audit(client, me.id, `adreport.${b.decision}`, 'campaign', id, { reports: done.rowCount ?? 0 });
+        return { status: c.status };
+      });
+    });
 
     // ------------------------------------------------------------ businesses
     app.get('/admin/monetization/businesses', async (req) => {
@@ -366,6 +499,11 @@ export function monetizationAdminRoutes(ctx: Ctx) {
         // `sql` is chosen from the fixed list above, never from the request.
         await client.query(`update businesses set ${sql}, review_note = $2, reviewed_by = $3, reviewed_at = now(), updated_at = now() where id = $1`, [id, b.note, me.id]);
         await audit(client, me.id, `business.${b.decision}`, 'business', id, {});
+        const notice = { approve: 'business_approved', reject: 'business_rejected', suspend: 'business_suspended', restore: 'business_restored', verify: 'business_verified' } as const;
+        if (b.decision !== 'unverify') {
+          const owners = await client.query<{ user_id: string }>("select user_id from business_members where business_id = $1 and role = 'owner'", [id]);
+          for (const o of owners.rows) await notifyPromotion(client, o.user_id, notice[b.decision], null, id);
+        }
         // A business that is no longer approved stops its running campaigns; paid ones go to refund review.
         if (b.decision === 'suspend') {
           const live = await client.query<{ id: string }>("select id from campaigns where business_id = $1 and status in ('pending_review', 'approved', 'scheduled', 'active', 'paused')", [id]);

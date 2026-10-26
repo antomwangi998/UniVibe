@@ -10,4 +10,6 @@
     <string name="channel_campus_desc">Event reminders and changes</string>
     <string name="channel_security">Security and account alerts</string>
     <string name="channel_security_desc">Important notices about your account</string>
+    <string name="channel_promotions">Promotions</string>
+    <string name="channel_promotions_desc">Payments, reviews and refunds for your promotions and business listings</string>
 </resources>

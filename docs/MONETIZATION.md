@@ -42,6 +42,74 @@ Staff (`/admin/monetization/...`, 404 to everyone without the capability): `pack
 - **Business edits:** editing an approved listing sends it back to review; renaming drops verification. Suspending a business stops its running campaigns.
 - **Free packages** (price 0) skip payment and go to review.
 
+## Stage 7: sponsored delivery - written, NOT run (token logic unit-tested)
+Migration `047_sponsored_delivery.sql`: `campaign_events` (impressions and clicks, pseudonymous viewer key) and `campaign_reports`.
+Endpoints: `GET /sponsored?placement=` , `POST /sponsored/impression`, `POST /sponsored/click`, `POST /sponsored/:campaignId/report`.
+- **Separate from the feeds.** `/posts` and Discover responses are unchanged, so nothing existing can break. The app asks `/sponsored` once per feed load and places the card itself (Home: after the third post, only if the feed has that many).
+- **Eligibility is decided on the server, per viewer:** campaign `active`, review approved, order `paid`, inside its dates, package impression cap not reached, placement included, advertiser at the viewer's university and not suspended or blocked either way, business approved, the event (if any) visible to the viewer by the normal event rules and not hidden by "not interested" or already registered, the post (if any) visible by the normal post rules, fewer than 3 open ad reports, and the viewer under the package's daily frequency cap.
+- **Not overwhelming:** at most one card per request; at most 8 sponsored cards per student per UTC day across all campaigns; campaigns served least-delivered first with a random tiebreak.
+- **Counting:** each card carries a signed token tied to the student, valid 30 minutes. An impression counts once per token, only while the campaign is still live and under its caps. A click must follow an impression of the same token, and a second click by the same student on the same ad within 30 minutes is not counted. Forged, expired, replayed or someone else's tokens are rejected.
+- **Metrics defined:** *impression* = the card was on screen for about a second; *click* = a tap on the card or its button. Neither is a purchase. No conversion metric exists because the app receives no purchase evidence.
+- **Privacy:** events store a keyed hash of the student id, never the id; advertisers will only ever get aggregate counts. A student-run event promotion names the organizer, whose name the event page already shows to the same viewers.
+- **Caching:** there is no shared server cache, so a status change takes effect on the next request. The response says `private, max-age=60`, so a phone may keep showing a card for up to one minute after it stops.
+- **Reports:** one per student per campaign, only for campaigns they were served. Three open reports hold a campaign back automatically; staff review comes with the admin pages (stage 9).
+- **Data retention (not yet automated):** `campaign_events` should be rolled into daily totals and purged after 90 days; this job is not written yet.
+- **Android (written, NOT compiled):** `SponsoredRepository`, `SponsoredCardView` (always labelled "Sponsored", names the advertiser, has "Report this ad"), wired into the Home campus feed. Discover and the business directory have the backend but no app UI yet.
+
+## Hardening round (migration `048_monetization_hardening.sql`) - written, NOT run
+- **Notifications:** new type `promotion` (cannot be switched off; it is about the person's own money and content). Sent to the advertiser on payment confirmed or rejected, campaign approved, rejected, paused or ended early, and refund approved, declined or paid; sent to every active admin when a receipt is submitted. The server sends only a `kind` and ids; the wording is fixed in the Android app. 
+- **Overpayment:** staff confirm with `refundExcess: true`. The order is confirmed at its price and a separate `overpayment` refund is queued for the excess; paying it back does not touch the order or campaign. A short payment never confirms.
+- **Sole administrator:** the rule that nobody approves their own refund request is waived only when there is exactly one active admin (otherwise a one-person team could never refund anyone). The audit entry then carries `soleAdmin: true`. Confirming your own order stays forbidden.
+- **Ad reports:** `GET /admin/monetization/ad-reports` (most reported first, 100 at most) and `POST .../ad-reports/:campaignId/resolve` (`upheld` pauses a live campaign for staff to act on; `dismissed` releases it). Audited.
+- **Draft editing:** `PUT /campaigns/:id` while the campaign is a draft; the kind cannot change, and everything is re-validated.
+- **Retention:** every 6 hours the last three full UTC days are re-totalled into `campaign_daily` (impressions, clicks, distinct pseudonymous viewers) and raw `campaign_events` older than 90 days are deleted. Payment, order, refund and audit records are never purged by the app.
+
+## Push for promotion notices - written, NOT run
+- **Server:** `promotion` notices are pushed through the existing delivery job. They obey only the master push switch (`pushEnabled`); the social and event switches do not apply, because these are about the person's own money and listings. The push carries ids and a fixed `promotionKind` label, never amounts, receipt codes or reasons. Quiet hours still apply on the phone.
+- **Android:** new notification channel "Promotions" (people can tune it in system settings); one shared wording table (`PromotionNotice`) used by both the in-app list and the push, so an unknown or forged kind falls back to a generic line. Tapping opens the notification list; there are no campaign screens to deep-link to yet.
+- **Business owners** are now notified when a listing is approved, rejected, suspended, restored or verified (not when verification is removed).
+- Not covered: an in-app inbox entry only appears for the person who owns the listing or campaign; staff receive receipt alerts the same way.
+
+## Stage 8: advertiser analytics - written, pure calculations unit-tested, routes NOT run
+Endpoints: `GET /campaigns/:id/analytics?from=&to=` (owner only, others get 404), `GET /me/advertising/summary`, and for staff `GET /admin/monetization/campaigns/:id/analytics` (adds integrity signals).
+- **Metrics, as defined in the response and in `analytics_calc.ts`:** impressions, clicks, CTR (empty, not 0, when nothing was shown), reach (students, counted without names), by placement, by day (zero-filled), delivery status with the plain-language reasons a campaign is not running, payment and refund amounts.
+- **Conversions:** only *RSVP after click* for event promotions: a student tapped the ad, then RSVPed within 7 days. It shows the two are connected; it does not claim the ad caused it. Purchases are not measured, and the API says so.
+- **Not tracked, so not reported:** event detail views, business profile views and offer interactions are not recorded anywhere in the app today. Adding them needs new tracking in those screens (stage 8b).
+- **Data sources:** raw `campaign_events` for the last days, `campaign_daily` roll-ups for older days (see `mergeDaily`). Reach over a window is exact while raw events exist (about 85 days) and an approximate sum of daily reach after that; the response says which.
+- **Integrity signals (staff only):** unusually high CTR, clicks concentrated in one student, few distinct clickers, more views per student than the daily cap allows, and a single-hour burst. They only fire with enough data, name no one, and are prompts for review, not verdicts.
+- **Privacy:** advertisers never see who viewed or clicked, only totals. Up to 5,000 sign-ups and 20,000 clickers are matched inside the server to count RSVPs after clicks; the matching result is a single number.
+- **Ranges:** whole UTC days, at most 92 days, reversed or impossible dates are refused with a 422.
+
+## Stage 9: admin Monetization Centre - screens smoke-tested against a fake page; backend NOT run
+A **Monetization** group in the existing dashboard (nothing existing was changed or removed). Code: `src/admin_ui/monetization.ts`, spliced into the dashboard script. Each page shows only to staff holding its capability, and the API checks the same capability on every call.
+| Page | Needs | What it does |
+|---|---|---|
+| Revenue | `finance.view` | Received, refunded, net collected, recognised, deferred; by campaign type and by month; counts needing attention; the rules for each figure |
+| Campaigns | `campaigns.review` | Review queue and status tabs; approve, reject, pause, resume, cancel with reasons; a detail page with performance, CTR, delivery status, engagement checks and history |
+| Payments | `payments.view` (`payments.confirm` to act) | Receipts waiting for your check; confirm with the amount actually received (and "refund any excess"), or reject with a reason |
+| Refunds | `payments.view` (`refunds.approve` to act) | Approve, decline, then record the M-Pesa reference once sent |
+| Packages and payment | `packages.manage` | Create packages, change prices (asks you to confirm, existing orders keep their price), hide or show; set the till or paybill number and switch payments on |
+| Businesses and ad reports | `advertisers.view` (`campaigns.review` to act) | Approve, reject, suspend, restore, verify business listings; resolve reported ads |
+- **Accounting rules used on the Revenue page** (also shown on the page): *received* = confirmed cash before refunds (payment volume); *refunded* = refunds actually paid out; *net collected* = received minus refunded; *recognised* = finished campaigns in full, running ones by days elapsed, a campaign cancelled without a refund in full, nothing for campaigns not yet started, unreviewed or awaiting refund; *deferred* = paid but not yet recognised. Costs and operating surplus are **not tracked yet**, so no surplus is shown.
+- **Not in this stage:** an advertiser directory beyond business listings (suspending an advertiser's account is done on the existing People page), the full financial reports, CSV exports and cost tracking (stage 10).
+- **Verification done:** the dashboard script compiles; a fake-page test (`admin-monetization-ui.test.ts`, 8 tests, run) opens every new page against canned API data and checks that confirming a payment sends the amount in cents. This does not check layout or styling: open `/admin` in a browser and look.
+- **Not verified:** the new revenue SQL and every admin route against Postgres.
+
+## Android screens - written, NOT compiled or run
+Entry points: Profile has **Promotions** and **Campus businesses** rows; a promotion notice (in-app or push) opens Promotions.
+| Screen (route) | What it does |
+|---|---|
+| Promotions (`promotions`) | Totals (running, waiting, views, taps, tap rate, paid, refunded) and the list of your promotions with plain status words |
+| New promotion (`promotion-new`) | Choose what to promote (event, business ad, featured listing, Discover feature), the event or approved business, a package (price comes from the server), where it shows, headline, description, optional button, start and length, a live preview, then "Continue to payment" (or "Send for review" for a free package) |
+| Promotion (`promotion/{id}`) | Status and what happens next, the reason if it was not approved, payment instructions (till or paybill number, amount, order reference) with a receipt code box that only records a claim, performance (views, taps, tap rate, reach, RSVPs after a tap, a daily bar chart, whether it is showing and why not), history, and Pause, Resume and Cancel with confirmation |
+| My businesses, add, edit (`my-businesses`, `business-new`, `business-edit/{id}`) | Free listings with their review status; send for review; editing a live listing sends it back for review (the screen says so) |
+| Campus businesses (`businesses`, `business/{id}`) | Organic directory with category filter; a labelled sponsored card sits above it and is never mixed into the listings; call, email and website buttons (https only) |
+| Sponsored cards in Discover | One card in front of the fourth post in Discover's post lists (only when the list is that long) and one under the filters in the server-ranked Discover events list (`SponsoredSlot`); tapping opens the event, post or business. The plain on-device events list used when the server has no Discover has none |
+- **Honesty rules in the UI:** prices and amounts are always the server's text; no screen computes money; "I have paid" says it only records the receipt and that nothing starts until payment is confirmed and the ad approved; the tap rate shows a dash, not 0%, when nothing was shown; there is no purchase-conversion figure.
+- **Offline demo:** every promotion screen shows "needs a connection" instead of fake data (`NoPromotionsRepository`).
+- **Verification done:** a static check that every import, icon and spacing name used by the new files exists and that brackets balance. **Not done:** Gradle compile, the two new Kotlin test classes (`PromotionsLogicTest`, `PromotionsParsingTest`), and any look at the screens on a device or emulator.
+- **Not built:** a "Promote this event" button on the event page itself (use Profile > Promotions > New promotion), picking a start date and time by calendar (it offers "as soon as approved", "tomorrow" and "in 3 days"), editing a submitted promotion, ad images, and a business-review notice screen (notices open the Promotions list).
+
 ## Not implemented yet
-Delivery into Home Feed and Discover (stage 7), impression and click tracking and advertiser analytics (8), admin dashboard pages (9), financial reports, CSV export and cost tracking (10), notifications to advertisers and staff, report-an-ad, logo/cover/creative image upload, editing a draft campaign, Daraja integration, subscriptions (business plans), the Android UI.
-Tests: `test/campaign-state.test.ts` (run), `test/monetization.integration.test.ts` (written for CI; needs Postgres; not run).
+Financial reports, CSV export and cost tracking (stage 10), event-view and business-view tracking, logo/cover/creative image upload, Daraja, subscriptions, a "Promote" button on the event page, and calendar pickers for promotion dates.
+Tests: `campaign-state`, `sponsored-token`, `analytics-calc` and `admin-monetization-ui` run under Node with a stand-in runner; the `*.integration` tests need Postgres and have not run; all Kotlin tests need Gradle and have not run.

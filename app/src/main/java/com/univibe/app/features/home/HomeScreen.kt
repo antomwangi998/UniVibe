@@ -135,6 +135,8 @@ import com.univibe.app.data.prefs.DraftStore
 import kotlinx.coroutines.delay
 import com.univibe.app.ui.components.UndoBar
 import com.univibe.app.ui.components.EventFeedCard
+import com.univibe.app.ui.components.SponsoredCardView
+import com.univibe.app.ui.components.openSponsoredLink
 import com.univibe.app.ui.components.shareEvent
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.features.events.RsvpOption
@@ -142,6 +144,9 @@ import com.univibe.app.guide.guideTarget
 
 /** Feed positions (0-based) after which a suggestions row appears: 5th post, and 20th post. */
 private const val SUGGEST_FIRST_AFTER = 4
+
+/** The sponsored card appears once, after the third post, and only when the feed has at least that many. */
+private const val SPONSORED_AFTER = 2
 private const val SUGGEST_SECOND_AFTER = 19
 
 @Composable
@@ -290,6 +295,19 @@ fun HomeScreen(
                             people = batch, onOpenStudent = onOpenStudent,
                             onFollow = viewModel::followSuggestion, onDismiss = viewModel::dismissSuggestion, onSeeAll = onOpenDiscover,
                         )
+                        if (index == SPONSORED_AFTER) state.sponsoredCard?.let { ad ->
+                            val opensTarget = ad.targetId != null && (ad.targetType == "event" || ad.targetType == "post")
+                            SponsoredCardView(
+                                card = ad,
+                                onShown = viewModel::sponsoredShown,
+                                onOpen = if (opensTarget) ({
+                                    viewModel.sponsoredClicked()
+                                    if (ad.targetType == "event") onOpenEvent(ad.targetId!!) else onOpenComments(ad.targetId!!)
+                                }) else null,
+                                onCta = ad.ctaUrl?.let { url -> { viewModel.sponsoredClicked(); openSponsoredLink(context, url) } },
+                                onReport = viewModel::reportSponsored,
+                            )
+                        }
                     }
                   }
                 }

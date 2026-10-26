@@ -247,6 +247,14 @@ object AppContainer {
     val discoverContentRepository: DiscoverContentRepository by lazy {
         api?.let { RemoteDiscoverContentRepository(it) } ?: FeedBackedDiscoverContent(feedRepository)
     }
+    /** Sponsored cards. Only the real server can serve them; the offline demo shows no ads. */
+    val sponsoredRepository: com.univibe.app.data.repository.SponsoredRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteSponsoredRepository(it) } ?: com.univibe.app.data.repository.NoSponsoredRepository
+    }
+    /** Businesses, promotions, payments and analytics. Needs the server; the offline demo says so. */
+    val promotionsRepository: com.univibe.app.data.repository.PromotionsRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemotePromotionsRepository(it) } ?: com.univibe.app.data.repository.NoPromotionsRepository
+    }
     /** Search the campus (students, posts, events). Needs the server; the offline demo says so. */
     val searchRepository: SearchRepository by lazy { api?.let { RemoteSearchRepository(it) } ?: UnavailableSearchRepository }
     val recentSearches: RecentSearches by lazy { PrefsRecentSearches(app) }

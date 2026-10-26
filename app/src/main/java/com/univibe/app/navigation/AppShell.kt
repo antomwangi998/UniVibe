@@ -146,6 +146,7 @@ import com.univibe.app.features.settings.TermsScreen
 import com.univibe.app.ui.components.LocalChromeHidden
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.VibeBottomBar
+import com.univibe.app.ui.components.glassBackdropSource
 
 private const val DEEP_LINK_SCHEME = "univibe://"
 private const val SCROLL_THRESHOLD_PX = 24f
@@ -281,6 +282,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
         }
     }
 
+    // Null (nothing happens) below Android 12, on low-RAM phones and in High contrast.
+    val backdrop = com.univibe.app.ui.components.rememberGlassBackdropState()
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
             // Content runs edge to edge; the bar hovers above it.
@@ -292,11 +295,17 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 // Any post card can open its community without every screen threading a callback through.
                 com.univibe.app.ui.components.LocalOpenCommunity provides { id: String -> open(AppRoutes.community(id)) },
                 com.univibe.app.ui.components.LocalOpenCommunityList provides { open(AppRoutes.COMMUNITIES) },
+                // A tapped sponsored card opens what it advertises, from any list that shows one.
+                com.univibe.app.ui.components.LocalSponsoredTargets provides remember {
+                    com.univibe.app.ui.components.SponsoredTargets(
+                        onEvent = { id -> open(AppRoutes.event(id)) }, onPost = { id -> open(AppRoutes.comments(id)) }, onBusiness = { id -> open(AppRoutes.business(id)) },
+                    )
+                },
             ) {
                 NavHost(
                     navController = navController,
                     startDestination = TopLevelDestination.Home.route,
-                    modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
+                    modifier = Modifier.fillMaxSize().glassBackdropSource(backdrop).nestedScroll(scrollConnection).swipeBetweenTabs(currentRoute, tabRoutes, selectTab),
                     // Moving between two tabs slides toward the tab's side; every other change keeps the soft fade.
                     enterTransition = { tabSlideIn(initialState.destination.route, targetState.destination.route, tabRoutes) ?: (fadeIn(tween(220, delayMillis = 40)) + scaleIn(tween(220, delayMillis = 40), initialScale = 0.98f)) },
                     exitTransition = { tabSlideOut(initialState.destination.route, targetState.destination.route, tabRoutes) ?: fadeOut(tween(90)) },
@@ -337,6 +346,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 onOpenCommunities = { open(AppRoutes.COMMUNITIES) },
                                 onOpenCommunity = { open(AppRoutes.community(it)) },
                                 onOpenPrivacy = { open(SettingsRoutes.PRIVACY) },
+                                onOpenPromotions = { open(AppRoutes.PROMOTIONS) },
+                                onOpenBusinesses = { open(AppRoutes.BUSINESSES) },
                                 unreadNotifications = unreadNotifications,
                                 onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
                             ),
@@ -407,12 +418,45 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                     is NotificationTarget.Event -> open(AppRoutes.event(target.id))
                                     is NotificationTarget.Community -> open(AppRoutes.community(target.id))
                                     is NotificationTarget.Chat -> open(AppRoutes.chat(target.id))
+                                    NotificationTarget.Promotions -> open(AppRoutes.PROMOTIONS)
                                     NotificationTarget.None -> Unit
                                 }
                             },
                         )
                     }
                     subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
+                    subScreen(AppRoutes.PROMOTIONS) {
+                        com.univibe.app.features.promotions.PromotionsScreen(
+                            onBack = back, onNewPromotion = { open(AppRoutes.PROMOTION_NEW) },
+                            onOpenCampaign = { open(AppRoutes.promotion(it)) }, onMyBusinesses = { open(AppRoutes.MY_BUSINESSES) },
+                        )
+                    }
+                    subScreen(AppRoutes.PROMOTION_NEW) {
+                        com.univibe.app.features.promotions.NewPromotionScreen(
+                            onBack = back, onAddBusiness = { open(AppRoutes.BUSINESS_NEW) },
+                            // Replace the form with the new promotion so Back returns to the list.
+                            onCreated = { id ->
+                                navController.navigate(AppRoutes.promotion(id)) {
+                                    popUpTo(AppRoutes.PROMOTION_NEW) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
+                    subScreen(AppRoutes.PROMOTION, stringArgs("campaignId")) { entry ->
+                        com.univibe.app.features.promotions.CampaignScreen(campaignId = entry.arg("campaignId"), onBack = back)
+                    }
+                    subScreen(AppRoutes.MY_BUSINESSES) {
+                        com.univibe.app.features.promotions.MyBusinessesScreen(onBack = back, onAdd = { open(AppRoutes.BUSINESS_NEW) }, onEdit = { open(AppRoutes.businessEdit(it)) })
+                    }
+                    subScreen(AppRoutes.BUSINESS_NEW) { com.univibe.app.features.promotions.BusinessFormScreen(editId = null, onBack = back, onDone = { back() }) }
+                    subScreen(AppRoutes.BUSINESS_EDIT, stringArgs("businessId")) { entry ->
+                        com.univibe.app.features.promotions.BusinessFormScreen(editId = entry.arg("businessId"), onBack = back, onDone = { back() })
+                    }
+                    subScreen(AppRoutes.BUSINESSES) { com.univibe.app.features.promotions.BusinessDirectoryScreen(onBack = back, onOpen = { open(AppRoutes.business(it)) }) }
+                    subScreen(AppRoutes.BUSINESS, stringArgs("businessId")) { entry ->
+                        com.univibe.app.features.promotions.BusinessDetailScreen(businessId = entry.arg("businessId"), onBack = back)
+                    }
                     subScreen(AppRoutes.EVENT, stringArgs("eventId")) { entry ->
                         EventDetailsScreen(
                             eventId = entry.arg("eventId"), onBack = back, onEdit = { open(AppRoutes.eventEdit(entry.arg("eventId"))) },
@@ -633,7 +677,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(160)),
                 exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(140)),
             ) {
-                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab)
+                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab, backdrop = backdrop)
             }
 
             // Guided tour and first-time welcome. Both draw nothing when idle, and Back closes either one.

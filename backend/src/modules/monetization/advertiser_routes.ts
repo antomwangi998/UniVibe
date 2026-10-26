@@ -4,11 +4,12 @@ import type { AuthUser, Ctx } from '../../context';
 import { withTx } from '../../db';
 import { HttpError } from '../../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../../http';
+import { type AnalyticsCampaign, loadAnalytics, rangeFor } from './analytics';
 import { allowedNext, mayResume, resumeTarget } from './campaign_state';
 import { formatMoney, normalizeReceipt } from './money';
 import {
   PACKAGE_FOR_CAMPAIGN, PLACEMENTS_FOR_PACKAGE, eventPromotable, isUnique, lockCampaign, moveCampaign, newUniqueReference,
-  orderStatusOf, factsOf, stopCampaign, type CampaignRow, type Q,
+  orderStatusOf, factsOf, notifyStaff, stopCampaign, type CampaignRow, type Q,
 } from './service';
 
 const PLACEMENTS = ['home_feed', 'discover_feed', 'discover_events', 'business_directory'] as const;
@@ -262,6 +263,66 @@ export function advertiserRoutes(ctx: Ctx) {
       }
     });
 
+    // ------------------------------------------------------------ analytics (an advertiser sees only their own campaigns)
+    const rangeQuery = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict();
+
+    app.get('/campaigns/:id/analytics', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`analytics:${me.id}`, 60, 60);
+      const id = idParam((req.params as { id?: string }).id);
+      const q = rangeQuery.parse(req.query ?? {});
+      const c = (await pool.query<AnalyticsCampaign>('select * from campaigns where id = $1 and advertiser_id = $2', [id, me.id])).rows[0];
+      if (!c) throw new HttpError(404, 'not_found', 'Not found.');
+      return loadAnalytics(pool, ctx.config.CODE_PEPPER, c, rangeFor(q.from, q.to, c));
+    });
+
+    /** One-glance totals across all of the person's campaigns. Lifetime figures; money is what was actually paid and refunded. */
+    app.get('/me/advertising/summary', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`analytics:${me.id}`, 60, 60);
+      const c = (await pool.query<{ active: number; waiting: number; total: number; impressions: string; clicks: string }>(
+        `select (count(*) filter (where status = 'active'))::int as active,
+                (count(*) filter (where status in ('pending_payment', 'pending_review', 'approved', 'scheduled')))::int as waiting,
+                count(*)::int as total, coalesce(sum(delivered_impressions), 0) as impressions, coalesce(sum(delivered_clicks), 0) as clicks
+           from campaigns where advertiser_id = $1`, [me.id])).rows[0];
+      const m = (await pool.query<{ paid: string; refunded: string }>(
+        `select coalesce(sum(amount_minor) filter (where status = 'paid'), 0) as paid, coalesce(sum(amount_minor) filter (where status = 'refunded'), 0) as refunded
+           from orders where advertiser_id = $1`, [me.id])).rows[0];
+      const i = Number(c.impressions);
+      const k = Number(c.clicks);
+      return {
+        campaigns: { active: c.active, waiting: c.waiting, total: c.total },
+        impressions: i, clicks: k, ctr: i > 0 ? k / i : null,
+        paidMinor: Number(m.paid), paid: formatMoney(Number(m.paid)), refundedMinor: Number(m.refunded), refunded: formatMoney(Number(m.refunded)),
+      };
+    });
+
+    /** Editing a draft. Anything already submitted for payment or review is fixed; cancel it and make a new one instead. */
+    app.put('/campaigns/:id', async (req) => {
+      const me = await ctx.auth(req);
+      const id = idParam((req.params as { id?: string }).id);
+      ctx.limit(`camp-edit:${me.id}`, 60, 3600);
+      const b = campaignBody.omit({ createKey: true }).parse(req.body ?? {});
+      try {
+        await withTx(pool, async (client) => {
+          const c = await lockCampaign(client, id);
+          if (c.advertiser_id !== me.id) throw new HttpError(404, 'not_found', 'Not found.');
+          if (c.status !== 'draft') throw new HttpError(409, 'invalid_state', 'Only a draft can be edited.');
+          if (c.kind !== b.kind) throw new HttpError(422, 'validation', 'The kind of promotion cannot be changed. Create a new one instead.');
+          const pkg = await validateCampaign(client, me, b);
+          await client.query(
+            `update campaigns set business_id = $2, event_id = $3, post_id = $4, package_id = $5, headline = $6, body = $7, cta_label = $8, cta_url = $9,
+               placements = $10, starts_at = $11, ends_at = $12, impression_cap = $13, frequency_cap_per_day = $14, updated_at = now() where id = $1`,
+            [id, b.businessId ?? null, b.eventId ?? null, b.postId ?? null, pkg.id, b.headline, b.body, b.ctaLabel ?? null, b.ctaUrl ?? null,
+              b.placements, b.startsAt, b.endsAt, pkg.impression_cap, pkg.frequency_cap_per_day]);
+        });
+      } catch (e) {
+        if (isUnique(e)) throw new HttpError(409, 'already_promoted', 'This event already has an open promotion.');
+        throw e;
+      }
+      return { ok: true };
+    });
+
     type CampaignListRow = { id: string; kind: string; headline: string; status: string; review_status: string; starts_at: Date; ends_at: Date;
       delivered_impressions: string; delivered_clicks: string; order_status: string | null; amount_minor: string | null; currency: string | null; cursorT: string };
     app.get('/me/campaigns', async (req) => {
@@ -380,6 +441,7 @@ export function advertiserRoutes(ctx: Ctx) {
             `insert into payments (order_id, provider, status, amount_minor, currency, provider_reference) values ($1, 'manual_till', 'awaiting_verification', $2, $3, $4) returning id`,
             [id, o.amount_minor, o.currency, code])).rows[0];
           await client.query("insert into payment_events (payment_id, kind, actor_id) values ($1, 'receipt_submitted', $2)", [p.id, me.id]);
+          await notifyStaff(client, 'receipt_submitted', null);
         });
       } catch (e) {
         if (isUnique(e)) throw new HttpError(409, 'receipt_used', 'That receipt code has already been used.');
