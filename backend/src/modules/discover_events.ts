@@ -26,7 +26,7 @@ const csv = <T extends z.ZodTypeAny>(item: T, max: number) => {
   return z.string().max(400).transform((v, ctx): z.output<T>[] => {
     const parsed = list.safeParse(v.split(',').map((x) => x.trim()).filter(Boolean));
     if (!parsed.success) {
-      for (const issue of parsed.error.issues) ctx.addIssue(issue);
+      ctx.addIssue({ code: 'custom', message: parsed.error.issues[0]?.message ?? 'Invalid list.' });
       return z.NEVER;
     }
     return parsed.data;
