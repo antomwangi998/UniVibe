@@ -53,8 +53,8 @@ import androidx.compose.ui.unit.dp
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.theme.Spacing
 
-private val CoverBodyHeight = 150.dp
-private val CoverCurveLift = 22.dp
+private val CoverBodyHeight = 118.dp
+private val CoverCurveLift = 16.dp
 private val DefaultAvatarRing = 116.dp
 
 /** Appends the cover's curved lower edge (right to left): the sides hang low and the middle lifts to cradle the avatar. */

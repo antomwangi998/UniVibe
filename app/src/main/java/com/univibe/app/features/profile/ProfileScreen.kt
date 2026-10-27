@@ -68,7 +68,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                 LazyColumn(
                     state = rememberTabListState("profile"),
                     contentPadding = PaddingValues(start = ProfileHorizontalPadding, end = ProfileHorizontalPadding, bottom = rememberBottomClearance() + Spacing.md),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     item(key = "header") { ProfileHeader(profile, actions) }
                     item(key = "about") { AboutMeCard(profile.bio, actions.onEditProfile) }
@@ -86,8 +86,8 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
 
 @Composable
 private fun ProfileHeader(profile: MyProfile, actions: ProfileActions) {
-    // About 40% of the screen width, kept between 132dp and 165dp so it suits small phones and tablets alike.
-    val avatarOuter = (LocalConfiguration.current.screenWidthDp * 0.4f).coerceIn(132f, 165f).dp
+    // About 32% of the screen width, kept between 108dp and 136dp so it suits small phones and tablets alike.
+    val avatarOuter = (LocalConfiguration.current.screenWidthDp * 0.32f).coerceIn(108f, 136f).dp
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         ProfileCover(
             accent = profile.student.accent + 1,
@@ -98,11 +98,11 @@ private fun ProfileHeader(profile: MyProfile, actions: ProfileActions) {
             avatarSize = avatarOuter,
             avatar = { ProfileAvatar(profile, avatarOuter, onChangePhoto = actions.onEditProfile) },
         )
-        Spacer(Modifier.height(avatarOuter / 2 + 12.dp))
+        Spacer(Modifier.height(avatarOuter / 2 + 8.dp))
         ProfileIdentity(profile.student)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
         ProfileStatsCard(profile, actions.onOpenFollowers, actions.onOpenFollowing)
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
         ProfileActionRow(profile, actions)
     }
 }
