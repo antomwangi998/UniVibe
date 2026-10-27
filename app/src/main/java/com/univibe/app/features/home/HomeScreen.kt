@@ -28,6 +28,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
+import com.univibe.app.ui.components.PhotoEditDialog
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.media.VideoStore
@@ -533,6 +534,7 @@ private fun Composer(
         }
     }
 
+    var editingPhoto by remember { mutableStateOf(false) }
     val tooLong = text.length > MAX_POST_LENGTH
     val hasContent = text.isNotBlank() || attached != null || pollOptions.isNotEmpty()
     val needsQuestion = pollOptions.isNotEmpty() && text.isBlank()
@@ -572,8 +574,31 @@ private fun Composer(
         }
 
         attachedPath?.takeIf { attached == "Photo" }?.let { path ->
-            Box(Modifier.padding(top = Spacing.sm).size(96.dp).clip(RoundedCornerShape(16.dp))) {
+            Box(
+                Modifier.padding(top = Spacing.sm).size(96.dp).clip(RoundedCornerShape(16.dp))
+                    .clickable(role = Role.Button, onClickLabel = "Crop photo") { editingPhoto = true },
+            ) {
                 PhotoImage(path, contentDescription = "Selected photo preview")
+                Surface(
+                    Modifier.align(Alignment.BottomStart).padding(6.dp), shape = CircleShape,
+                    color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f), contentColor = androidx.compose.ui.graphics.Color.White,
+                ) {
+                    Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(VibeIcons.Crop, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Crop", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            if (editingPhoto) {
+                PhotoEditDialog(
+                    path,
+                    onDismiss = { editingPhoto = false },
+                    onSaved = { saved ->
+                        if (saved != path) { PhotoStore.delete(path); attachedPath = saved }
+                        editingPhoto = false
+                    },
+                )
             }
         }
 

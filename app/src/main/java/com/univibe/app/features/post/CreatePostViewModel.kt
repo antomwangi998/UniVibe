@@ -103,6 +103,13 @@ class CreatePostViewModel(
         _state.update { it.copy(photos = it.photos - path) }
     }
 
+    /** An edited (cropped or rotated) copy takes the place of [old], which is deleted. */
+    fun replacePhoto(old: String, new: String) {
+        if (old == new) return
+        PhotoStore.delete(old)
+        _state.update { s -> s.copy(photos = s.photos.map { if (it == old) new else it }) }
+    }
+
     fun selectAudience(audience: PostAudience) = _state.update { it.copy(audience = audience) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
 
