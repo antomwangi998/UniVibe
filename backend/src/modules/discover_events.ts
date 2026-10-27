@@ -19,8 +19,19 @@ const GROUP_TITLES: Record<string, string> = {
 };
 const titleOf = (code: string) => GROUP_TITLES[code] ?? code.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
-const csv = <T extends z.ZodTypeAny>(item: T, max: number) =>
-  z.string().max(400).transform((v) => v.split(',').map((x) => x.trim()).filter(Boolean)).pipe(z.array(item).min(1).max(max));
+// "a,b,c" -> validated list. The list is checked inside transform (not with .pipe) so the generic item type keeps its
+// own output type without fighting zod's pipe input typing.
+const csv = <T extends z.ZodTypeAny>(item: T, max: number) => {
+  const list = z.array(item).min(1).max(max);
+  return z.string().max(400).transform((v, ctx): z.output<T>[] => {
+    const parsed = list.safeParse(v.split(',').map((x) => x.trim()).filter(Boolean));
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) ctx.addIssue(issue);
+      return z.NEVER;
+    }
+    return parsed.data;
+  });
+};
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const when = z.string().datetime({ offset: true });
 
