@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.ui.components.BannerKind
-import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LabeledCheckbox
 import com.univibe.app.ui.components.MessageBanner
 import com.univibe.app.ui.components.PasswordStrengthMeter
@@ -103,11 +102,7 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
                 }
             }
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                state.universities.forEach { u ->
-                    InterestChip(u.name, selected = state.universityId == u.id, onClick = { viewModel.onUniversity(u.id) })
-                }
-            }
+            UniversityPicker(state.universities, state.universityId, viewModel::onUniversity)
         }
 
         CampusPicker(state.university?.campuses.orEmpty(), state.campusId, state.campusError, viewModel::onCampus)

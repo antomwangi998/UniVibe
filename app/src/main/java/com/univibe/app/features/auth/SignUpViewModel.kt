@@ -63,7 +63,7 @@ class SignUpViewModel(
     init {
         viewModelScope.launch {
             val list = runCatching { repository.universities() }.getOrDefault(emptyList())
-            _state.update { it.copy(universities = list, universityId = list.singleOrNull()?.id ?: it.universityId) }
+            _state.update { it.copy(universities = list, universityId = it.universityId ?: defaultUniversityId(list)) }
         }
     }
 

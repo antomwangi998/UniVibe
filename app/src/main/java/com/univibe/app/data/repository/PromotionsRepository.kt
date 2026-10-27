@@ -1,7 +1,6 @@
 package com.univibe.app.data.repository
 
 import com.univibe.app.data.model.AdvertisingSummary
-import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.model.Business
 import com.univibe.app.data.model.BusinessDraft
 import com.univibe.app.data.model.CampaignAnalytics
@@ -147,9 +146,11 @@ internal fun parseBusiness(o: JSONObject) = Business(
     status = o.nonEmptyStrOrNull("status"), reviewNote = o.nonEmptyStrOrNull("reviewNote"),
 )
 
-class RemotePromotionsRepository(private val api: AuthedApi, private val uploader: MediaUploader? = null) : PromotionsRepository {
-    private suspend fun get(path: String) = JSONObject(api.send("GET", PROMO_API + path))
-    private suspend fun post(path: String, body: JSONObject = JSONObject()) = JSONObject(api.send("POST", path.let { PROMO_API + it }, body))
+private const val V1 = "/api/v1"
+
+class RemotePromotionsRepository(private val api: AuthedApi) : PromotionsRepository {
+    private suspend fun get(path: String) = JSONObject(api.send("GET", V1 + path))
+    private suspend fun post(path: String, body: JSONObject = JSONObject()) = JSONObject(api.send("POST", V1 + path, body))
 
     override suspend fun summary(): AdvertisingSummary {
         val o = get("/me/advertising/summary")
@@ -184,8 +185,6 @@ class RemotePromotionsRepository(private val api: AuthedApi, private val uploade
             .put("startsAt", Instant.ofEpochMilli(c.startsAtMillis).toString()).put("endsAt", Instant.ofEpochMilli(c.endsAtMillis).toString())
         c.eventId?.let { body.put("eventId", it) }
         c.businessId?.let { body.put("businessId", it) }
-        // The file goes up first; the campaign then only carries its id.
-        if (c.mediaPath != null && uploader != null) body.put("mediaId", uploader.upload(c.mediaPath, if (c.mediaIsVideo) "video" else "image", "post"))
         if (c.ctaLabel != null && c.ctaUrl != null) body.put("ctaLabel", c.ctaLabel).put("ctaUrl", c.ctaUrl)
         return post("/campaigns", body).getString("id")
     }
@@ -196,12 +195,12 @@ class RemotePromotionsRepository(private val api: AuthedApi, private val uploade
     }
 
     override suspend fun submitReceipt(orderId: String, receipt: String) {
-        api.send("POST", "$PROMO_API/orders/$orderId/payment", JSONObject().put("receipt", receipt))
+        api.send("POST", V1 + "/orders/$orderId/payment", JSONObject().put("receipt", receipt))
     }
 
     override suspend fun control(campaignId: String, action: String) {
         require(action == "pause" || action == "resume" || action == "cancel")
-        api.send("POST", "$PROMO_API/campaigns/$campaignId/$action", JSONObject())
+        api.send("POST", V1 + "/campaigns/$campaignId/$action", JSONObject())
     }
 
     override suspend fun myBusinesses(): List<Business> {
@@ -218,10 +217,10 @@ class RemotePromotionsRepository(private val api: AuthedApi, private val uploade
         if (draft.contactPhone.isNotBlank()) body.put("contactPhone", draft.contactPhone)
         if (draft.contactEmail.isNotBlank()) body.put("contactEmail", draft.contactEmail)
         if (draft.websiteUrl.isNotBlank()) body.put("websiteUrl", draft.websiteUrl)
-        return if (id == null) post("/businesses", body).getString("id") else { api.send("PUT", "$PROMO_API/businesses/$id", body); id }
+        return if (id == null) post("/businesses", body).getString("id") else { api.send("PUT", V1 + "/businesses/$id", body); id }
     }
 
-    override suspend fun submitBusiness(id: String) { api.send("POST", "$PROMO_API/businesses/$id/submit", JSONObject()) }
+    override suspend fun submitBusiness(id: String) { api.send("POST", V1 + "/businesses/$id/submit", JSONObject()) }
 
     override suspend fun directory(category: String?, cursor: String?): PromoPage<Business> {
         val q = listOfNotNull(category?.let { "category=$it" }, cursor?.let { "cursor=" + java.net.URLEncoder.encode(it, "UTF-8") }).joinToString("&")
