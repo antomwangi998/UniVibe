@@ -56,7 +56,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.univibe.app.data.media.CropGeometry
 import com.univibe.app.data.media.CropHandle
 import com.univibe.app.data.media.CropRect
-import com.univibe.app.data.media.PhotoStore
+import com.univibe.app.data.media.PhotoEdit
 import com.univibe.app.ui.theme.Spacing
 import kotlinx.coroutines.launch
 import kotlin.math.min
@@ -90,10 +90,10 @@ fun PhotoEditDialog(path: String, onDismiss: () -> Unit, onSaved: (String) -> Un
     var saving by remember(path) { mutableStateOf(false) }
 
     LaunchedEffect(path) {
-        val loaded = PhotoStore.preview(path)
+        val loaded = PhotoEdit.preview(path)
         if (loaded == null) failed = true else preview = loaded
     }
-    val shown = remember(preview, turns) { preview?.let { PhotoStore.rotated(it, turns) } }
+    val shown = remember(preview, turns) { preview?.let { PhotoEdit.rotated(it, turns) } }
     val image = remember(shown) { shown?.asImageBitmap() }
     var rect by remember(shown) { mutableStateOf(CropRect.Full) }
     var presetIndex by remember(shown) { mutableStateOf(0) }
@@ -127,7 +127,7 @@ fun PhotoEditDialog(path: String, onDismiss: () -> Unit, onSaved: (String) -> Un
                             val chosen = rect
                             val turned = turns
                             scope.launch {
-                                val result = PhotoStore.edit(context, path, chosen, turned)
+                                val result = PhotoEdit.edit(context, path, chosen, turned)
                                 saving = false
                                 if (result == null) {
                                     Toast.makeText(context, "Couldn't save the edit. Your photo is unchanged.", Toast.LENGTH_SHORT).show()
@@ -187,7 +187,7 @@ fun PhotoEditDialog(path: String, onDismiss: () -> Unit, onSaved: (String) -> Un
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = { turns = (turns + 1) % 4 }, enabled = image != null && !saving) {
-                        Icon(VibeIcons.Rotate, contentDescription = "Rotate photo", tint = Color.White)
+                        Icon(CropIcons.Rotate, contentDescription = "Rotate photo", tint = Color.White)
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(
