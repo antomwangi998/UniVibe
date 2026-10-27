@@ -26,7 +26,8 @@ export class ImageRejected extends Error {}
 
 /** Longest edge, in pixels, of the stored photo and of the feed thumbnail. */
 export const IMAGE_PRESETS: Record<ImagePurpose, { full: number; thumb: number | null }> = {
-  post: { full: 2048, thumb: 720 },
+  // The feed shows a post photo about a phone's width wide (~1080 px), so its thumbnail must be that wide or it looks soft.
+  post: { full: 2048, thumb: 1080 },
   message: { full: 2048, thumb: null },
   event: { full: 2048, thumb: null },
   avatar: { full: 512, thumb: null },
@@ -41,7 +42,9 @@ export const IMAGE_PRESETS: Record<ImagePurpose, { full: number; thumb: number |
 const FORMAT_OF: Record<string, string> = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' };
 export const DEFAULT_MAX_PIXELS = 30_000_000;
 const FULL_QUALITY = 82;
-const THUMB_QUALITY = 76;
+const THUMB_QUALITY = 80;
+/** Thumbnails are bounded by width first; a tall (portrait) photo may be taller than it is wide, up to this. */
+const THUMB_MAX_HEIGHT: Partial<Record<ImagePurpose, number>> = { post: 1600 };
 
 /**
  * Real image processing with libvips (sharp). For every photo it:
@@ -57,10 +60,10 @@ export function createSharpProcessor(options: { maxPixels?: number } = {}): Imag
   sharp.concurrency(1);
   const open = (bytes: Uint8Array) => sharp(bytes, { limitInputPixels: maxPixels, failOn: 'error' });
 
-  async function render(bytes: Uint8Array, edge: number, quality: number): Promise<ImageVariant> {
+  async function render(bytes: Uint8Array, width: number, height: number, quality: number): Promise<ImageVariant> {
     const { data, info } = await open(bytes)
       .rotate() // upright according to the orientation tag
-      .resize({ width: edge, height: edge, fit: 'inside', withoutEnlargement: true })
+      .resize({ width, height, fit: 'inside', withoutEnlargement: true })
       .webp({ quality })
       .toBuffer({ resolveWithObject: true });
     return { bytes: new Uint8Array(data), width: info.width, height: info.height, contentType: 'image/webp' };
@@ -73,8 +76,8 @@ export function createSharpProcessor(options: { maxPixels?: number } = {}): Imag
         if (!meta.width || !meta.height) throw new ImageRejected('That is not a valid photo.');
         if (meta.format !== FORMAT_OF[declaredType]) throw new ImageRejected('The file type does not match.');
         const preset = IMAGE_PRESETS[purpose];
-        const full = await render(bytes, preset.full, FULL_QUALITY);
-        const thumb = preset.thumb ? await render(bytes, preset.thumb, THUMB_QUALITY) : null;
+        const full = await render(bytes, preset.full, preset.full, FULL_QUALITY);
+        const thumb = preset.thumb ? await render(bytes, preset.thumb, THUMB_MAX_HEIGHT[purpose] ?? preset.thumb, THUMB_QUALITY) : null;
         return { full, thumb };
       } catch (e) {
         if (e instanceof ImageRejected) throw e;

@@ -11,7 +11,7 @@ describe('photo processing', () => {
   it('shrinks big post photos and makes a feed thumbnail, keeping the proportions', async () => {
     const out = await processor.process(await jpeg(4000, 3000), 'image/jpeg', 'post');
     expect(out.full).toMatchObject({ width: 2048, height: 1536, contentType: 'image/webp' });
-    expect(out.thumb).toMatchObject({ width: 720, height: 540, contentType: 'image/webp' });
+    expect(out.thumb).toMatchObject({ width: 1080, height: 810, contentType: 'image/webp' });
   });
 
   it('never enlarges a small photo', async () => {

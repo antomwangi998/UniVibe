@@ -254,7 +254,7 @@ describe.skipIf(!url)('photos and videos (needs TEST_DATABASE_URL)', () => {
       const full = await sharp(storage.objects.get(rows[0].object_key)!.bytes).metadata();
       const thumb = await sharp(storage.objects.get(rows[0].thumb_key)!.bytes).metadata();
       expect(full.exif).toBeUndefined();
-      expect(thumb.width).toBe(720);
+      expect(thumb.width).toBe(1080);
       const post = await call('POST', '/posts', a.token, { text: 'processed', mediaIds: [id] }, processing);
       expect(post.body.media[0].url).toContain(rows[0].object_key);
       expect(post.body.media[0].thumbUrl).toContain(rows[0].thumb_key);
