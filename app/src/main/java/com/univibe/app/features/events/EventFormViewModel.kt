@@ -3,6 +3,9 @@ package com.univibe.app.features.events
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
+import com.univibe.app.domain.auth.AuthRepository
+import com.univibe.app.domain.auth.AuthState
+import com.univibe.app.domain.auth.Campus
 import com.univibe.app.data.model.EventCategoryInfo
 import com.univibe.app.data.model.EventCategoryOptions
 import com.univibe.app.data.model.NewEvent
@@ -60,6 +63,10 @@ data class EventFormUiState(
     val removeCover: Boolean = false,
     /** You are editing a draft, so it can be saved as a draft again. */
     val isDraft: Boolean = false,
+    /** The campuses of the organizer's university (empty when it has none), and which one the event is for. */
+    val campuses: List<Campus> = emptyList(),
+    val campusId: String? = null,
+    val allCampuses: Boolean = false,
 ) {
     /** What the cover preview shows: the new photo, else the current one unless it was removed. */
     val coverShown: String? get() = coverPath ?: coverUrl.takeUnless { removeCover }
@@ -87,6 +94,7 @@ class EventFormViewModel(
     private val editId: String?,
     private val repository: EventRepository = AppContainer.eventRepository,
     private val communities: CommunityRepository = AppContainer.communityRepository,
+    private val auth: AuthRepository = AppContainer.authRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(initialState(editId))
     val state: StateFlow<EventFormUiState> = _state.asStateFlow()
@@ -97,7 +105,10 @@ class EventFormViewModel(
             val hosts = runCatching { communities.getCommunities() }.getOrDefault(emptyList()).filter { it.isStaff }
                 .map { HostOption(it.id, it.name) }
             val categories = runCatching { repository.eventCategories() }.getOrDefault(emptyList())
-            _state.update { it.copy(venues = venues, categories = categories, hostOptions = listOf(HostOption(null, "You")) + hosts) }
+            val me = (auth.session.value as? AuthState.Authenticated)?.user
+            val campuses = runCatching { auth.universities() }.getOrDefault(emptyList()).firstOrNull { it.id == me?.universityId }?.campuses.orEmpty()
+            // A new event starts on the organizer's own campus, which is also what the server does when nothing is sent.
+            _state.update { it.copy(venues = venues, categories = categories, hostOptions = listOf(HostOption(null, "You")) + hosts, campuses = campuses, campusId = if (editId == null) me?.campusId?.ifEmpty { null } else it.campusId) }
             if (editId != null) {
                 val d = runCatching { repository.getEvent(editId) }.getOrNull()
                 val e = d?.event
@@ -111,7 +122,7 @@ class EventFormViewModel(
                         hostCommunityId = e.hostCommunityId, startMillis = e.startMillis, endMillis = e.endMillis, originalStart = e.startMillis,
                         venueName = e.location, venueLat = d.latitude, venueLng = d.longitude, customVenue = known == null && d.latitude == null,
                         limitPlaces = d.capacity != null, capacityText = d.capacity?.toString().orEmpty(),
-                        coverUrl = e.coverUrl, isDraft = e.draft,
+                        coverUrl = e.coverUrl, isDraft = e.draft, campusId = e.campusId, allCampuses = e.campusId == null && it.campuses.isNotEmpty(),
                     )
                 }
             }
@@ -129,6 +140,8 @@ class EventFormViewModel(
     fun setDeadline(millis: Long) = _state.update { it.copy(deadlineMillis = millis) }
     fun setAccent(v: Int) = _state.update { it.copy(accent = v) }
     fun setHost(id: String?) = _state.update { it.copy(hostCommunityId = id) }
+    fun setCampus(id: String) = _state.update { it.copy(campusId = id, allCampuses = false) }
+    fun setAllCampuses() = _state.update { it.copy(campusId = null, allCampuses = true) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
     fun setCover(path: String) = _state.update { it.copy(coverPath = path, removeCover = false) }
     fun removeCover() = _state.update { it.copy(coverPath = null, removeCover = true) }
@@ -164,6 +177,7 @@ class EventFormViewModel(
                     onlineUrl = s.onlineUrl.takeIf { s.needsLink && it.isNotBlank() }, externalUrl = s.externalUrl.ifBlank { null },
                     registrationDeadlineMillis = s.deadlineMillis.takeIf { s.hasDeadline }, timezone = ZoneId.systemDefault().id,
                     coverPath = s.coverPath, removeCover = s.removeCover, asDraft = asDraft,
+                    campusId = s.campusId.takeIf { s.campuses.isNotEmpty() }, allCampuses = s.allCampuses && s.campuses.isNotEmpty(),
                 )
                 val id = if (editId != null) { repository.updateEvent(editId, draft); editId } else repository.createEvent(draft)
                 _state.update { it.copy(submitting = false, doneId = id) }

@@ -292,6 +292,7 @@ private fun InfoCard(details: EventDetails) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             InfoLine(VibeIcons.Clock, "When", event.timeLabel)
             InfoLine(VibeIcons.Place, "Where", event.location)
+            event.campusName?.let { InfoLine(VibeIcons.School, "Campus", it) }
             InfoLine(VibeIcons.Groups, "Attending", "${event.going} going · ${event.interested} interested")
             details.capacity?.let { capacity ->
                 val progress = (event.going.toFloat() / capacity).coerceIn(0f, 1f)
