@@ -43,8 +43,9 @@ const FORMAT_OF: Record<string, string> = { 'image/jpeg': 'jpeg', 'image/png': '
 export const DEFAULT_MAX_PIXELS = 30_000_000;
 const FULL_QUALITY = 82;
 const THUMB_QUALITY = 80;
-/** Thumbnails are bounded by width first; a tall (portrait) photo may be taller than it is wide, up to this. */
-const THUMB_MAX_HEIGHT: Partial<Record<ImagePurpose, number>> = { post: 1600 };
+/** Thumbnails are bounded by width first; a tall (portrait) photo may be taller than it is wide, up to this.
+ *  Must allow a 1080 px wide thumbnail for the tallest photo (the feed crops at about 3:5, a 9:20 phone photo is taller). */
+const THUMB_MAX_HEIGHT: Partial<Record<ImagePurpose, number>> = { post: 2400 };
 
 /**
  * Real image processing with libvips (sharp). For every photo it:

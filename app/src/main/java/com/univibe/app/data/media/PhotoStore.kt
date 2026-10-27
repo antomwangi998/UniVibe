@@ -17,7 +17,9 @@ import kotlin.math.max
  * A real backend must still validate and re-process uploads server-side.
  */
 object PhotoStore {
-    private const val MAX_EDGE = 1600
+    /** Longest edge kept on the phone. Generous on purpose: tall phone photos are narrow, and the server does the final shrinking. */
+    private const val MAX_EDGE = 2560
+    private const val JPEG_QUALITY = 90
     private const val DIR = "photos"
 
     suspend fun import(context: Context, uri: Uri, prefix: String): String? = withContext(Dispatchers.IO) {
@@ -44,7 +46,7 @@ object PhotoStore {
             }
             val dir = File(context.filesDir, DIR).apply { mkdirs() }
             val file = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
-            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
             file.absolutePath
         }.getOrNull()
     }
