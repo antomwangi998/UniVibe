@@ -194,7 +194,7 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit,
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.Filled.Verified, contentDescription = "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     }
-                    if (post.author.universityCode.isNotBlank()) {
+                    if (post.author.verified && post.author.universityCode.isNotBlank()) {
                         Spacer(Modifier.width(6.dp))
                         Text(
                             post.author.universityCode,
