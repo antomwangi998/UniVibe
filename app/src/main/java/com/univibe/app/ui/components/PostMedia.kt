@@ -59,8 +59,16 @@ import androidx.compose.runtime.State
 val PostMediaShape = RoundedCornerShape(16.dp)
 
 private const val DEFAULT_RATIO = 4f / 3f   // reserved until the real size is known
-private const val MIN_RATIO = 0.62f         // tallest a feed photo may be (about 3:5); taller ones are cropped on purpose
-private const val MAX_RATIO = 2.0f          // widest a feed photo may be
+/** Tallest a feed photo may be (about 5:8); taller ones are trimmed on purpose. */
+const val FEED_MIN_PHOTO_RATIO = 0.62f
+/** Widest a feed photo may be. */
+const val FEED_MAX_PHOTO_RATIO = 2.0f
+
+/** True when the feed would cut part of a photo of this width / height (the cropper warns about it). */
+fun isTrimmedInFeed(ratio: Float): Boolean = ratio < FEED_MIN_PHOTO_RATIO - 0.005f || ratio > FEED_MAX_PHOTO_RATIO + 0.005f
+
+private const val MIN_RATIO = FEED_MIN_PHOTO_RATIO
+private const val MAX_RATIO = FEED_MAX_PHOTO_RATIO
 
 /** Tap opens the photo; with [onDoubleTap] a double tap does that instead (a single tap then waits a moment to be sure). */
 @OptIn(ExperimentalFoundationApi::class)
