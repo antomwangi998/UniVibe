@@ -53,6 +53,8 @@ data class ChatsUiState(
 
 class ChatsViewModel(
     private val repository: ChatRepository = AppContainer.chatRepository,
+    /** Receives the main chat list whenever it is fresh, for the tab badge. Failing to reach the app container (unit tests) is harmless. */
+    private val onChatsSettled: (List<Chat>) -> Unit = { chats -> runCatching { AppContainer.chatUnread.publish(chats) } },
 ) : ViewModel() {
     private val _state = MutableStateFlow(ChatsUiState())
     val state: StateFlow<ChatsUiState> = _state.asStateFlow()
@@ -85,6 +87,8 @@ class ChatsViewModel(
                     val merged = chats.mapNotNull { c -> if (c.id in s.busy) local[c.id] else c }
                     s.copy(loading = false, refreshing = false, all = merged)
                 }
+                // The Chats list just read the server's counts: hand the same list to the tab badge (no second request).
+                publishUnread()
             } catch (e: Exception) {
                 _state.update { it.copy(refreshing = false) }
                 if (silent) return@launch
@@ -163,6 +167,11 @@ class ChatsViewModel(
         change(chatId, { null }, "Couldn't archive the chat. Try again.") { repository.archive(chatId) }
     }
 
+    /** Gives the tab badge this list's unread total, unless a change is still in flight (then our rows may be ahead of the server). */
+    private fun publishUnread() {
+        if (_state.value.busy.isEmpty()) onChatsSettled(_state.value.all)
+    }
+
     private fun chatOrNull(chatId: String): Chat? = _state.value.all.firstOrNull { it.id == chatId }
 
     /**
@@ -185,6 +194,7 @@ class ChatsViewModel(
             try {
                 call()
                 _state.update { it.copy(busy = it.busy - chatId) }
+                publishUnread()
             } catch (e: Exception) {
                 _state.update { s ->
                     val now = s.all.firstOrNull { it.id == chatId }
@@ -196,6 +206,7 @@ class ChatsViewModel(
                     }
                     s.copy(busy = s.busy - chatId, all = restored, notice = failure)
                 }
+                publishUnread()
             }
         }
     }

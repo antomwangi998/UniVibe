@@ -274,6 +274,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
     val guideScope = rememberCoroutineScope()
     val back: () -> Unit = { navController.popBackStack() }
     val unreadNotifications by AppContainer.notificationRepository.unreadCount.collectAsStateWithLifecycle()
+    // Chats badge: the real unread total (null until it has been read; the badge stays hidden then).
+    val unreadMessages by AppContainer.chatUnread.total.collectAsStateWithLifecycle()
+    // Re-read when the app resumes and when the student comes back from a conversation (opening one clears it on the server).
+    var resumeTick by remember { mutableStateOf(0) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { resumeTick++ }
+    LaunchedEffect(currentRoute, resumeTick) {
+        if (isTopLevel) runCatching { AppContainer.chatUnread.refresh() }
+    }
     // Keep the bell badge in step with the server (does nothing in the offline demo).
     LaunchedEffect(Unit) {
         while (true) {
@@ -350,6 +358,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 onOpenBusinesses = { open(AppRoutes.BUSINESSES) },
                                 unreadNotifications = unreadNotifications,
                                 onOpenNotifications = { open(AppRoutes.NOTIFICATIONS) },
+                                onOpenPost = { open(AppRoutes.comments(it)) },
                             ),
                         )
                     }
@@ -677,7 +686,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                 enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(160)),
                 exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(140)),
             ) {
-                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab, backdrop = backdrop)
+                VibeBottomBar(items = barItems, selectedRoute = currentRoute, onSelect = selectTab, backdrop = backdrop, badges = mapOf(TopLevelDestination.Chats.route to unreadMessages))
             }
 
             // Guided tour and first-time welcome. Both draw nothing when idle, and Back closes either one.
