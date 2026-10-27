@@ -4,7 +4,7 @@
   "private": true,
   "description": "UniVibe backend API (auth first)",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -25,7 +25,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.17.0",
+    "@types/node": "^22.0.0",
     "@types/pg": "^8.11.10",
     "@types/ws": "^8.18.2",
     "tsx": "^4.19.2",
