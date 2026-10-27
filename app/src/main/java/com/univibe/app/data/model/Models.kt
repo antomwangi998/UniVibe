@@ -289,8 +289,10 @@ data class EventDiscoverFilter(
     val onlineOnly: Boolean = false,
     val registrationOpen: Boolean = false,
     val savedOnly: Boolean = false,
+    /** Only events for the student's own campus, plus events open to every campus. */
+    val myCampus: Boolean = false,
 ) {
-    val isActive: Boolean get() = categories.isNotEmpty() || toMillis != null || onlineOnly || registrationOpen || savedOnly
+    val isActive: Boolean get() = categories.isNotEmpty() || toMillis != null || onlineOnly || registrationOpen || savedOnly || myCampus
 }
 
 data class EventDiscoverPage(val events: List<CampusEvent>, val nextCursor: String?)

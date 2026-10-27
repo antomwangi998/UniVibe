@@ -25,6 +25,9 @@ interface AuthRepository {
     suspend fun completeOnboarding(profile: OnboardingProfile): AuthResult<Unit>
     /** Saves edits to the signed-in student's profile on the server and refreshes the session user. */
     suspend fun updateProfile(edit: ProfileEdit): AuthResult<Unit> = AuthResult.Failure(AuthError.Unknown)
+
+    /** Moves the signed-in student to another campus of their own university. */
+    suspend fun setCampus(campusId: String): AuthResult<Unit> = AuthResult.Failure(AuthError.Unknown)
     /** True when this build can offer Google sign-in (a server client id and a real backend are configured). */
     val googleSignInAvailable: Boolean get() = false
     /** A fresh single-use nonce to put into the Google request, so a copied ID token cannot be replayed. */

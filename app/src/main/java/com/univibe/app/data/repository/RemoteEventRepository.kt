@@ -140,6 +140,7 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         filter.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
         if (filter.registrationOpen) q += "registrationOpen=true"
         if (filter.savedOnly) q += "saved=true"
+        if (filter.myCampus) q += "myCampus=true"
         cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
         val body = JSONObject(api.send("GET", "/api/v1/discover/events?" + q.joinToString("&")))
         val items = body.getJSONArray("items")

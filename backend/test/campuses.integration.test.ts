@@ -59,4 +59,35 @@ describe.skipIf(!url)('multi-campus universities (needs TEST_DATABASE_URL)', () 
     const plain = await h.student();
     expect((await call('PUT', '/me/campus', plain.token, { campusId: 'campus-test-a' })).status).toBe(400);
   });
+
+  it('tags events with a campus, defaults to the organizer\'s campus, and filters Discover by my campus', async () => {
+    const V1 = '/api/v1';
+    const inHours = (n: number) => new Date(Date.now() + n * 3600_000).toISOString();
+    const onboard = async (s: { token: string }) => { expect((await call('PUT', '/me/profile', s.token, { course: 'Law', interests: ['chess'], bio: '' })).status).toBe(200); };
+    const a = await h.student('campus.example', 'campus-test', 'campus-test-a');
+    const b = await h.student('campus.example', 'campus-test', 'campus-test-b');
+    await onboard(a); await onboard(b);
+    const make = (token: string, title: string, over: Record<string, unknown> = {}) =>
+      call('POST', `${V1}/events`, token, { title, description: 'Campus event', category: 'technology', venueName: 'Hall', startsAt: inHours(24), endsAt: inHours(27), ...over });
+
+    const own = await make(a.token, 'Alpha own campus');
+    expect(own.status, JSON.stringify(own.body)).toBe(201);
+    expect(own.body.campusId).toBe('campus-test-a');
+    expect(own.body.campusName).toBe('Alpha Campus');
+    const all = await make(a.token, 'Alpha for everyone', { campusId: null });
+    expect(all.status, JSON.stringify(all.body)).toBe(201);
+    expect(all.body.campusId).toBeNull();
+    expect((await make(a.token, 'Wrong university campus', { campusId: 'ku-main' })).status).toBe(422);
+
+    const ids = async (query: string) => (await call('GET', `${V1}/discover/events?${query}`, b.token)).body.items.map((e: { id: string }) => e.id);
+    const everything = await ids('limit=30');
+    expect(everything).toEqual(expect.arrayContaining([own.body.id, all.body.id]));
+    const mine = await ids('limit=30&myCampus=true');
+    expect(mine).toContain(all.body.id);
+    expect(mine).not.toContain(own.body.id);
+
+    const moved = await call('PATCH', `${V1}/events/${own.body.id}`, a.token, { campusId: 'campus-test-b' });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(await ids('limit=30&myCampus=true')).toContain(own.body.id);
+  });
 });

@@ -30,7 +30,9 @@ const filterSchema = z.object({
   format: csv(z.enum(['in_person', 'online', 'hybrid']), 3).optional(),
   from: when.optional(), to: when.optional(),
   communityId: z.string().uuid().optional(),
-  campus: z.enum(['mine', 'any']).default('any'),
+  campus: z.enum(['mine', 'any']).default('any'), // whole university
+  // Only events for my own campus, plus events for every campus of the university.
+  myCampus: bool.optional(),
   registrationOpen: bool.optional(),
   saved: bool.optional(),
   q: z.string().trim().min(1).max(80).optional(),
@@ -110,6 +112,7 @@ export function discoverEventRoutes(ctx: Ctx) {
       if (f.to) where.push(`e.starts_at < ${add(f.to)}::timestamptz`);
       if (f.communityId) where.push(`e.community_id = ${add(f.communityId)}::uuid`);
       if (f.campus === 'mine') where.push('e.university_id = $2');
+      if (f.myCampus === true) where.push('(e.campus_id is null or e.campus_id = (select vc.campus_id from users vc where vc.id = $1))');
       if (f.registrationOpen === true) {
         where.push("(e.registration_deadline is null or e.registration_deadline > now())");
         where.push("(e.capacity is null or (select count(*) from event_registrations rr where rr.event_id = e.id and rr.status = 'registered') < e.capacity)");

@@ -43,6 +43,7 @@ const base = {
   visibility: z.enum(VISIBILITIES),
   attendeesVisible: z.boolean(),
   coverMediaId: z.string().uuid().nullable(),
+  campusId: z.string().trim().min(1).max(64).nullable(),
 };
 const createSchema = z.object({
   ...base,
@@ -52,6 +53,8 @@ const createSchema = z.object({
   timezone: base.timezone.default(null), capacity: base.capacity.default(null),
   visibility: base.visibility.optional(), attendeesVisible: base.attendeesVisible.default(true), coverMediaId: base.coverMediaId.default(null),
   communityId: z.string().uuid().nullable().default(null),
+  // Left out: the organizer's own campus. null: every campus of the university.
+  campusId: base.campusId.optional(),
   status: z.enum(['draft', 'published']).default('published'),
   createKey: z.string().trim().min(8).max(64).nullable().default(null),
 }).strict();
@@ -121,12 +124,18 @@ async function assertCategory(client: Q, code: string) {
   if (!ok.rowCount) throw new HttpError(422, 'validation', 'Pick a category from the list.');
 }
 
+/** An event can only be tied to a campus of the organizer's own university. */
+async function assertEventCampus(client: Q, universityId: string, campusId: string) {
+  const ok = await client.query('select 1 from campuses where id = $1 and university_id = $2', [campusId, universityId]);
+  if (!ok.rowCount) throw new HttpError(422, 'validation', 'Pick a campus of your university.');
+}
+
 async function audit(client: Q, eventId: string, actorId: string, action: 'create' | 'publish' | 'update' | 'cancel' | 'complete' | 'announce_update' | 'hide' | 'restore', detail: Record<string, unknown> = {}) {
   await client.query('insert into event_audit (event_id, actor_id, action, detail) values ($1, $2, $3, $4::jsonb)', [eventId, actorId, action, JSON.stringify(detail)]);
 }
 
 export const EVENT_SELECT = `
-  select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key,
+  select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key, ecamp.name as campus_name,
          case when ec.visibility = 'public' or exists (select 1 from community_members vm where vm.community_id = ec.id and vm.user_id = $1 and vm.status = 'active') then ec.name end as community_name,
          (select count(*) from event_registrations r where r.event_id = e.id and r.status = 'registered') as registered_count,
          (select count(*) from event_interest i where i.event_id = e.id) as interested_count,
@@ -137,7 +146,8 @@ export const EVENT_SELECT = `
          (select r.checked_in_at is not null from event_registrations r where r.event_id = e.id and r.user_id = $1 and r.status = 'registered') as my_checked_in
     from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
     left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
-    left join communities ec on ec.id = e.community_id and ec.status <> 'deleted'`;
+    left join communities ec on ec.id = e.community_id and ec.status <> 'deleted'
+    left join campuses ecamp on ecamp.id = e.campus_id`;
 
 
 /**
@@ -171,6 +181,7 @@ export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Re
     registeredCount: registered, spotsLeft: capacity === null ? null : Math.max(0, capacity - registered),
     visibility: r.visibility, attendeesVisible: r.attendees_visible, status: r.status, ...deriveEventState(r, registered),
     communityId: r.community_name ? r.community_id : null, communityName: r.community_name ?? null,
+    campusId: r.campus_id ?? null, campusName: r.campus_name ?? null,
     coverUrl: await signedUrl(ctx, r.cover_key as string | null),
     myRegistration: joined ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
     interestedCount: Number(r.interested_count),
@@ -310,6 +321,8 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
       await coverOk(me, b.coverMediaId);
       const result = await withTx(pool, async (client) => {
         await client.query('select 1 from users where id = $1 for update', [me.id]); // serialises the per-organizer limit and the retry key
+        if (b.campusId) await assertEventCampus(client, me.universityId, b.campusId);
+        const campusId = b.campusId === undefined ? (await client.query<{ campus_id: string | null }>('select campus_id from users where id = $1', [me.id])).rows[0].campus_id : b.campusId;
         if (b.createKey) {
           const again = await client.query<{ id: string }>('select id from events where organizer_id = $1 and create_key = $2', [me.id, b.createKey]);
           if (again.rows[0]) return { id: again.rows[0].id, created: false };
@@ -331,10 +344,10 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
         const id = (await client.query<{ id: string }>(
           `insert into events (organizer_id, university_id, community_id, title, description, category, event_type, venue_name, venue_address, latitude, longitude, online_url,
                                external_registration_url, registration_deadline, timezone, cover_media_id, starts_at, ends_at, capacity, visibility,
-                               attendees_visible, status, create_key)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) returning id`,
+                               attendees_visible, status, create_key, campus_id)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) returning id`,
           [me.id, me.universityId, b.communityId, b.title, b.description, b.category, b.eventType, venueName, b.venueAddress, b.latitude, b.longitude, b.onlineUrl,
-            b.externalRegistrationUrl, deadline, b.timezone, b.coverMediaId, starts, ends, b.capacity, visibility, b.attendeesVisible, b.status, b.createKey])).rows[0].id;
+            b.externalRegistrationUrl, deadline, b.timezone, b.coverMediaId, starts, ends, b.capacity, visibility, b.attendeesVisible, b.status, b.createKey, campusId])).rows[0].id;
         await audit(client, id, me.id, 'create', { status: b.status, communityId: b.communityId });
         if (b.status === 'published') {
           await audit(client, id, me.id, 'publish');
@@ -459,9 +472,10 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
           if (b.capacity < going) throw new HttpError(422, 'validation', `${going} people are already going, so capacity cannot be lower.`);
         }
         if (b.coverMediaId) await coverOk(me, b.coverMediaId);
+        if (b.campusId) await assertEventCampus(client, me.universityId, b.campusId);
         const cols: Record<string, string> = { title: 'title', description: 'description', category: 'category', eventType: 'event_type', venueName: 'venue_name', venueAddress: 'venue_address', latitude: 'latitude', longitude: 'longitude',
           onlineUrl: 'online_url', externalRegistrationUrl: 'external_registration_url', registrationDeadline: 'registration_deadline', timezone: 'timezone',
-          startsAt: 'starts_at', endsAt: 'ends_at', capacity: 'capacity', visibility: 'visibility', attendeesVisible: 'attendees_visible', coverMediaId: 'cover_media_id' };
+          startsAt: 'starts_at', endsAt: 'ends_at', capacity: 'capacity', visibility: 'visibility', attendeesVisible: 'attendees_visible', coverMediaId: 'cover_media_id', campusId: 'campus_id' };
         const dates = new Set(['startsAt', 'endsAt', 'registrationDeadline']);
         const sets: string[] = []; const values: unknown[] = [id];
         for (const [k, v] of Object.entries(b)) { values.push(dates.has(k) && v !== null ? new Date(v as string) : v); sets.push(`${cols[k]} = $${values.length}`); }

@@ -418,6 +418,18 @@ class RemoteAuthRepository(
         return AuthResult.Success(Unit)
     }
 
+    override suspend fun setCampus(campusId: String): AuthResult<Unit> {
+        val response = when (val r = authedCall("PUT", "/me/campus", JSONObject().put("campusId", campusId))) {
+            is AuthResult.Failure -> return r
+            is AuthResult.Success -> r.value
+        }
+        if (response.status != 200) return fail(mapError(response))
+        val updated = parseUser(response.body) ?: return fail(AuthError.Unknown)
+        setUser(updated)
+        _session.value = stateFor(updated)
+        return AuthResult.Success(Unit)
+    }
+
     override suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult<Unit> {
         AuthValidators.password(newPassword)?.let { return fail(AuthError.Validation(it)) }
         if (currentPassword == newPassword) return fail(AuthError.Validation("Choose a password you haven't used here."))
