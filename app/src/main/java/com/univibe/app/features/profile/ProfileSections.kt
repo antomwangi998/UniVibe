@@ -148,9 +148,9 @@ fun ProfileStatsCard(
     ) {
         StatCell(VibeIcons.Grid, profile.posts.toString(), "Posts", Modifier.weight(1f), null)
         StatDivider()
-        StatCell(VibeIcons.Groups, compactCount(profile.followers), "Followers", Modifier.weight(1f), onFollowers)
+        StatCell(VibeIcons.Groups, compactStatCount(profile.followers), "Followers", Modifier.weight(1f), onFollowers)
         StatDivider()
-        StatCell(VibeIcons.PersonAdd, compactCount(profile.following), "Following", Modifier.weight(1f), onFollowing)
+        StatCell(VibeIcons.PersonAdd, compactStatCount(profile.following), "Following", Modifier.weight(1f), onFollowing)
     }
 }
 
@@ -366,7 +366,7 @@ private fun CommunityTile(group: Community, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(group.name, style = MaterialTheme.typography.titleSmall, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = t.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val role = when (group.role) { CommunityRole.Owner -> " · Owner"; CommunityRole.Moderator -> " · Moderator"; else -> "" }
-            Text("${compactCount(group.members)} members$role", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${compactStatCount(group.members)} members$role", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -409,5 +409,5 @@ fun SavedPostsCard(
     }
 }
 
-internal fun compactCount(n: Int): String =
+private fun compactStatCount(n: Int): String =
     if (n >= 1000) String.format(java.util.Locale.US, "%.1fK", n / 1000f).replace(".0K", "K") else n.toString()
