@@ -20,6 +20,8 @@ data class Student(
     val photoPath: String? = null,
     /** Short-lived link to the student's profile picture; null when they have not uploaded one (initials are shown). */
     val avatarUrl: String? = null,
+    /** The university's short code ("ku", "cuk"), shown as a small badge next to the name. Empty when unknown. */
+    val universityCode: String = "",
 ) {
     /** "Computer Science · 2nd Year", or just the course when no year is set. */
     val courseLine: String

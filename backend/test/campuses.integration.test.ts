@@ -90,4 +90,11 @@ describe.skipIf(!url)('multi-campus universities (needs TEST_DATABASE_URL)', () 
     expect(moved.status, JSON.stringify(moved.body)).toBe(200);
     expect(await ids('limit=30&myCampus=true')).toContain(own.body.id);
   });
+
+  it('puts the author\'s university code on a post, for the badge next to the name', async () => {
+    const s = await h.student('campus.example', 'campus-test', 'campus-test-a');
+    const post = await call('POST', '/posts', s.token, { text: 'hello campus', audience: 'campus' });
+    expect(post.status, JSON.stringify(post.body)).toBe(201);
+    expect(post.body.author.universityCode).toBe('campus-test');
+  });
 });

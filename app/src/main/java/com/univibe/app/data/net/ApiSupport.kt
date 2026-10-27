@@ -72,6 +72,7 @@ fun parseStudent(o: JSONObject): Student {
         course = o.optString("course"),
         year = o.optString("yearOfStudy"),
         university = o.optString("universityName"),
+        universityCode = o.optString("universityCode"),
         interests = stringList(o.optJSONArray("interests")),
         verified = o.optBoolean("studentVerified", false),
         accent = accentFor(id),
