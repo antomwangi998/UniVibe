@@ -211,9 +211,10 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
 
   it('lets students like and comment on a live card, and reports the counts on the card', async () => {
     const { campaignId } = await liveCampaign();
-    const a = await h.student();
-    const b = await h.student();
-    expect((await feed(a.token)).body.items[0].engagement).toEqual({ likes: 0, comments: 0, liked: false });
+    // Same university as the advertiser: delivery, likes and comments are all limited to it.
+    const a = await student();
+    const b = await student();
+    expect((await cardOf(a.token, campaignId)).engagement).toEqual({ likes: 0, comments: 0, liked: false });
     expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, a.token)).body).toEqual({ liked: true, likes: 1 });
     expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, a.token)).body.likes).toBe(1); // liking twice counts once
     expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, b.token)).body.likes).toBe(2);
@@ -224,7 +225,7 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     const list = await call('GET', `${V1}/sponsored/${campaignId}/comments`, b.token);
     expect(list.body.items).toHaveLength(1);
     expect(list.body.items[0].mine).toBe(false);
-    expect((await feed(a.token)).body.items[0].engagement).toEqual({ likes: 2, comments: 1, liked: true });
+    expect((await cardOf(a.token, campaignId)).engagement).toEqual({ likes: 2, comments: 1, liked: true });
     // Only the author can delete a comment.
     expect((await call('DELETE', `${V1}/sponsored/${campaignId}/comments/${sent.body.id}`, b.token)).status).toBe(404);
     expect((await call('DELETE', `${V1}/sponsored/${campaignId}/comments/${sent.body.id}`, a.token)).status).toBe(200);
