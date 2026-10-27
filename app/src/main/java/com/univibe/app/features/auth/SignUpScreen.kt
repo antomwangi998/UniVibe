@@ -110,6 +110,8 @@ fun SignUpScreen(onBack: () -> Unit, onLogIn: () -> Unit, viewModel: SignUpViewM
             }
         }
 
+        CampusPicker(state.university?.campuses.orEmpty(), state.campusId, state.campusError, viewModel::onCampus)
+
         VibePasswordField(
             value = state.password, onValueChange = viewModel::onPassword, label = "Password",
             modifier = Modifier.newPasswordAutofill(viewModel::onPassword),

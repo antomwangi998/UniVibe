@@ -5,6 +5,7 @@ import type { Pool } from 'pg';
 import { z } from 'zod';
 import type { Query, UserRow } from './app';
 import type { Config } from './config';
+import { resolveCampus } from './campus';
 import { withTx } from './db';
 import { HttpError } from './errors';
 import { GoogleTokenError, type GoogleIdentity, type GoogleVerifier } from './google';
@@ -36,6 +37,7 @@ const signInSchema = z.object({ idToken: z.string().min(20).max(8192), nonce, de
 const registerSchema = z.object({
   registrationToken: z.string().min(20).max(4096),
   universityId: z.string().min(1, 'Choose your university.').max(64),
+  campusId: z.string().trim().min(1).max(64).optional(),
   fullName: z.string().trim().min(2, 'Enter your full name.').max(80).optional(),
   admissionNumber: z.string().trim().regex(/^([A-Za-z0-9/_-]{3,24})?$/, 'Use 3–24 letters, numbers, / or -.').optional(),
   acceptedTerms: z.boolean().refine((v) => v === true, 'Accept the terms to continue.'),
@@ -148,6 +150,7 @@ export function registerGoogleAuthRoutes(app: FastifyInstance, ctx: GoogleAuthCo
 
     const uni = await pool.query<{ email_domains: string[] }>('select email_domains from universities where id = $1', [b.universityId]);
     if (!uni.rows[0]) throw new HttpError(400, 'validation', 'Choose your university.');
+    const campusId = await resolveCampus(pool, b.universityId, b.campusId);
     // Google verified this email, so the existing rule applies: the university's email domain decides student status.
     const student = sec.emailMatchesDomains(claims.email, uni.rows[0].email_domains);
     const name = (b.fullName ?? claims.name).trim() || claims.email.split('@')[0];
@@ -159,9 +162,9 @@ export function registerGoogleAuthRoutes(app: FastifyInstance, ctx: GoogleAuthCo
           const q: Query = (t, p) => client.query(t, p);
           await q('delete from users where email = $1 and email_verified_at is null', [claims.email]);
           const created = (await q(
-            'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at, accepted_terms_version, email_verified_at, student_verified) ' +
-              'values ($1, $2, $3, null, $4, $5, now(), $6, now(), $7) returning id',
-            [claims.email, name.slice(0, 80), handle, b.universityId, b.admissionNumber || null, b.termsVersion ?? '', student],
+            'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at, accepted_terms_version, email_verified_at, student_verified, campus_id) ' +
+              'values ($1, $2, $3, null, $4, $5, now(), $6, now(), $7, $8) returning id',
+            [claims.email, name.slice(0, 80), handle, b.universityId, b.admissionNumber || null, b.termsVersion ?? '', student, campusId],
           )) as { rows: { id: string }[] };
           const userId = created.rows[0].id;
           await q(`insert into auth_identities (user_id, provider, provider_subject) values ($1, 'google', $2)`, [userId, claims.subject]);

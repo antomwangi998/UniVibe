@@ -23,6 +23,7 @@ data class SignUpUiState(
     val admission: String = "",
     val universities: List<University> = emptyList(),
     val universityId: String? = null,
+    val campusId: String? = null,
     val password: String = "",
     val confirm: String = "",
     val acceptedTerms: Boolean = false,
@@ -38,6 +39,8 @@ data class SignUpUiState(
     val strength: PasswordStrength get() = AuthValidators.passwordStrength(password)
     val termsError get() = if (showErrors && !acceptedTerms) "Accept the Terms and Privacy Policy to continue." else null
     val university: University? get() = universities.firstOrNull { it.id == universityId }
+    private val needsCampus: Boolean get() = university?.campuses?.isNotEmpty() == true
+    val campusError get() = if (showErrors && needsCampus && campusId == null) "Choose your campus." else null
 
     /** Soft hint only; the server decides whether the email proves university membership. */
     val domainHint: String?
@@ -47,7 +50,8 @@ data class SignUpUiState(
     val isValid: Boolean
         get() = AuthValidators.fullName(fullName) == null && AuthValidators.email(email) == null &&
             AuthValidators.admissionNumber(admission) == null && AuthValidators.password(password) == null &&
-            AuthValidators.confirmPassword(password, confirm) == null && acceptedTerms && universityId != null
+            AuthValidators.confirmPassword(password, confirm) == null && acceptedTerms && universityId != null &&
+            (!needsCampus || university?.campuses?.any { it.id == campusId } == true)
 }
 
 class SignUpViewModel(
@@ -66,7 +70,8 @@ class SignUpViewModel(
     fun onName(v: String) = _state.update { it.copy(fullName = v, error = null) }
     fun onEmail(v: String) = _state.update { it.copy(email = v, error = null) }
     fun onAdmission(v: String) = _state.update { it.copy(admission = v, error = null) }
-    fun onUniversity(id: String) = _state.update { it.copy(universityId = id) }
+    fun onUniversity(id: String) = _state.update { it.copy(universityId = id, campusId = null) }
+    fun onCampus(id: String) = _state.update { it.copy(campusId = id) }
     fun onPassword(v: String) = _state.update { it.copy(password = v, error = null) }
     fun onConfirm(v: String) = _state.update { it.copy(confirm = v, error = null) }
     fun onTerms(v: Boolean) = _state.update { it.copy(acceptedTerms = v) }
@@ -80,7 +85,7 @@ class SignUpViewModel(
             _state.update { it.copy(submitting = true, error = null) }
             val request = SignUpRequest(
                 fullName = s.fullName, email = s.email, admissionNumber = s.admission.ifBlank { null },
-                universityId = s.universityId!!, password = s.password, acceptedTerms = s.acceptedTerms,
+                universityId = s.universityId!!, password = s.password, acceptedTerms = s.acceptedTerms, campusId = s.campusId,
                 termsVersion = TermsOfService.VERSION,
             )
             when (val result = repository.signUp(request)) {

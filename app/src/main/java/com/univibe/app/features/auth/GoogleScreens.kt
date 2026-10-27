@@ -115,6 +115,7 @@ fun GoogleRegistrationScreen(viewModel: GoogleRegistrationViewModel = viewModel(
                 state.universities.forEach { u -> InterestChip(u.name, selected = state.universityId == u.id, onClick = { viewModel.onUniversity(u.id) }) }
             }
         }
+        CampusPicker(state.university?.campuses.orEmpty(), state.campusId, state.campusError, viewModel::onCampus)
         // Signing in with Google does not make anyone a verified student; the server decides that from the email domain.
         state.domainHint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 

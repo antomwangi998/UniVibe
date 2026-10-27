@@ -1,6 +1,9 @@
 package com.univibe.app.domain.auth
 
-data class University(val id: String, val name: String, val emailDomains: List<String>) {
+/** One campus of a university, for example "Main Campus (Kahawa)". */
+data class Campus(val id: String, val name: String)
+
+data class University(val id: String, val name: String, val emailDomains: List<String>, val campuses: List<Campus> = emptyList()) {
     fun matchesEmail(email: String): Boolean {
         val domain = email.substringAfterLast('@', "").lowercase()
         return emailDomains.any { domain == it || domain.endsWith(".$it") }
@@ -13,6 +16,9 @@ data class AuthUser(
     val email: String,
     val universityId: String,
     val universityName: String,
+    /** The campus the student chose; empty for universities without campuses and for older accounts. */
+    val campusId: String = "",
+    val campusName: String = "",
     /** True only after the emailed code was confirmed. */
     val emailVerified: Boolean,
     /** True only if the server matched the verified email to the university. Never assume it. */
@@ -56,6 +62,8 @@ data class SignUpRequest(
     val universityId: String,
     val password: String,
     val acceptedTerms: Boolean,
+    /** Required by the server when the university has campuses. */
+    val campusId: String? = null,
     /** The version of the Terms the person was shown (see TermsOfService.VERSION); sent so the server records what was accepted. */
     val termsVersion: String = "",
 )
@@ -77,6 +85,7 @@ data class GoogleRegistrationRequest(
     val admissionNumber: String?,
     val acceptedTerms: Boolean,
     val termsVersion: String = "",
+    val campusId: String? = null,
 )
 
 enum class SignedOutReason { SessionExpired, PasswordChanged }

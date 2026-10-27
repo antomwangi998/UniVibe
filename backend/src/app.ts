@@ -8,6 +8,7 @@ import type { Config } from './config';
 import { withTx } from './db';
 import type { Mailer } from './email';
 import { HttpError } from './errors';
+import { resolveCampus } from './campus';
 import { makeCtx } from './context';
 import { RateLimiter } from './limiter';
 import { sessionIsLive } from './sessions';
@@ -63,12 +64,15 @@ export type UserRow = {
   avatar_key: string | null;
   cover_key: string | null;
   suspended_until: Date | null;
+  campus_id: string | null;
+  campus_name: string | null;
 }
 
 const USER_SQL =
   'select u.*, uni.name as university_name, uni.email_domains as university_domains, ' +
-  'av.object_key as avatar_key, cv.object_key as cover_key ' +
+  'av.object_key as avatar_key, cv.object_key as cover_key, camp.name as campus_name ' +
   'from users u join universities uni on uni.id = u.university_id ' +
+  'left join campuses camp on camp.id = u.campus_id ' +
   'left join media av on av.id = u.avatar_media_id left join media cv on cv.id = u.cover_media_id';
 
 export type Query = (text: string, params: unknown[]) => Promise<unknown>;
@@ -90,6 +94,7 @@ const registerSchema = z.object({
     .regex(/^([A-Za-z0-9/_-]{3,24})?$/, 'Use 3–24 letters, numbers, / or -.')
     .optional(),
   universityId: z.string().min(1, 'Choose your university.').max(64),
+  campusId: z.string().trim().min(1).max(64).optional(),
   password,
   acceptedTerms: z.boolean().refine((v) => v === true, 'Accept the terms to continue.'),
   // The Terms version the app showed (for example "0.1"); stored so we know exactly what was accepted.
@@ -103,6 +108,7 @@ const loginSchema = z.object({ email, password: z.string().min(1).max(128), devi
 const refreshSchema = z.object({ refreshToken: z.string().min(20).max(200) });
 const resetConfirmSchema = z.object({ email, code, newPassword: password });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: password });
+const campusSchema = z.object({ campusId: z.string().trim().min(1, 'Choose your campus.').max(64) });
 const deleteSchema = z.object({ password: z.string().min(1).max(128) });
 const profileSchema = z.object({
   fullName: z.string().trim().min(2, 'Enter your full name.').max(80).optional(),
@@ -189,6 +195,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     email: u.email,
     universityId: u.university_id,
     universityName: u.university_name,
+    campusId: u.campus_id,
+    campusName: u.campus_name,
     emailVerified: u.email_verified_at !== null,
     studentVerified: u.student_verified,
     course: u.course,
@@ -304,10 +312,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   app.get('/universities', async () => {
-    const { rows } = await pool.query<{ id: string; name: string; email_domains: string[] }>(
-      'select id, name, email_domains from universities order by name',
+    const { rows } = await pool.query<{ id: string; name: string; email_domains: string[]; campuses: { id: string; name: string }[] }>(
+      'select u.id, u.name, u.email_domains, ' +
+        "coalesce((select json_agg(json_build_object('id', c.id, 'name', c.name) order by c.sort_order, c.name) from campuses c where c.university_id = u.id), '[]'::json) as campuses " +
+        'from universities u order by u.name',
     );
-    return rows.map((r) => ({ id: r.id, name: r.name, emailDomains: r.email_domains }));
+    return rows.map((r) => ({ id: r.id, name: r.name, emailDomains: r.email_domains, campuses: r.campuses }));
   });
 
   // ---- sign-up and verification
@@ -321,15 +331,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
     const uni = await pool.query('select 1 from universities where id = $1', [b.universityId]);
     if (!uni.rowCount) throw new HttpError(400, 'validation', 'Choose your university.');
+    const campusId = await resolveCampus(pool, b.universityId, b.campusId);
 
     const hash = await sec.hashPassword(b.password);
     let userId: string | null = null;
     let name = b.fullName;
     try {
       const created = await pool.query<{ id: string }>(
-        'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at, accepted_terms_version) ' +
-          'values ($1, $2, $3, $4, $5, $6, now(), $7) returning id',
-        [b.email, b.fullName, await uniqueHandle(b.fullName), hash, b.universityId, b.admissionNumber || null, b.termsVersion ?? ''],
+        'insert into users (email, full_name, handle, password_hash, university_id, admission_number, accepted_terms_at, accepted_terms_version, campus_id) ' +
+          'values ($1, $2, $3, $4, $5, $6, now(), $7, $8) returning id',
+        [b.email, b.fullName, await uniqueHandle(b.fullName), hash, b.universityId, b.admissionNumber || null, b.termsVersion ?? '', campusId],
       );
       userId = created.rows[0].id;
     } catch (e) {
@@ -510,6 +521,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         'year_of_study = coalesce($6::text, year_of_study), onboarded_at = coalesce(onboarded_at, now()) where id = $1',
       [user.id, b.course, b.interests, b.bio, b.fullName ?? null, b.yearOfStudy ?? null],
     );
+    return toUser((await findUserById(user.id)) as UserRow);
+  });
+
+  // Moves the student to another campus of their own university (also used by people who signed up before campuses existed).
+  app.put('/me/campus', async (req) => {
+    const user = await requireUser(req);
+    const b = parse(campusSchema, req.body);
+    const campusId = await resolveCampus(pool, user.university_id, b.campusId);
+    if (!campusId) throw new HttpError(400, 'validation', 'Your university has no campuses to choose from.');
+    await pool.query('update users set campus_id = $2 where id = $1', [user.id, campusId]);
     return toUser((await findUserById(user.id)) as UserRow);
   });
 

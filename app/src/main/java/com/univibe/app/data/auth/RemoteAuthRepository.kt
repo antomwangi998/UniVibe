@@ -20,6 +20,7 @@ import com.univibe.app.domain.auth.PhotoChange
 import com.univibe.app.domain.auth.ProfileEdit
 import com.univibe.app.domain.auth.SignUpRequest
 import com.univibe.app.domain.auth.SignedOutReason
+import com.univibe.app.domain.auth.Campus
 import com.univibe.app.domain.auth.University
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -80,7 +81,11 @@ class RemoteAuthRepository(
         universityCache = (0 until array.length()).map { i ->
             val o = array.getJSONObject(i)
             val domains = o.getJSONArray("emailDomains")
-            University(o.getString("id"), o.getString("name"), (0 until domains.length()).map { domains.getString(it) })
+            val campuses = o.optJSONArray("campuses")
+            University(
+                o.getString("id"), o.getString("name"), (0 until domains.length()).map { domains.getString(it) },
+                if (campuses == null) emptyList() else (0 until campuses.length()).map { j -> campuses.getJSONObject(j).let { Campus(it.getString("id"), it.getString("name")) } },
+            )
         }
         return universityCache
     }
@@ -142,6 +147,7 @@ class RemoteAuthRepository(
             .put("password", request.password)
             .put("acceptedTerms", true)
             .apply { if (request.termsVersion.isNotBlank()) put("termsVersion", request.termsVersion) }
+            .apply { request.campusId?.let { put("campusId", it) } }
         request.admissionNumber?.trim()?.takeIf { it.isNotEmpty() }?.let { body.put("admissionNumber", it) }
 
         val response = when (val r = publicCall("POST", "/auth/register", body)) {
@@ -251,6 +257,7 @@ class RemoteAuthRepository(
             .put("universityId", request.universityId)
             .put("acceptedTerms", true)
             .apply { if (request.termsVersion.isNotBlank()) put("termsVersion", request.termsVersion) }
+            .apply { request.campusId?.let { put("campusId", it) } }
             .withDevice()
         request.admissionNumber?.trim()?.takeIf { it.isNotEmpty() }?.let { body.put("admissionNumber", it) }
         val response = when (val r = publicCall("POST", "/auth/google/register", body)) {
@@ -609,6 +616,8 @@ class RemoteAuthRepository(
                 email = o.getString("email"),
                 universityId = o.getString("universityId"),
                 universityName = o.getString("universityName"),
+                campusId = if (o.isNull("campusId")) "" else o.optString("campusId"),
+                campusName = if (o.isNull("campusName")) "" else o.optString("campusName"),
                 emailVerified = o.getBoolean("emailVerified"),
                 studentVerified = o.getBoolean("studentVerified"),
                 course = o.optString("course"),
