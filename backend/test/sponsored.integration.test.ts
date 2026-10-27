@@ -208,4 +208,29 @@ describe.skipIf(!url)('sponsored delivery (needs TEST_DATABASE_URL)', () => {
     expect(r.body.delivery.running).toBe(false);
     expect(r.body.delivery.reasonsNotRunning).toContain('The ad has not been approved.');
   });
+
+  it('lets students like and comment on a live card, and reports the counts on the card', async () => {
+    const { campaignId } = await liveCampaign();
+    const a = await h.student();
+    const b = await h.student();
+    expect((await feed(a.token)).body.items[0].engagement).toEqual({ likes: 0, comments: 0, liked: false });
+    expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, a.token)).body).toEqual({ liked: true, likes: 1 });
+    expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, a.token)).body.likes).toBe(1); // liking twice counts once
+    expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, b.token)).body.likes).toBe(2);
+    const sent = await call('POST', `${V1}/sponsored/${campaignId}/comments`, a.token, { body: '  Count me in  ' });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(201);
+    expect(sent.body.body).toBe('Count me in');
+    expect((await call('POST', `${V1}/sponsored/${campaignId}/comments`, a.token, { body: '   ' })).status).toBe(400);
+    const list = await call('GET', `${V1}/sponsored/${campaignId}/comments`, b.token);
+    expect(list.body.items).toHaveLength(1);
+    expect(list.body.items[0].mine).toBe(false);
+    expect((await feed(a.token)).body.items[0].engagement).toEqual({ likes: 2, comments: 1, liked: true });
+    // Only the author can delete a comment.
+    expect((await call('DELETE', `${V1}/sponsored/${campaignId}/comments/${sent.body.id}`, b.token)).status).toBe(404);
+    expect((await call('DELETE', `${V1}/sponsored/${campaignId}/comments/${sent.body.id}`, a.token)).status).toBe(200);
+    expect((await call('DELETE', `${V1}/sponsored/${campaignId}/like`, a.token)).body).toEqual({ liked: false, likes: 1 });
+    // A campaign that is not live cannot be reacted to.
+    await pool.query("update campaigns set status = 'paused' where id = $1", [campaignId]);
+    expect((await call('POST', `${V1}/sponsored/${campaignId}/like`, a.token)).status).toBe(404);
+  });
 });

@@ -57,6 +57,8 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.SponsoredCardView
 import com.univibe.app.ui.components.VibeButton
+import com.univibe.app.ui.components.rememberPhotoPicker
+import com.univibe.app.ui.components.rememberVideoPicker
 import com.univibe.app.ui.components.VibeButtonStyle
 import com.univibe.app.ui.components.VibeCard
 import com.univibe.app.ui.components.VibeIconButton
@@ -319,6 +321,24 @@ fun NewPromotionScreen(
                         )
                     }
 
+                    item { SectionTitle("Photo or video (optional)") }
+                    item {
+                        val pickPhoto = rememberPhotoPicker("promo") { path -> viewModel.edit { it.copy(mediaPath = path, mediaIsVideo = false) } }
+                        val pickVideo = rememberVideoPicker("promo") { path -> viewModel.edit { it.copy(mediaPath = path, mediaIsVideo = true) } }
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                VibeButton(if (s.mediaPath != null && !s.mediaIsVideo) "Change photo" else "Add photo", pickPhoto, Modifier.weight(1f), style = VibeButtonStyle.Secondary)
+                                VibeButton(if (s.mediaPath != null && s.mediaIsVideo) "Change video" else "Add video", pickVideo, Modifier.weight(1f), style = VibeButtonStyle.Secondary)
+                            }
+                            if (s.mediaPath != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Muted(if (s.mediaIsVideo) "Video added. It uploads when you send for review." else "Photo added. It uploads when you send for review.")
+                                    TextButton(onClick = { viewModel.edit { it.copy(mediaPath = null, mediaIsVideo = false) } }) { Text("Remove") }
+                                }
+                            }
+                        }
+                    }
+
                     // 5. When
                     item { SectionTitle("When") }
                     item {
@@ -348,6 +368,7 @@ fun NewPromotionScreen(
                                 advertiserVerified = s.selectedBusiness?.verified ?: false, headline = s.headline.ifBlank { "Your headline" }, body = s.body,
                                 ctaLabel = cta, ctaUrl = if (cta != null) s.ctaUrl.trim() else null, targetType = null, targetId = null,
                                 eventLine = s.selectedEvent?.location, impressionToken = "",
+                                imageUrl = s.mediaPath, imageIsVideo = s.mediaIsVideo,
                             ),
                             onShown = {}, onOpen = null, onCta = if (cta != null) ({}) else null, onReport = {},
                         )

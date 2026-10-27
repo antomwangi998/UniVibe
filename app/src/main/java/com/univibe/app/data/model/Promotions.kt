@@ -144,6 +144,9 @@ data class NewCampaign(
     val placements: List<String>,
     val startsAtMillis: Long,
     val endsAtMillis: Long,
+    /** A local photo or video to upload and show on the card (optional). */
+    val mediaPath: String? = null,
+    val mediaIsVideo: Boolean = false,
 )
 
 data class CheckoutResult(val order: OrderInfo, val pay: PaymentInfo)

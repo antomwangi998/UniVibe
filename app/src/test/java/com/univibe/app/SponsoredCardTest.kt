@@ -30,6 +30,29 @@ class SponsoredCardTest {
         assertEquals("Lab 3", c.eventLine)
     }
 
+    @Test fun readsAVideoAndTheLikeAndCommentCounts() {
+        val c = parseSponsoredCard(
+            card(""","image":{"kind":"video","url":"https://files.example/v.mp4","width":720,"height":1280},"engagement":{"likes":12,"comments":3,"liked":true}"""),
+        )!!
+        assertEquals(true, c.imageIsVideo)
+        assertEquals("https://files.example/v.mp4", c.imageUrl)
+        assertEquals(12, c.likes)
+        assertEquals(3, c.comments)
+        assertEquals(true, c.liked)
+    }
+
+    @Test fun aCardWithoutMediaOrEngagementIsAPlainTextCard() {
+        val c = parseSponsoredCard(card())!!
+        assertNull(c.imageUrl)
+        assertEquals(false, c.imageIsVideo)
+        assertEquals(0, c.likes)
+        assertEquals(false, c.liked)
+    }
+
+    @Test fun aPictureThatIsNotHttpsIsNotKept() {
+        assertNull(parseSponsoredCard(card(""","image":{"kind":"image","url":"http://files.example/p.jpg"}"""))!!.imageUrl)
+    }
+
     @Test fun dropsALinkThatIsNotHttps() {
         val o = card()
         o.getJSONObject("cta").put("url", "http://example.com")
