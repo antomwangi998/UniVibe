@@ -86,12 +86,12 @@ fun ProfileAvatar(profile: MyProfile, outer: androidx.compose.ui.unit.Dp, onChan
         }
         // Only on your own profile (this screen is only ever your own).
         Box(
-            Modifier.align(Alignment.BottomEnd).size(44.dp).clip(CircleShape)
+            Modifier.align(Alignment.BottomEnd).size(38.dp).clip(CircleShape)
                 .background(t.cardElevated).border(2.dp, t.background, CircleShape)
                 .clickable(role = Role.Button, onClick = onChangePhoto),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(VibeIcons.Camera, contentDescription = "Change profile photo", tint = t.primary, modifier = Modifier.size(22.dp))
+            Icon(VibeIcons.Camera, contentDescription = "Change profile photo", tint = t.primary, modifier = Modifier.size(19.dp))
         }
     }
 }
@@ -106,26 +106,26 @@ fun ProfileIdentity(student: Student) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Text(
-                student.name, style = MaterialTheme.typography.headlineMedium, fontSize = 30.sp, lineHeight = 36.sp,
+                student.name, style = MaterialTheme.typography.headlineMedium, fontSize = 26.sp, lineHeight = 30.sp,
                 fontWeight = FontWeight.Bold, color = t.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
             // Verification comes from the server's student-verified flag (set in ProfileViewModel), never from sample data.
             if (student.verified) {
-                Spacer(Modifier.width(8.dp))
-                VerifiedBadge(size = 24.dp, ringColor = t.background)
+                Spacer(Modifier.width(6.dp))
+                VerifiedBadge(size = 20.dp, ringColor = t.background)
             }
         }
-        Text(student.handle, style = MaterialTheme.typography.bodyLarge, color = t.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = t.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (student.courseLine.isNotBlank()) {
             Text(
-                student.courseLine, style = MaterialTheme.typography.bodyMedium, fontSize = 15.sp, color = t.textSecondary,
-                textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp),
+                student.courseLine, style = MaterialTheme.typography.bodyMedium, fontSize = 13.sp, color = t.textSecondary,
+                textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp),
             )
         }
         if (student.university.isNotBlank()) {
             Text(
-                student.university, style = MaterialTheme.typography.bodyMedium, fontSize = 15.sp, color = t.textPrimary,
+                student.university, style = MaterialTheme.typography.bodyMedium, fontSize = 13.sp, color = t.textPrimary,
                 textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -157,7 +157,7 @@ fun ProfileStatsCard(
 @Composable
 private fun StatDivider() {
     val t = rememberProfileTokens()
-    Box(Modifier.padding(vertical = 20.dp).width(1.dp).fillMaxHeight().background(t.border))
+    Box(Modifier.padding(vertical = 14.dp).width(1.dp).fillMaxHeight().background(t.border))
 }
 
 @Composable
@@ -167,13 +167,13 @@ private fun StatCell(icon: ImageVector, value: String, label: String, modifier: 
         modifier
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .semantics(mergeDescendants = true) { contentDescription = "$value $label" }
-            .padding(vertical = 14.dp),
+            .padding(vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = t.primary, modifier = Modifier.size(22.dp))
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = t.textPrimary, maxLines = 1)
-        Text(label, style = MaterialTheme.typography.labelMedium, fontSize = 13.sp, color = t.textMuted, maxLines = 1)
+        Icon(icon, contentDescription = null, tint = t.primary, modifier = Modifier.size(18.dp))
+        Text(value, style = MaterialTheme.typography.titleMedium, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = t.textPrimary, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelMedium, fontSize = 12.sp, color = t.textMuted, maxLines = 1)
     }
 }
 
@@ -183,16 +183,16 @@ fun ProfileActionRow(profile: MyProfile, actions: ProfileActions) {
     val t = rememberProfileTokens()
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
-            Modifier.weight(1f).height(52.dp).clip(ProfileShapes.button)
+            Modifier.weight(1f).height(44.dp).clip(ProfileShapes.button)
                 .background(Brush.horizontalGradient(listOf(t.primary, t.secondary)))
                 .clickable(role = Role.Button, onClick = actions.onEditProfile),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(VibeIcons.Edit, contentDescription = null, tint = t.onPrimary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("Edit profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = t.onPrimary, maxLines = 1)
+            Icon(VibeIcons.Edit, contentDescription = null, tint = t.onPrimary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Edit profile", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = t.onPrimary, maxLines = 1)
         }
         SquareAction(VibeIcons.Share, "Share profile") {
             // No profile-sharing format existed in the app, so this sends a plain-text card with the profile's deep link.
@@ -226,12 +226,12 @@ private fun MoreItem(icon: ImageVector, label: String, onClick: () -> Unit) {
 private fun SquareAction(icon: ImageVector, description: String, onClick: () -> Unit) {
     val t = rememberProfileTokens()
     Box(
-        Modifier.size(52.dp).clip(ProfileShapes.button).background(t.card)
+        Modifier.size(44.dp).clip(ProfileShapes.button).background(t.card)
             .border(1.dp, t.border, ProfileShapes.button)
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = t.textPrimary, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = description, tint = t.textPrimary, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -248,16 +248,16 @@ private fun SectionCard(
 ) {
     val t = rememberProfileTokens()
     Column(
-        Modifier.fillMaxWidth().clip(ProfileShapes.card).background(t.card).border(1.dp, t.border, ProfileShapes.card).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        Modifier.fillMaxWidth().clip(ProfileShapes.card).background(t.card).border(1.dp, t.border, ProfileShapes.card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = t.textPrimary, modifier = Modifier.weight(1f))
+            Text(title, style = MaterialTheme.typography.titleMedium, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.textPrimary, modifier = Modifier.weight(1f))
             if (actionLabel != null) {
                 Box(
-                    Modifier.heightIn(min = 40.dp).clip(ProfileShapes.chip).clickable(role = Role.Button, onClick = onAction).padding(horizontal = 8.dp),
+                    Modifier.heightIn(min = 32.dp).clip(ProfileShapes.chip).clickable(role = Role.Button, onClick = onAction).padding(horizontal = 8.dp),
                     contentAlignment = Alignment.Center,
-                ) { Text(actionLabel, style = MaterialTheme.typography.labelLarge, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = t.primary) }
+                ) { Text(actionLabel, style = MaterialTheme.typography.labelLarge, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = t.primary) }
             }
         }
         content()
@@ -270,7 +270,7 @@ fun AboutMeCard(bio: String, onEdit: () -> Unit) {
     SectionCard("About me", "Edit", onEdit) {
         Text(
             bio.ifBlank { "Tell your campus community a little about yourself." },
-            style = MaterialTheme.typography.bodyLarge, fontSize = 15.sp, lineHeight = 23.sp,
+            style = MaterialTheme.typography.bodyMedium, fontSize = 14.sp, lineHeight = 20.sp,
             color = if (bio.isBlank()) t.textMuted else t.textSecondary,
         )
     }
@@ -284,14 +284,14 @@ fun InterestsCard(interests: List<String>, onEdit: () -> Unit) {
         if (interests.isEmpty()) {
             Text("Add interests so people who share your vibe can find you.", style = MaterialTheme.typography.bodyMedium, color = t.textMuted)
         } else {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 interests.forEach { label ->
                     // Read-only: the app has no "students with this interest" screen yet, so chips are not tappable.
                     Text(
-                        label, style = MaterialTheme.typography.labelLarge, fontSize = 14.sp, color = t.textPrimary,
+                        label, style = MaterialTheme.typography.labelLarge, fontSize = 13.sp, color = t.textPrimary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.widthIn(max = 240.dp).clip(ProfileShapes.chip).background(t.background)
-                            .border(1.dp, t.primary.copy(alpha = 0.7f), ProfileShapes.chip).padding(horizontal = 14.dp, vertical = 8.dp),
+                            .border(1.dp, t.primary.copy(alpha = 0.7f), ProfileShapes.chip).padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
             }
@@ -304,14 +304,14 @@ fun PhotosCard(photos: List<String>, onOpen: () -> Unit) {
     val t = rememberProfileTokens()
     SectionCard("Photos", if (photos.isEmpty()) null else "See all", onOpen) {
         if (photos.isEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(VibeIcons.Photo, contentDescription = null, tint = t.primary, modifier = Modifier.size(30.dp))
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(VibeIcons.Photo, contentDescription = null, tint = t.primary, modifier = Modifier.size(24.dp))
                 Text("Share your first photo", style = MaterialTheme.typography.bodyMedium, color = t.textSecondary)
                 OutlineAction("+ Add photo", onOpen)
             }
         } else {
             val shown = photos.take(4)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 shown.forEachIndexed { index, path ->
                     // Square cells sized by the row: Coil decodes at the displayed size, so thumbnails are not full-resolution.
                     Box(Modifier.weight(1f).aspectRatio(1f).clip(ProfileShapes.thumb).background(t.cardElevated).clickable(role = Role.Button, onClick = onOpen)) {
@@ -328,8 +328,8 @@ fun PhotosCard(photos: List<String>, onOpen: () -> Unit) {
 private fun OutlineAction(label: String, onClick: () -> Unit) {
     val t = rememberProfileTokens()
     Box(
-        Modifier.heightIn(min = 44.dp).clip(ProfileShapes.button).border(1.dp, t.primary, ProfileShapes.button)
-            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp),
+        Modifier.heightIn(min = 38.dp).clip(ProfileShapes.button).border(1.dp, t.primary, ProfileShapes.button)
+            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) { Text(label, style = MaterialTheme.typography.labelLarge, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = t.primary) }
 }
@@ -342,7 +342,7 @@ fun CommunitiesCard(groups: List<Community>, onSeeAll: () -> Unit, onOpen: (Stri
             Text("You haven't joined any communities yet.", style = MaterialTheme.typography.bodyMedium, color = t.textMuted)
             OutlineAction("Discover communities", onSeeAll)
         } else {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(groups, key = { it.id }) { CommunityTile(it) { onOpen(it.id) } }
             }
         }
@@ -353,20 +353,20 @@ fun CommunitiesCard(groups: List<Community>, onSeeAll: () -> Unit, onOpen: (Stri
 private fun CommunityTile(group: Community, onClick: () -> Unit) {
     val t = rememberProfileTokens()
     Row(
-        Modifier.width(220.dp).clip(ProfileShapes.thumb).background(t.cardElevated).border(1.dp, t.border, ProfileShapes.thumb)
-            .clickable(role = Role.Button, onClick = onClick).padding(10.dp),
+        Modifier.width(190.dp).clip(ProfileShapes.thumb).background(t.cardElevated).border(1.dp, t.border, ProfileShapes.thumb)
+            .clickable(role = Role.Button, onClick = onClick).padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(44.dp).clip(CircleShape).background(Brush.linearGradient(accentGradient(group.accent))), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(36.dp).clip(CircleShape).background(Brush.linearGradient(accentGradient(group.accent))), contentAlignment = Alignment.Center) {
             val url = group.avatarUrl
             if (url != null) PhotoImage(url, contentDescription = null, modifier = Modifier.fillMaxSize())
-            else Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+            else Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            Text(group.name, style = MaterialTheme.typography.titleSmall, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = t.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(group.name, style = MaterialTheme.typography.titleSmall, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val role = when (group.role) { CommunityRole.Owner -> " · Owner"; CommunityRole.Moderator -> " · Moderator"; else -> "" }
-            Text("${compactStatCount(group.members)} members$role", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${compactStatCount(group.members)} members$role", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -386,15 +386,15 @@ fun SavedPostsCard(
                 Modifier.fillMaxWidth().clip(ProfileShapes.thumb).clickable(role = Role.Button) { onOpenPost(latest.id) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(64.dp).clip(ProfileShapes.chip).background(t.cardElevated), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(52.dp).clip(ProfileShapes.chip).background(t.cardElevated), contentAlignment = Alignment.Center) {
                     val photo = latest.imagePaths.firstOrNull() ?: latest.imagePath
                     if (photo != null) PhotoImage(photo, contentDescription = null)
                     else Icon(VibeIcons.Bookmark, contentDescription = null, tint = t.primary, modifier = Modifier.size(24.dp))
                 }
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(latest.text.ifBlank { "Photo post" }, style = MaterialTheme.typography.bodyMedium, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = t.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${latest.author.name} · ${latest.timeAgo}", style = MaterialTheme.typography.bodySmall, fontSize = 13.sp, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(latest.text.ifBlank { "Photo post" }, style = MaterialTheme.typography.bodyMedium, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = t.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("${latest.author.name} · ${latest.timeAgo}", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = t.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(VibeIcons.BookmarkFilled, contentDescription = "Saved", tint = t.primary, modifier = Modifier.size(24.dp))
             }
@@ -404,7 +404,7 @@ fun SavedPostsCard(
                 Text("You haven't saved any posts yet.", style = MaterialTheme.typography.bodyMedium, color = t.textSecondary)
                 Text("Posts you save will appear here. Only you can see them.", style = MaterialTheme.typography.bodySmall, color = t.textMuted)
             }
-            else -> Box(Modifier.fillMaxWidth().height(64.dp).clip(ProfileShapes.chip).background(t.cardElevated))
+            else -> Box(Modifier.fillMaxWidth().height(52.dp).clip(ProfileShapes.chip).background(t.cardElevated))
         }
     }
 }
