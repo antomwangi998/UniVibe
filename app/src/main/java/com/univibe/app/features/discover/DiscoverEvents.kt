@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
+import com.univibe.app.domain.auth.AuthState
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventCategoryInfo
 import com.univibe.app.data.model.EventCategoryOptions
@@ -68,6 +69,8 @@ data class DiscoverEventsState(
     val nextCursor: String? = null,
     val loadingMore: Boolean = false,
     val canSave: Boolean = false,
+    /** True when the student has a campus, so a "My campus" filter makes sense. */
+    val hasCampus: Boolean = false,
 ) {
     /** Nothing to show yet, in whichever mode is active. */
     val isEmpty: Boolean get() = if (!serverMode) false else if (filter.isActive) results.isEmpty() else sections.all { it.events.isEmpty() }
@@ -108,7 +111,7 @@ class DiscoverEventsViewModel(
     fun load() {
         loadJob?.cancel()
         val server = repository.supportsDiscover
-        _state.update { it.copy(serverMode = server, canSave = repository.supportsSaved, loading = !hasContent(it), refreshing = hasContent(it), error = null) }
+        _state.update { it.copy(serverMode = server, canSave = repository.supportsSaved, hasCampus = studentHasCampus(), loading = !hasContent(it), refreshing = hasContent(it), error = null) }
         loadJob = viewModelScope.launch {
             try {
                 if (server) {
@@ -160,6 +163,9 @@ class DiscoverEventsViewModel(
     fun toggleOnline() = applyFilter { it.copy(onlineOnly = !it.onlineOnly) }
     fun toggleRegistrationOpen() = applyFilter { it.copy(registrationOpen = !it.registrationOpen) }
     fun toggleSavedOnly() = applyFilter { it.copy(savedOnly = !it.savedOnly) }
+    fun toggleMyCampus() = applyFilter { it.copy(myCampus = !it.myCampus) }
+
+    private fun studentHasCampus() = ((AppContainer.authRepository.session.value as? AuthState.Authenticated)?.user?.campusId).orEmpty().isNotEmpty()
 
     /** Hides one event from recommendations. It disappears at once and comes back if the server refuses. */
     fun notInterested(event: CampusEvent) {
@@ -263,6 +269,7 @@ private fun ServerEventsList(
                         EventWhen.entries.forEach { w -> InterestChip(w.label, selected = state.window == w, onClick = { vm.setWindow(w) }) }
                     }
                     LazyRow(contentPadding = PaddingValues(horizontal = Spacing.md), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        if (state.hasCampus) item(key = "campus") { InterestChip("My campus", selected = state.filter.myCampus, onClick = vm::toggleMyCampus) }
                         item(key = "online") { InterestChip("Online", selected = state.filter.onlineOnly, onClick = vm::toggleOnline) }
                         item(key = "open") { InterestChip("Spots open", selected = state.filter.registrationOpen, onClick = vm::toggleRegistrationOpen) }
                         if (state.canSave) item(key = "saved") { InterestChip("Saved", selected = state.filter.savedOnly, onClick = vm::toggleSavedOnly) }

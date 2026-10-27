@@ -75,6 +75,7 @@ data class GoogleRegistrationUiState(
     val admission: String = "",
     val universities: List<University> = emptyList(),
     val universityId: String? = null,
+    val campusId: String? = null,
     val acceptedTerms: Boolean = false,
     val showErrors: Boolean = false,
     val submitting: Boolean = false,
@@ -84,12 +85,14 @@ data class GoogleRegistrationUiState(
     val admissionError get() = if (showErrors) AuthValidators.admissionNumber(admission) else null
     val termsError get() = if (showErrors && !acceptedTerms) "Accept the Terms and Privacy Policy to continue." else null
     val university: University? get() = universities.firstOrNull { it.id == universityId }
+    private val needsCampus: Boolean get() = university?.campuses?.isNotEmpty() == true
+    val campusError get() = if (showErrors && needsCampus && campusId == null) "Choose your campus." else null
     val domainHint: String?
         get() = if (university?.matchesEmail(email) == false)
             "This isn't a ${university?.name} email, so you won't be verified as a student. You can still join." else null
     val isValid: Boolean
         get() = AuthValidators.fullName(fullName) == null && AuthValidators.admissionNumber(admission) == null &&
-            acceptedTerms && universityId != null
+            acceptedTerms && universityId != null && (!needsCampus || university?.campuses?.any { it.id == campusId } == true)
 }
 
 /** The short step for a first-time Google person: name (prefilled), university and the Terms. The email is Google's and read-only. */
@@ -109,7 +112,8 @@ class GoogleRegistrationViewModel(
 
     fun onName(v: String) = _state.update { it.copy(fullName = v, error = null) }
     fun onAdmission(v: String) = _state.update { it.copy(admission = v, error = null) }
-    fun onUniversity(id: String) = _state.update { it.copy(universityId = id) }
+    fun onUniversity(id: String) = _state.update { it.copy(universityId = id, campusId = null) }
+    fun onCampus(id: String) = _state.update { it.copy(campusId = id) }
     fun onTerms(v: Boolean) = _state.update { it.copy(acceptedTerms = v) }
     fun cancel() = repository.cancelGoogleFlow()
 
@@ -121,7 +125,7 @@ class GoogleRegistrationViewModel(
             _state.update { it.copy(submitting = true, error = null) }
             val request = GoogleRegistrationRequest(
                 fullName = s.fullName, universityId = s.universityId!!, admissionNumber = s.admission.ifBlank { null },
-                acceptedTerms = s.acceptedTerms, termsVersion = TermsOfService.VERSION,
+                acceptedTerms = s.acceptedTerms, termsVersion = TermsOfService.VERSION, campusId = s.campusId,
             )
             when (val r = repository.completeGoogleRegistration(request)) {
                 is AuthResult.Success -> _state.update { it.copy(submitting = false) }

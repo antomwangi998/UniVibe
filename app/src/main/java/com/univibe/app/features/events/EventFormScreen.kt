@@ -124,6 +124,13 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                             s.hostOptions.forEach { h -> InterestChip(h.name, selected = s.hostCommunityId == h.communityId, onClick = { viewModel.setHost(h.communityId) }) }
                         }
                     }
+                    if (s.campuses.isNotEmpty()) {
+                        Text("Campus", style = MaterialTheme.typography.titleSmall)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            InterestChip("All campuses", selected = s.allCampuses, onClick = viewModel::setAllCampuses)
+                            s.campuses.forEach { c -> InterestChip(c.name, selected = !s.allCampuses && s.campusId == c.id, onClick = { viewModel.setCampus(c.id) }) }
+                        }
+                    }
                     Text("When", style = MaterialTheme.typography.titleSmall)
                     DateTimeRow("Starts", s.startMillis, viewModel::setStart)
                     if (!s.startOk) Text("Start at least 5 minutes from now.", style = MaterialTheme.typography.bodySmall, color = colors.error)

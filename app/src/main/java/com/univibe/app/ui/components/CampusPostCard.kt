@@ -194,6 +194,17 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit,
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.Filled.Verified, contentDescription = "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     }
+                    if (post.author.universityCode.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            post.author.universityCode,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)
+                                .semantics { contentDescription = "University ${post.author.universityCode}" },
+                        )
+                    }
                 }
                 val audience = when (val a = post.audience) {
                     PostAudience.Campus -> ""

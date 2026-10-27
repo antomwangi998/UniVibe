@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.ErrorState
+import com.univibe.app.features.auth.CampusPicker
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.StudentAvatar
@@ -112,6 +113,11 @@ fun EditProfileScreen(onBack: () -> Unit, viewModel: EditProfileViewModel = view
                         FlowRow(Modifier.padding(top = Spacing.sm), horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             StudyYears.forEach { y -> InterestChip(y, selected = s.year == y, onClick = { viewModel.onYear(y) }) }
                         }
+                    }
+                }
+                if (s.campuses.isNotEmpty()) item {
+                    VibeCard {
+                        CampusPicker(s.campuses, s.campusId.ifEmpty { null }, s.campusError, viewModel::onCampus)
                     }
                 }
                 item {

@@ -72,6 +72,8 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
         revision = o.optInt("revision", 0), hidden = o.optBoolean("hidden", false),
         draft = o.optString("status") == "draft", serverPhase = o.optString("phase").ifBlank { null },
         remindersOn = if (o.isNull("remindersOn") || !o.has("remindersOn")) null else o.optBoolean("remindersOn", true),
+        campusId = if (o.isNull("campusId")) null else o.optString("campusId").ifBlank { null },
+        campusName = if (o.isNull("campusName")) null else o.optString("campusName").ifBlank { null },
     )
 }
 
@@ -140,6 +142,7 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         filter.toMillis?.let { q += "to=" + URLEncoder.encode(Instant.ofEpochMilli(it).toString(), "UTF-8") }
         if (filter.registrationOpen) q += "registrationOpen=true"
         if (filter.savedOnly) q += "saved=true"
+        if (filter.myCampus) q += "myCampus=true"
         cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
         val body = JSONObject(api.send("GET", "/api/v1/discover/events?" + q.joinToString("&")))
         val items = body.getJSONArray("items")
@@ -234,6 +237,8 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         val pinned = d.eventType != "online" && d.latitude != null && d.longitude != null
         o.put("latitude", if (pinned) d.latitude else JSONObject.NULL)
         o.put("longitude", if (pinned) d.longitude else JSONObject.NULL)
+        // Left out, the server uses the organizer's own campus when creating and keeps the current one when editing.
+        if (d.allCampuses) o.put("campusId", JSONObject.NULL) else d.campusId?.let { o.put("campusId", it) }
         if (creating) {
             o.put("communityId", d.hostCommunityId ?: JSONObject.NULL)
             o.put("status", if (d.asDraft) "draft" else "published")

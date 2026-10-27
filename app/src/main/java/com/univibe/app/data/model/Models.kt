@@ -20,6 +20,8 @@ data class Student(
     val photoPath: String? = null,
     /** Short-lived link to the student's profile picture; null when they have not uploaded one (initials are shown). */
     val avatarUrl: String? = null,
+    /** The university's short code ("ku", "cuk"), shown as a small badge next to the name. Empty when unknown. */
+    val universityCode: String = "",
 ) {
     /** "Computer Science · 2nd Year", or just the course when no year is set. */
     val courseLine: String
@@ -218,6 +220,9 @@ data class CampusEvent(
     val draft: Boolean = false,
     /** The server's own view of where the event is in time ("upcoming", "live", "ended"), read when the event was loaded. */
     val serverPhase: String? = null,
+    /** The campus the event is for. Null means every campus (or a university without campuses). */
+    val campusId: String? = null,
+    val campusName: String? = null,
 ) {
     /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
     val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
@@ -289,8 +294,10 @@ data class EventDiscoverFilter(
     val onlineOnly: Boolean = false,
     val registrationOpen: Boolean = false,
     val savedOnly: Boolean = false,
+    /** Only events for the student's own campus, plus events open to every campus. */
+    val myCampus: Boolean = false,
 ) {
-    val isActive: Boolean get() = categories.isNotEmpty() || toMillis != null || onlineOnly || registrationOpen || savedOnly
+    val isActive: Boolean get() = categories.isNotEmpty() || toMillis != null || onlineOnly || registrationOpen || savedOnly || myCampus
 }
 
 data class EventDiscoverPage(val events: List<CampusEvent>, val nextCursor: String?)
@@ -328,6 +335,10 @@ data class NewEvent(
     val removeCover: Boolean = false,
     /** Creating: keep it private until published. */
     val asDraft: Boolean = false,
+    /** A campus of the organizer's university. Null with [allCampuses] false: the server uses the organizer's own campus. */
+    val campusId: String? = null,
+    /** Open to every campus of the university. Wins over [campusId]. */
+    val allCampuses: Boolean = false,
 )
 
 /** Someone going to an event. [checkedIn] is only known to the organizer. */

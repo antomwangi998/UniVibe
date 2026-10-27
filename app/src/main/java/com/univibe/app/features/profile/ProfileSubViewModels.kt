@@ -4,6 +4,10 @@ import com.univibe.app.features.home.mergeFirstPage
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
+import com.univibe.app.domain.auth.AuthRepository
+import com.univibe.app.domain.auth.AuthResult
+import com.univibe.app.domain.auth.AuthState
+import com.univibe.app.domain.auth.Campus
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.model.FollowEntry
 import com.univibe.app.data.model.MyProfile
@@ -39,6 +43,10 @@ data class EditProfileUiState(
     val coverPath: String? = null,
     val saving: Boolean = false,
     val saved: Boolean = false,
+    /** The campuses of the student's university (empty when it has none) and the one they are on. Changing it saves at once. */
+    val campuses: List<Campus> = emptyList(),
+    val campusId: String = "",
+    val campusError: String? = null,
 ) {
     val nameError get() = when {
         name.trim().length < 2 -> "Enter your name."
@@ -58,12 +66,34 @@ data class EditProfileUiState(
 
 class EditProfileViewModel(
     private val repository: ProfileRepository = AppContainer.profileRepository,
+    private val auth: AuthRepository = AppContainer.authRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(EditProfileUiState())
     val state: StateFlow<EditProfileUiState> = _state.asStateFlow()
     private val importedThisSession = mutableSetOf<String>()
 
-    init { load() }
+    init { load(); loadCampuses() }
+
+    private fun currentUser() = (auth.session.value as? AuthState.Authenticated)?.user
+
+    private fun loadCampuses() {
+        val me = currentUser() ?: return
+        _state.update { it.copy(campusId = me.campusId) }
+        viewModelScope.launch {
+            val campuses = runCatching { auth.universities() }.getOrDefault(emptyList()).firstOrNull { it.id == me.universityId }?.campuses.orEmpty()
+            _state.update { it.copy(campuses = campuses) }
+        }
+    }
+
+    /** Saves the new campus straight away; it is not part of the Save button below. */
+    fun onCampus(id: String) {
+        val before = _state.value.campusId
+        if (id == before) return
+        _state.update { it.copy(campusId = id, campusError = null) }
+        viewModelScope.launch {
+            if (auth.setCampus(id) !is AuthResult.Success) _state.update { it.copy(campusId = before, campusError = "Couldn't change your campus. Try again.") }
+        }
+    }
 
     fun load() {
         viewModelScope.launch {
