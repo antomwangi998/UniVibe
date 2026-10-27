@@ -139,6 +139,8 @@ object VibeIcons {
     val Pause = icon("Pause", 0f, LINE, "M9 6 V18", "M15 6 V18")
     val Stop = icon("Stop", 0f, LINE, "M7 7 H17 V17 H7 Z")
     val Close = icon("Close", 0f, LINE, "M6.5 6.5 L17.5 17.5", "M17.5 6.5 L6.5 17.5")
+    val Crop = icon("Crop", 0f, LINE, "M7 3.5 V16 Q7 17 8 17 H20.5", "M3.5 7 H16 Q17 7 17 8 V20.5")
+    val Rotate = icon("Rotate", 0f, LINE, "M19.5 12 A7.5 7.5 0 1 1 17.3 6.7", "M18.2 3.2 V7.2 H14.2")
     val Add = icon("Add", 0f, LINE, "M12 5.5 V18.5", "M5.5 12 H18.5")
     val ChevronRight = directional("ChevronRight", LINE, "M9.5 6 L15.5 12 L9.5 18")
     val ChevronDown = icon("ChevronDown", 0f, LINE, "M6 9.5 L12 15.5 L18 9.5")

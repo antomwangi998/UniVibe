@@ -42,6 +42,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +65,7 @@ import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.model.PostAudience
 import com.univibe.app.features.home.MAX_POST_LENGTH
 import com.univibe.app.ui.components.ConfirmDialog
+import com.univibe.app.ui.components.PhotoEditDialog
 import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
@@ -71,6 +73,7 @@ import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeTextField
 import com.univibe.app.ui.components.VibeTopBar
+import com.univibe.app.ui.components.isTrimmedInFeed
 import com.univibe.app.ui.theme.Spacing
 import kotlinx.coroutines.launch
 
@@ -83,6 +86,12 @@ fun CreatePostScreen(onBack: () -> Unit) {
     val focus = remember { FocusRequester() }
     var showAudience by rememberSaveable { mutableStateOf(false) }
     var showDiscard by rememberSaveable { mutableStateOf(false) }
+    // The photo being cropped, if any, and each photo's width / height (read from the file header) for the "trimmed in the feed" hint.
+    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    val aspects = remember { mutableStateMapOf<String, Float>() }
+    LaunchedEffect(s.photos) {
+        s.photos.forEach { p -> if (p !in aspects) PhotoStore.aspectOf(p)?.let { aspects[p] = it } }
+    }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
     LaunchedEffect(s.published) {
@@ -144,10 +153,31 @@ fun CreatePostScreen(onBack: () -> Unit) {
             )
             if (s.photos.isNotEmpty()) {
                 Text("Photos ${s.photos.size}/$MAX_POST_PHOTOS", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
+                if (s.photos.any { p -> aspects[p]?.let(::isTrimmedInFeed) == true }) {
+                    Text(
+                        "Very tall or wide photos are trimmed in the feed. Tap a photo to crop it.",
+                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                    )
+                }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     s.photos.forEachIndexed { index, path ->
-                        Box(Modifier.size(112.dp).clip(RoundedCornerShape(16.dp))) {
+                        Box(
+                            Modifier.size(112.dp).clip(RoundedCornerShape(16.dp))
+                                .clickable(enabled = !s.publishing, role = Role.Button, onClickLabel = "Crop photo ${index + 1}") { editing = path },
+                        ) {
                             PhotoImage(path, contentDescription = "Photo ${index + 1} preview", modifier = Modifier.fillMaxSize())
+                            val trimmed = aspects[path]?.let(::isTrimmedInFeed) == true
+                            Surface(
+                                Modifier.align(Alignment.BottomStart).padding(6.dp), shape = CircleShape,
+                                color = if (trimmed) colors.primary else androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
+                                contentColor = if (trimmed) colors.onPrimary else androidx.compose.ui.graphics.Color.White,
+                            ) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(VibeIcons.Crop, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Crop", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
                             Surface(
                                 Modifier.align(Alignment.TopEnd).padding(6.dp), shape = CircleShape,
                                 color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
@@ -220,6 +250,14 @@ fun CreatePostScreen(onBack: () -> Unit) {
             destructive = true,
             onConfirm = { showDiscard = false; viewModel.discard(); onBack() },
             onDismiss = { showDiscard = false },
+        )
+    }
+
+    editing?.let { path ->
+        PhotoEditDialog(
+            path,
+            onDismiss = { editing = null },
+            onSaved = { saved -> viewModel.replacePhoto(path, saved); editing = null },
         )
     }
 }
