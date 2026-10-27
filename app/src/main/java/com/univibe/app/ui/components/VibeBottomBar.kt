@@ -1,6 +1,22 @@
 package com.univibe.app.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColor
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -62,6 +78,8 @@ fun VibeBottomBar(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     backdrop: GlassBackdropState? = null,
+    /** Unread count per route (only routes with a real, positive count show a badge). Null or absent means no badge. */
+    badges: Map<String, Int?> = emptyMap(),
 ) {
     Box(
         modifier
@@ -82,7 +100,7 @@ fun VibeBottomBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 items.forEach { item ->
-                    BarItem(item, item.route == selectedRoute, { onSelect(item.route) }, Modifier.weight(1f).guideTarget(com.univibe.app.guide.tabTargetId(item.route)))
+                    BarItem(item, item.route == selectedRoute, badges[item.route] ?: 0, { onSelect(item.route) }, Modifier.weight(1f).guideTarget(com.univibe.app.guide.tabTargetId(item.route)))
                 }
             }
         }
@@ -90,7 +108,7 @@ fun VibeBottomBar(
 }
 
 @Composable
-private fun BarItem(item: VibeBarItem, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun BarItem(item: VibeBarItem, selected: Boolean, badge: Int, onClick: () -> Unit, modifier: Modifier) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -117,7 +135,9 @@ private fun BarItem(item: VibeBarItem, selected: Boolean, onClick: () -> Unit, m
                 onClick = onClick,
             )
             .padding(vertical = 4.dp)
-            .graphicsLayer { scaleX = pressScale; scaleY = pressScale },
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+            // With a badge the whole item reads "Chats, 3 unread messages"; without one the label alone says "Chats".
+            .then(if (badge > 0) Modifier.semantics { contentDescription = unreadDescription(item.label, badge) } else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.width(56.dp).height(32.dp), contentAlignment = Alignment.Center) {
@@ -136,7 +156,60 @@ private fun BarItem(item: VibeBarItem, selected: Boolean, onClick: () -> Unit, m
                     scaleX = emphasis; scaleY = emphasis
                 },
             )
+            // Positioned by alignment + offset only, so it never moves the icon, the label or the other items.
+            UnreadBadge(badge, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = (-2).dp))
         }
-        Text(item.label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1, overflow = TextOverflow.Clip)
+        Text(
+            item.label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1, overflow = TextOverflow.Clip,
+            modifier = if (badge > 0) Modifier.clearAndSetSemantics { } else Modifier,
+        )
+    }
+}
+
+/** "Chats, 3 unread messages" / "Chats, 1 unread message"; 100+ is announced as "more than 99". */
+internal fun unreadDescription(label: String, count: Int): String = when {
+    count <= 0 -> label
+    count == 1 -> "$label, 1 unread message"
+    count > 99 -> "$label, more than 99 unread messages"
+    else -> "$label, $count unread messages"
+}
+
+/** Display text for a count: nothing at 0 or below, the number up to 99, then "99+". */
+internal fun unreadBadgeText(count: Int): String? = when {
+    count <= 0 -> null
+    count > 99 -> "99+"
+    else -> count.toString()
+}
+
+/**
+ * Small turquoise count bubble for the Chats icon. Appears and disappears with a gentle scale/fade, and the number
+ * cross-fades when it changes. Semantics are cleared: the parent item carries the spoken description.
+ */
+@Composable
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    AnimatedVisibility(
+        visible = count > 0,
+        modifier = modifier,
+        enter = scaleIn(tween(160), initialScale = 0.6f) + fadeIn(tween(160)),
+        exit = scaleOut(tween(120), targetScale = 0.6f) + fadeOut(tween(120)),
+    ) {
+        Box(
+            Modifier
+                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                .border(1.5.dp, colors.background, CircleShape)
+                .background(colors.primary, CircleShape)
+                .padding(horizontal = 4.dp)
+                .clearAndSetSemantics { },
+            contentAlignment = Alignment.Center,
+        ) {
+            AnimatedContent(
+                targetState = unreadBadgeText(count) ?: "",
+                transitionSpec = { fadeIn(tween(120)) togetherWith fadeOut(tween(120)) },
+                label = "unreadCount",
+            ) { text ->
+                Text(text, color = colors.onPrimary, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1)
+            }
+        }
     }
 }

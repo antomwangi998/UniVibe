@@ -161,6 +161,12 @@ object AppContainer {
                 }
             }
         }
+        // The Chats badge: read once signed in, forgotten on sign-out. Live changes are handled inside the tracker.
+        appScope.launch {
+            authRepository.session.collect { state ->
+                if (state is AuthState.Authenticated) chatUnread.refresh() else chatUnread.clear()
+            }
+        }
         // The bell badge follows the server: any notification change (or a reconnect) re-reads its count.
         appScope.launch { notificationRepository.changes().collect { runCatching { notificationRepository.refreshUnread() } } }
     }
@@ -208,6 +214,10 @@ object AppContainer {
     }
     val chatRepository: ChatRepository by lazy {
         api?.let { RemoteChatRepository(it, chatSocket) { accountOf(authRepository.session.value)?.id } } ?: UnavailableChatRepository
+    }
+    /** Total unread messages for the Chats tab badge; built on the chat list and its live events. */
+    val chatUnread: com.univibe.app.data.repository.ChatUnreadTracker by lazy {
+        com.univibe.app.data.repository.ChatUnreadTracker(chatRepository, appScope)
     }
     val noteRepository: com.univibe.app.data.repository.NoteRepository by lazy {
         api?.let { com.univibe.app.data.repository.RemoteNoteRepository(it, chatSocket) } ?: com.univibe.app.data.repository.UnavailableNoteRepository

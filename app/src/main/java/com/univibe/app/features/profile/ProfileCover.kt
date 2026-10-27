@@ -1,7 +1,20 @@
 package com.univibe.app.features.profile
 
 import com.univibe.app.ui.components.VibeIcons
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -41,16 +54,34 @@ import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.theme.Spacing
 
 private val CoverBodyHeight = 150.dp
-private val CoverCorner = 36.dp
-private val AvatarRing = 116.dp
+private val CoverCurveLift = 22.dp
+private val DefaultAvatarRing = 116.dp
+
+/** Appends the cover's curved lower edge (right to left): the sides hang low and the middle lifts to cradle the avatar. */
+private fun Path.bottomCurve(w: Float, h: Float, lift: Float) {
+    cubicTo(w * 0.74f, h, w * 0.66f, h - lift, w * 0.5f, h - lift)
+    cubicTo(w * 0.34f, h - lift, w * 0.26f, h, 0f, h)
+}
+
+/** One real Shape for the cover (no stacked boxes): flat top, smooth curved bottom. */
+private class CurvedBottomShape(private val lift: Dp) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val l = with(density) { lift.toPx() }
+        return Outline.Generic(Path().apply {
+            moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width, size.height)
+            bottomCurve(size.width, size.height, l)
+            close()
+        })
+    }
+}
 
 /**
- * Full-bleed profile cover: runs under the status bar, big rounded bottom corners, a soft teal sheen,
- * icon buttons on top and the avatar overlapping the bottom edge.
+ * Full-bleed profile cover: runs under the status bar, curved lower edge with a thin turquoise rim, a deep-teal gradient with a
+ * faint campus skyline (or the student's own cover photo under a teal overlay), icon buttons on top and the avatar
+ * overlapping the bottom edge.
  *
- * The avatar hangs [AvatarRing]/2 below the cover without taking layout space, so put a
- * Spacer(64.dp) under this composable (the existing Header already does).
- * [leading] sits top-left, [actions] top-right. Use [CoverIconButton] inside them.
+ * The avatar hangs [avatarSize]/2 below the cover without taking layout space, so put a Spacer of about that height under this
+ * composable. [leading] sits top-left, [actions] top-right. Use [CoverIconButton] inside them.
  */
 @Composable
 fun ProfileCover(
@@ -59,44 +90,54 @@ fun ProfileCover(
     modifier: Modifier = Modifier,
     leading: @Composable RowScope.() -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
+    avatarSize: Dp = DefaultAvatarRing,
     avatar: @Composable () -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
+    val tokens = rememberProfileTokens()
     val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val base = colors.primary
-    val gradient = Brush.linearGradient(
-        listOf(lerp(base, Color.Black, 0.22f), base, lerp(base, Color.White, 0.30f)),
-    )
+    val base = tokens.primary
+    val gradient = remember(tokens) {
+        if (tokens.dark) Brush.linearGradient(listOf(Color(0xFF02181B), Color(0xFF053C40), Color(0xFF0A7F7C)))
+        else Brush.linearGradient(listOf(lerp(base, Color.Black, 0.22f), base, lerp(base, Color.White, 0.30f)))
+    }
+    val shape = remember { CurvedBottomShape(CoverCurveLift) }
 
     Box(modifier.fillMaxWidth()) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(CoverBodyHeight + statusBar)
-                .clip(RoundedCornerShape(bottomStart = CoverCorner, bottomEnd = CoverCorner))
+                .clip(shape)
                 .background(gradient)
                 .drawBehind {
-                    // Soft highlight in the top-right, like the glossy reference.
+                    // Soft light from the top-right.
                     drawRect(
                         Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.30f), Color.Transparent),
+                            listOf(Color.White.copy(alpha = if (tokens.dark) 0.16f else 0.30f), Color.Transparent),
                             center = Offset(size.width * 0.85f, size.height * 0.05f),
                             radius = size.width * 0.75f,
                         ),
                     )
+                    if (coverPath == null) drawCampusSkyline(tokens.dark)
+                }
+                .drawWithContent {
+                    drawContent()
+                    // Thin turquoise rim along the curved edge (drawn 4dp wide; the clip leaves the inner 2dp).
+                    val rim = Path().apply { moveTo(size.width, size.height); bottomCurve(size.width, size.height, CoverCurveLift.toPx()) }
+                    drawPath(rim, tokens.primary.copy(alpha = 0.85f), style = Stroke(width = 4.dp.toPx()))
                 },
         ) {
             if (coverPath != null) {
                 PhotoImage(coverPath, contentDescription = "Cover photo", modifier = Modifier.fillMaxSize())
-                // Keeps the white icons legible on any photo.
+                // Dark teal overlay: the photo sits in the interface, and the white icons stay legible.
                 Box(
-                    Modifier.fillMaxWidth().height(96.dp + statusBar).background(
-                        Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent)),
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color(0xFF021E20).copy(alpha = 0.55f), Color(0xFF053C40).copy(alpha = 0.35f), Color(0xFF021E20).copy(alpha = 0.60f))),
                     ),
                 )
             }
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = ProfileHorizontalPadding, vertical = Spacing.sm),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -104,11 +145,32 @@ fun ProfileCover(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm), content = actions)
             }
         }
-        Box(Modifier.align(Alignment.BottomCenter).offset(y = AvatarRing / 2)) { avatar() }
+        Box(Modifier.align(Alignment.BottomCenter).offset(y = avatarSize / 2)) { avatar() }
     }
 }
 
-/** Translucent dark circle with a white icon: readable on teal and on photos, 48dp touch target. */
+/** A faint skyline of campus blocks with lit windows, drawn procedurally (no image asset, no allocation per frame beyond the draw). */
+private fun DrawScope.drawCampusSkyline(dark: Boolean) {
+    val ink = Color.White.copy(alpha = if (dark) 0.05f else 0.10f)
+    val window = Color.White.copy(alpha = if (dark) 0.10f else 0.18f)
+    val w = size.width
+    val ground = size.height - 26.dp.toPx()
+    // (left, width, height) as fractions of the cover's width and body height.
+    val blocks = listOf(Triple(0.04f, 0.14f, 0.34f), Triple(0.20f, 0.10f, 0.22f), Triple(0.62f, 0.16f, 0.40f), Triple(0.80f, 0.12f, 0.28f))
+    blocks.forEach { (l, bw, bh) ->
+        val left = w * l; val width = w * bw; val height = size.height * bh
+        drawRect(ink, Offset(left, ground - height), Size(width, height))
+        val step = 9.dp.toPx()
+        var y = ground - height + step
+        while (y < ground - step) {
+            var x = left + step
+            while (x < left + width - step) { drawRect(window, Offset(x, y), Size(3.dp.toPx(), 3.dp.toPx())); x += step }
+            y += step
+        }
+    }
+}
+
+/** Translucent dark circle with a thin light border and a white icon: readable on teal and on photos, 48dp touch target. */
 @Composable
 fun CoverIconButton(
     icon: ImageVector,
@@ -116,14 +178,17 @@ fun CoverIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.28f), modifier = modifier) {
+    Surface(
+        shape = CircleShape, color = Color(0xFF031417).copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)), modifier = modifier,
+    ) {
         IconButton(onClick = onClick) {
             Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(22.dp))
         }
     }
 }
 
-/** Bell for the cover's leading slot, with a dot when something is unread. */
+/** Bell for the cover's leading slot, with a turquoise dot when something is unread (count comes from the app's notification state). */
 @Composable
 fun CoverBellButton(unread: Int, onClick: () -> Unit) {
     Box {
@@ -134,8 +199,10 @@ fun CoverBellButton(unread: Int, onClick: () -> Unit) {
         )
         if (unread > 0) {
             Box(
-                Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(10.dp)
-                    .background(MaterialTheme.colorScheme.error, CircleShape),
+                Modifier.align(Alignment.TopEnd).padding(top = 7.dp, end = 7.dp).size(11.dp)
+                    .border(1.5.dp, Color(0xFF031417), CircleShape)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    .clearAndSetSemantics { },
             )
         }
     }
