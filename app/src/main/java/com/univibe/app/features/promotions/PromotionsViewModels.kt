@@ -294,6 +294,9 @@ data class NewPromotionState(
     val body: String = "",
     val ctaLabel: String = "",
     val ctaUrl: String = "",
+    /** A photo or video picked for the card; uploaded when the promotion is created. */
+    val mediaPath: String? = null,
+    val mediaIsVideo: Boolean = false,
     val start: StartOption = StartOption.Soon,
     val days: Int = 7,
     val submitting: Boolean = false,
@@ -378,6 +381,7 @@ class NewPromotionViewModel(
                         kind = kind.serverKind, packageId = pkg.id, eventId = s.eventId, businessId = s.businessId,
                         headline = s.headline.trim(), body = s.body.trim(), ctaLabel = s.ctaLabel.trim().ifEmpty { null }, ctaUrl = s.ctaUrl.trim().ifEmpty { null },
                         placements = pkg.placements.filter { it in s.placements }, startsAtMillis = start, endsAtMillis = end,
+                        mediaPath = s.mediaPath, mediaIsVideo = s.mediaIsVideo,
                     ),
                 )
                 // Opening the order can fail (for example payments are not switched on yet). The draft is kept either way,

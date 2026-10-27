@@ -40,6 +40,8 @@ const campaignBody = z.object({
   eventId: z.string().uuid().optional(),
   businessId: z.string().uuid().optional(),
   postId: z.string().uuid().optional(),
+  /** One photo or video (uploaded with purpose "post") shown on the card. A sponsored post without its own falls back to its post's first photo or video. */
+  mediaId: z.string().uuid().optional(),
   headline: z.string().trim().min(3).max(80),
   body: z.string().trim().max(300).default(''),
   ctaLabel: z.string().trim().min(2).max(24).optional(),
@@ -224,6 +226,10 @@ export function advertiserRoutes(ctx: Ctx) {
         const ok = (await q.query("select 1 from businesses b join business_members m on m.business_id = b.id and m.user_id = $2 where b.id = $1 and b.status = 'approved'", [b.businessId, me.id])).rowCount;
         if (!ok) throw new HttpError(422, 'validation', 'That business is not approved yet, or is not yours.');
       }
+      if (b.mediaId) {
+        const m = (await q.query("select 1 from media where id = $1 and owner_id = $2 and status = 'ready' and kind in ('image', 'video') and purpose = 'post' and post_id is null and message_id is null", [b.mediaId, me.id])).rowCount;
+        if (!m) throw new HttpError(422, 'validation', 'That photo or video could not be used. Upload it again.');
+      }
       if (b.postId) {
         if (b.kind !== 'sponsored_post') throw new HttpError(422, 'validation', 'A post can only be attached to a sponsored post.');
         const ok = (await q.query("select 1 from posts where id = $1 and author_id = $2 and status = 'active'", [b.postId, me.id])).rowCount;
@@ -248,10 +254,10 @@ export function advertiserRoutes(ctx: Ctx) {
           const pkg = await validateCampaign(client, me, b);
           const id = (await client.query<{ id: string }>(
             `insert into campaigns (advertiser_id, kind, business_id, event_id, post_id, package_id, headline, body, cta_label, cta_url, placements,
-               starts_at, ends_at, impression_cap, frequency_cap_per_day, create_key)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) returning id`,
+               starts_at, ends_at, impression_cap, frequency_cap_per_day, create_key, image_media_id)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) returning id`,
             [me.id, b.kind, b.businessId ?? null, b.eventId ?? null, b.postId ?? null, pkg.id, b.headline, b.body, b.ctaLabel ?? null, b.ctaUrl ?? null,
-              b.placements, b.startsAt, b.endsAt, pkg.impression_cap, pkg.frequency_cap_per_day, b.createKey ?? null])).rows[0].id;
+              b.placements, b.startsAt, b.endsAt, pkg.impression_cap, pkg.frequency_cap_per_day, b.createKey ?? null, b.mediaId ?? null])).rows[0].id;
           await client.query("insert into campaign_status_history (campaign_id, from_status, to_status, actor_id, actor_kind) values ($1, null, 'draft', $2, 'advertiser')", [id, me.id]);
           return { id, created: true };
         });

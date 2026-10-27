@@ -22,6 +22,7 @@ const CLICK_GAP_MINUTES = 30;
 const REFRESH_SECONDS = 60;
 
 const reportBody = z.object({ reason: z.enum(['misleading', 'inappropriate', 'spam', 'scam', 'offensive', 'other']), details: z.string().trim().max(500).default('') }).strict();
+const commentBody = z.object({ body: z.string().trim().min(1).max(500) }).strict();
 const eventBody = z.object({ token: z.string().min(20).max(600) }).strict();
 
 interface CardRow {
@@ -29,7 +30,8 @@ interface CardRow {
   event_id: string | null; business_id: string | null; post_id: string | null;
   business_name: string | null; business_verification: string | null; business_category: string | null; business_location: string | null;
   event_title: string | null; event_starts_at: Date | null; event_venue: string | null; organizer_name: string | null;
-  logo_key: string | null; image_key: string | null; image_width: number | null; image_height: number | null;
+  logo_key: string | null; image_key: string | null; image_kind: string | null; image_width: number | null; image_height: number | null;
+  likes: string; comments: string; liked: boolean;
 }
 
 const UTC_DAY = "(date_trunc('day', now() at time zone 'UTC') at time zone 'UTC')";
@@ -61,13 +63,16 @@ export function sponsoredRoutes(ctx: Ctx) {
         `select c.id, c.kind, c.headline, c.body, c.cta_label, c.cta_url, c.event_id, c.business_id, c.post_id,
                 b.name as business_name, b.verification as business_verification, b.category as business_category, b.location_text as business_location,
                 e.title as event_title, e.starts_at as event_starts_at, e.venue_name as event_venue, org.full_name as organizer_name,
-                lm.object_key as logo_key, im.object_key as image_key, im.width as image_width, im.height as image_height
+                lm.object_key as logo_key, im.object_key as image_key, im.kind as image_kind, im.width as image_width, im.height as image_height,
+                (select count(*) from campaign_likes l where l.campaign_id = c.id) as likes,
+                (select count(*) from campaign_comments cm where cm.campaign_id = c.id) as comments,
+                exists (select 1 from campaign_likes l where l.campaign_id = c.id and l.user_id = $1) as liked
            from campaigns c
            join orders o on o.id = c.order_id and o.status = 'paid'
            join users adv on adv.id = c.advertiser_id
            left join businesses b on b.id = c.business_id
            left join media lm on lm.id = b.logo_media_id and lm.status = 'ready'
-           left join media im on im.id = c.image_media_id and im.status = 'ready'
+           left join media im on im.status = 'ready' and im.id = coalesce(c.image_media_id, (select pm.id from media pm where pm.post_id = c.post_id and pm.status = 'ready' order by pm.position limit 1))
            left join events e on e.id = c.event_id
            left join users org on org.id = e.organizer_id
           where c.status = 'active' and c.review_status = 'approved' and c.starts_at <= now() and c.ends_at > now()
@@ -97,8 +102,9 @@ export function sponsoredRoutes(ctx: Ctx) {
             headline: r.headline, body: r.body, cta: r.cta_label && r.cta_url ? { label: r.cta_label, url: r.cta_url } : null, target,
             event: r.event_id ? { title: r.event_title, startsAt: r.event_starts_at, venue: r.event_venue } : null,
             business: r.business_id ? { category: r.business_category, location: r.business_location } : null,
-            // Only when the campaign has a ready image. The app draws nothing for a missing one.
-            image: imageUrl ? { url: imageUrl, width: r.image_width, height: r.image_height } : null,
+            // A photo or video, only when the campaign (or the post it promotes) has a ready one. The app draws nothing for a missing one.
+            image: imageUrl ? { kind: r.image_kind === 'video' ? 'video' : 'image', url: imageUrl, width: r.image_width, height: r.image_height } : null,
+            engagement: { likes: Number(r.likes), comments: Number(r.comments), liked: r.liked },
             impressionToken: token,
           };
         })),
@@ -154,6 +160,68 @@ export function sponsoredRoutes(ctx: Ctx) {
         return true;
       });
       return { counted };
+    });
+
+    /** The campaign must be live and visible to this viewer, otherwise it looks like not found. Used by likes and comments. */
+    async function engageable(me: { id: string; universityId: string }, id: string): Promise<void> {
+      const ok = await pool.query(
+        `select 1 from campaigns c join users adv on adv.id = c.advertiser_id
+          where c.id = $3 and c.status = 'active' and c.review_status = 'approved' and c.ends_at > now()
+            and adv.university_id = $2 and ${notSuspended('adv')} and not ${blockedBetween('$1', 'adv.id')}`, [me.id, me.universityId, id]);
+      if (!ok.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
+    }
+    const likeCount = async (id: string) => Number((await pool.query<{ n: string }>('select count(*) as n from campaign_likes where campaign_id = $1', [id])).rows[0].n);
+
+    app.post('/sponsored/:id/like', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`spons-like:${me.id}`, 120, 60);
+      const id = idParam((req.params as { id?: string }).id);
+      await engageable(me, id);
+      await pool.query('insert into campaign_likes (campaign_id, user_id) values ($1, $2) on conflict do nothing', [id, me.id]);
+      return { liked: true, likes: await likeCount(id) };
+    });
+
+    app.delete('/sponsored/:id/like', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`spons-like:${me.id}`, 120, 60);
+      const id = idParam((req.params as { id?: string }).id);
+      await pool.query('delete from campaign_likes where campaign_id = $1 and user_id = $2', [id, me.id]);
+      return { liked: false, likes: await likeCount(id) };
+    });
+
+    /** Oldest first, the newest 100. People who blocked or are blocked by the reader are left out. */
+    app.get('/sponsored/:id/comments', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`spons-cm:${me.id}`, 120, 60);
+      const id = idParam((req.params as { id?: string }).id);
+      await engageable(me, id);
+      const { rows } = await pool.query<{ id: string; body: string; created_at: Date; author_id: string; full_name: string; handle: string }>(
+        `select * from (select cm.id, cm.body, cm.created_at, u.id as author_id, u.full_name, u.handle
+            from campaign_comments cm join users u on u.id = cm.author_id
+           where cm.campaign_id = $2 and not ${blockedBetween('$1', 'u.id')}
+           order by cm.created_at desc limit 100) t order by created_at asc`, [me.id, id]);
+      return { items: rows.map((r) => ({ id: r.id, body: r.body, createdAt: r.created_at, mine: r.author_id === me.id, author: { id: r.author_id, name: r.full_name, handle: r.handle } })) };
+    });
+
+    app.post('/sponsored/:id/comments', async (req, reply) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`spons-cm-new:${me.id}`, 20, 600);
+      const id = idParam((req.params as { id?: string }).id);
+      const b = commentBody.parse(req.body ?? {});
+      await engageable(me, id);
+      const row = (await pool.query<{ id: string; created_at: Date }>(
+        'insert into campaign_comments (campaign_id, author_id, body) values ($1, $2, $3) returning id, created_at', [id, me.id, b.body])).rows[0];
+      reply.code(201);
+      return { id: row.id, body: b.body, createdAt: row.created_at, mine: true, author: { id: me.id, name: me.fullName, handle: me.handle } };
+    });
+
+    app.delete('/sponsored/:id/comments/:commentId', async (req) => {
+      const me = await ctx.auth(req);
+      ctx.limit(`spons-cm-del:${me.id}`, 60, 60);
+      const p = req.params as { id?: string; commentId?: string };
+      const removed = await pool.query('delete from campaign_comments where id = $1 and campaign_id = $2 and author_id = $3', [idParam(p.commentId), idParam(p.id), me.id]);
+      if (!removed.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
+      return { ok: true };
     });
 
     /** "Report this ad". The campaign must be one the viewer could have been shown; anything else looks like not found. */
