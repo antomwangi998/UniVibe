@@ -247,4 +247,29 @@ describe.skipIf(!url)('discover content feed (needs TEST_DATABASE_URL)', () => {
     expect((await fb({ kind: 'hide_author', authorId: outsider.id })).status).toBe(404);
     expect((await pool.query('select count(*) from discover_feedback where user_id = $1', [viewer.id])).rows[0].count).toBe('0');
   });
+  it('students with similar taste lift a post: what people you resemble liked beats an equally liked post', async () => {
+    const [viewer, twin, a, b, f1, f2, earlier] = await students(7);
+    const m = mark();
+    const e1 = await post(earlier, `${m} earlier one`);
+    const e2 = await post(earlier, `${m} earlier two`);
+    for (const s of [viewer, twin]) for (const e of [e1, e2]) await like(s, e); // two posts in common: they are neighbours
+    const fromTwin = await post(a, `${m} liked by my twin`);
+    const fromStrangers = await post(b, `${m} liked by strangers`);
+    for (const s of [twin, f1]) await like(s, fromTwin);
+    for (const s of [f1, f2]) await like(s, fromStrangers); // same number of likers, but not people like the viewer
+    const order = (await walk('feed', viewer.token)).map((i) => i.id).filter((id) => id === fromTwin || id === fromStrangers);
+    expect(order).toEqual([fromTwin, fromStrangers]);
+  });
+
+  it('topics a student keeps engaging with rank higher, without them filling in any interests', async () => {
+    const [viewer, a, b, c] = await students(4);
+    const m = mark();
+    const tag = `${m}x`;
+    const seen = await post(c, `${m} earlier post #${tag}`);
+    await like(viewer, seen); // the viewer showed interest in this topic
+    const onTopic = await post(a, `${m} same topic again #${tag}`);
+    const offTopic = await post(b, `${m} something else #${m}y`);
+    const order = (await walk('feed', viewer.token)).map((i) => i.id).filter((id) => id === onTopic || id === offTopic);
+    expect(order).toEqual([onTopic, offTopic]);
+  });
 });

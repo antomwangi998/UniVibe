@@ -6,13 +6,14 @@ import { HttpError } from '../errors';
 import { decodeCursor, tsText } from '../http';
 import { communityNotMuted, discoverAudience } from './community_state';
 import { POST_COLS, POST_FROM, type PostRow, presentPosts, visible } from '../posts';
+import { forYouSql } from './for_you_rank';
 
 /**
  * Discover content: a ranked For You feed, Trending, photo and video grids, and topics.
  *
  * Everything returned is a post the student could already see in the Home feed (same `visible` rule), limited to
- * campus-wide posts so followers-only posts never surface to strangers. Ranking is a plain, documented formula:
- * no machine learning, and only signals that exist in the database (see SCORE below).
+ * campus-wide posts so followers-only posts never surface to strangers. Ranking is plain SQL with documented weights:
+ * no machine learning service, only signals that exist in the database. For You: see for_you_rank.ts; Trending: SCORE below.
  */
 
 const WINDOWS = { '24h': 24, '7d': 168 } as const;
@@ -60,30 +61,8 @@ const NOT_HIDDEN = `
  *   score      = (0.6 * engagement + velocity + 0.4 + personal) / (1 + hours_old / 12) ^ 1.2 / (1 + reports)
  * Likes and commenters are counted per person, so one account repeating itself adds nothing. The 0.4 base keeps a
  * brand-new post with no engagement visible, and the age decay lets fresh posts overtake old popular ones.
- * `personal` (For You only) adds 0.5 for an author the student follows and 0.4 for a match with their own interests.
+ * This is the Trending formula; For You uses its own, richer ranking in for_you_rank.ts.
  */
-const candidateSql = (personal: boolean, audienceOnlyCampus = true) => `
-  select p.id, p.author_id, p.created_at,
-    likers, commenters, recent_likes, recent_commenters,
-    followed, interest_match,
-    round((((0.6 * (ln(1 + likers) + 1.5 * ln(1 + commenters) + 0.3 * ln(1 + least(p.share_count, 20)))
-        + (ln(1 + recent_likes) + 1.5 * ln(1 + recent_commenters)) + 0.4
-        ${personal ? '+ (case when followed then 0.5 else 0 end) + (case when interest_match then 0.4 else 0 end) + (case when a.university_id = $2 then 0.3 else 0 end)' : ''})
-      / power(1 + extract(epoch from ($3::timestamptz - p.created_at)) / 3600.0 / 12.0, 1.2)
-      / (1 + reports)))::numeric, 9) as score
-  from posts p join users a on a.id = p.author_id
-  cross join lateral (select
-      (select count(distinct l.user_id) from post_likes l where l.post_id = p.id and l.created_at <= $3 and l.user_id <> p.author_id) as likers,
-      (select count(distinct c.author_id) from comments c where c.post_id = p.id and c.status = 'active' and c.created_at <= $3 and c.author_id <> p.author_id) as commenters,
-      (select count(*) from post_likes l where l.post_id = p.id and l.created_at <= $3 and l.created_at > $3::timestamptz - interval '6 hours' and l.user_id <> p.author_id) as recent_likes,
-      (select count(distinct c.author_id) from comments c where c.post_id = p.id and c.status = 'active' and c.created_at <= $3 and c.created_at > $3::timestamptz - interval '6 hours' and c.author_id <> p.author_id) as recent_commenters,
-      (select count(*) from post_reports r where r.post_id = p.id) as reports,
-      exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = p.author_id) as followed,
-      exists (select 1 from users me, unnest(me.interests) i where me.id = $1 and length(i) >= 2 and position(lower(i) in lower(p.text)) > 0) as interest_match
-  ) sig
-  where ${visible('p', 'a')} and ${inScope('a', '$8')} ${audienceOnlyCampus ? `and ${discoverAudience('p')}` : ''}
-    and p.created_at <= $3 and p.created_at > $3::timestamptz - make_interval(hours => $4::int)
-    and ${NOT_HIDDEN}`;
 
 type Reason = 'following' | 'interests' | 'trending_campus' | 'popular_campus' | null;
 const reasonOf = (r: { followed: boolean; interest_match: boolean; recent_likes: number; recent_commenters: number; likers: number; commenters: number }): Reason => {
@@ -147,7 +126,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
       const cur = readScoredCursor(q.cursor);
       const asOf = cur?.a ?? new Date().toISOString();
       const { rows } = await pool.query(
-        `with cand as (${candidateSql(true)} and p.author_id <> $1),
+        `with cand as (${forYouSql(NOT_HIDDEN)} and p.author_id <> $1),
               ranked as (select *, row_number() over (partition by author_id order by score desc, id desc) as rn from cand)
          select id, score::text as score, followed, interest_match, recent_likes, recent_commenters, likers, commenters
            from ranked
