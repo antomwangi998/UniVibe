@@ -88,6 +88,10 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose) // loads picked photos from app storage
+    implementation(libs.media3.exoplayer) // feed video: one shared player, autoplay as you scroll
+    implementation(libs.media3.ui)
+    implementation(libs.media3.datasource) // disk cache so re-scrolled videos are not downloaded again
+    implementation(libs.media3.database)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging) // push (FCM); inert until google-services.json is added
     implementation(libs.androidx.credentials) // Credential Manager: Sign in with Google and saving passwords
