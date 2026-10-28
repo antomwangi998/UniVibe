@@ -18,6 +18,7 @@ export function campusScopeRoutes(ctx: Ctx) {
     const { pool } = ctx;
 
     app.get('/campuses/scopes', async (req) => {
+      ctx.limit(`campus-scopes:ip:${req.ip ?? 'unknown'}`, 120, 600);
       const me = await ctx.auth(req);
       ctx.limit(`campus-scopes:${me.id}`, 120, 600);
       const { rows } = await pool.query<{ id: string; name: string; short_name: string; members: number }>(
