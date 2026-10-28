@@ -32,7 +32,7 @@ fun registerHomeTour() {
             steps = listOf(
                 GuideStep("composer", "home.composer", "Share something", "Write here to post to your campus feed. You choose when to press Post, and your unsent text is kept if you leave.", VibeIcons.Edit),
                 GuideStep("attach", "home.composerActions", "Photos, videos, events and polls", "Add a photo or video, announce an event, or turn your post into a poll. Nothing is attached until you pick it.", VibeIcons.Photo),
-                GuideStep("filter", "home.filter", "Choose your feed", "Switch what the feed shows. When a filter other than Campus is on, this button turns teal so you can tell.", VibeIcons.Filter),
+                GuideStep("filter", "home.filter", "Choose your feed", "Switch between For you and Following. The campus pill next to it sets which universities you see.", VibeIcons.Filter),
                 GuideStep("actions", "post.actions", "React to a post", "Comment, repost, like, save and share from the row under each post. The number next to Views counts how many people saw it.", VibeIcons.Comment),
                 GuideStep("more", "post.more", "More options", "Open this to report a post, or to edit or delete your own. Tapping a name or photo opens that person's profile, where you can follow them.", VibeIcons.More),
                 GuideStep(

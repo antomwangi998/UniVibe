@@ -1,6 +1,7 @@
 package com.univibe.app.features.home
 
-import com.univibe.app.ui.components.CampusScopeBar
+import com.univibe.app.ui.components.CampusScopeNote
+import com.univibe.app.ui.components.CampusScopePill
 import com.univibe.app.ui.components.SuggestedPeopleCarousel
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIconButton
@@ -57,6 +58,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -239,10 +243,15 @@ fun HomeScreen(
                     )
                 }
             }
-            item(key = "campusScope") { CampusScopeBar(Modifier.padding(bottom = Spacing.xs)) }
             item(key = "toolbar") {
                 Column {
-                    FeedToolbar(state.filter, onOpenFilters = { showFilters = true })
+                    FeedToolbar(state.filter, onSelect = { filter ->
+                        if (filter != state.filter) {
+                            viewModel.setFilter(filter)
+                            scope.launch { listState.scrollToItem(0) }
+                        }
+                    })
+                    CampusScopeNote(Modifier.padding(bottom = Spacing.xs))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
                 }
             }
@@ -774,12 +783,12 @@ private fun StoriesRow(stories: List<Student>) {
 
 
 private fun FeedFilter.label() = when (this) {
-    FeedFilter.Campus -> "Campus"
+    FeedFilter.Campus -> "For you"
     FeedFilter.Following -> "Following"
 }
 
 private fun FeedFilter.blurb() = when (this) {
-    FeedFilter.Campus -> "Posts from everyone on campus"
+    FeedFilter.Campus -> "Posts from everyone in your campus filter"
     FeedFilter.Following -> "Posts from the people you follow"
 }
 
@@ -810,10 +819,34 @@ private fun FeedFilterButton(filter: FeedFilter, onClick: () -> Unit, modifier: 
     }
 }
 
+/** Feed tabs on the left, the campus filter on the right. */
 @Composable
-private fun FeedToolbar(filter: FeedFilter, onOpenFilters: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-        FeedFilterButton(filter, onOpenFilters, Modifier.guideTarget("home.filter"))
+private fun FeedToolbar(filter: FeedFilter, onSelect: (FeedFilter) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = Spacing.md).guideTarget("home.filter"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            FeedFilter.entries.forEach { f -> FeedTab(f.label(), f == filter) { onSelect(f) } }
+        }
+        Spacer(Modifier.weight(1f))
+        CampusScopePill()
+    }
+}
+
+@Composable
+private fun FeedTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val tint by animateColorAsState(if (selected) colors.onSurface else colors.onSurfaceVariant, tween(180), label = "feedTabTint")
+    Column(
+        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleSmall, color = tint)
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.width(24.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) colors.primary else Color.Transparent))
     }
 }
 
