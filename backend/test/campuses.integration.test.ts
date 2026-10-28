@@ -31,6 +31,9 @@ describe.skipIf(!url)('multi-campus universities (needs TEST_DATABASE_URL)', () 
     const uon = res.body.find((u: { id: string }) => u.id === 'uon');
     expect(uon.name).toBe('University of Nairobi');
     expect(uon.emailDomains).toEqual(['students.uonbi.ac.ke']);
+    const must = res.body.find((u: { id: string }) => u.id === 'must');
+    expect(must.name).toBe('Meru University of Science and Technology');
+    expect(must.emailDomains).toEqual(['students.must.ac.ke']);
     const lakeside = res.body.find((u: { id: string }) => u.id === 'lakeside');
     expect(lakeside?.campuses ?? []).toEqual([]);
   });
