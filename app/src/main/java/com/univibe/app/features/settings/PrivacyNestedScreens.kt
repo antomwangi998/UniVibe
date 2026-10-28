@@ -69,6 +69,13 @@ fun PrivacyVisibilityScreen(
                 icon = VibeIcons.Visibility, enabled = !st.saving,
             )
             RowDivider()
+            SettingsSwitchRow(
+                "Show me to other campuses", st.privacy.showOtherCampuses, { v -> viewModel.change(PrivacyChange(showOtherCampuses = v)) },
+                subtitle = if (st.privacy.showOtherCampuses) "Students at other campuses can find you, follow you and see your campus-wide posts."
+                else "Only your own campus can find you. Your posts shared with all campuses stay visible to everyone.",
+                icon = VibeIcons.Public, enabled = !st.saving,
+            )
+            RowDivider()
             SettingsNavRow(VibeIcons.Photo, "Discover profile", onDiscoverProfile, subtitle = "Choose your card photo and preview it.")
         }
     }

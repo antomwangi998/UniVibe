@@ -1,5 +1,6 @@
 package com.univibe.app.features.search
 
+import com.univibe.app.ui.components.CampusScopeBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ fun SearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), capitalize = false,
             keyboardActions = KeyboardActions(onSearch = { viewModel.remember() }),
         )
+        CampusScopeBar(Modifier.padding(top = Spacing.xs))
         Box(Modifier.weight(1f).fillMaxWidth().padding(top = Spacing.sm)) {
             val results = state.results
             when {

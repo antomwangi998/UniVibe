@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { blockedBetween, notSuspended } from '../access';
+import { blockedBetween, crossCampusOk, inScope, notSuspended, resolveScope } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { withTx } from '../db';
 import { HttpError } from '../errors';
@@ -15,15 +15,17 @@ const filterSchema = pageSchema.extend({
   faculty: z.string().trim().max(80).optional(),
   yearOfStudy: z.string().trim().max(20).optional(),
   interest: z.string().trim().max(30).optional(),
+  /** `home` (default), `all`, or one university id. Other campuses only show people who have not opted out. */
+  campusScope: z.string().trim().min(1).max(64).optional(),
 });
 
 /**
  * Who may appear in Discover for viewer $1 (university $2). Uses alias u.
- * Excludes: self, other universities, suspended, blocked either way, opted out, not onboarded,
+ * Excludes: self, universities outside the scope ($10: resolved campus scope), people who hid from other campuses, suspended, blocked either way, opted out, not onboarded,
  * people already passed on or connected with, and people the viewer already follows or has requested.
  */
 const ELIGIBLE = (viewer = '$1', uni = '$2') => `
-  u.id <> ${viewer} and u.university_id = ${uni} and u.onboarded_at is not null and ${notSuspended('u')}
+  u.id <> ${viewer} and ${inScope('u', '$10')} and ${crossCampusOk('u', uni)} and u.onboarded_at is not null and ${notSuspended('u')}
   and not ${blockedBetween(viewer, 'u.id')}
   and coalesce((select ps.discoverable from privacy_settings ps where ps.user_id = u.id), true)
   and not exists (select 1 from discover_actions da where da.user_id = ${viewer} and da.target_id = u.id)
@@ -31,7 +33,7 @@ const ELIGIBLE = (viewer = '$1', uni = '$2') => `
 
 async function assertEligible(ctx: Ctx, me: AuthUser, targetId: string) {
   const { rowCount } = await ctx.pool.query(
-    `select 1 from users u where u.id = $3 and u.id <> $1 and u.university_id = $2 and u.onboarded_at is not null and ${notSuspended('u')}
+    `select 1 from users u where u.id = $3 and u.id <> $1 and ${crossCampusOk('u', '$2')} and u.onboarded_at is not null and ${notSuspended('u')}
         and not ${blockedBetween('$1', 'u.id')}
         and coalesce((select ps.discoverable from privacy_settings ps where ps.user_id = u.id), true)`,
     [me.id, me.universityId, targetId],
@@ -57,8 +59,9 @@ export function discoverRoutes(ctx: Ctx) {
       const { rows } = await pool.query(
         `select u.id, u.course, u.faculty, u.year_of_study, u.interests, u.bio,
                 (select count(*) from unnest(u.interests) i where i = any((select interests from users where id = $1)::text[])) as shared_interests,
-                ${tsText('u.created_at')} as "cursorT", ${cardColumns('u')}
-           from users u ${cardJoin('u')}
+                ${tsText('u.created_at')} as "cursorT", ${cardColumns('u')},
+                du.id as university_id, du.name as university_name, coalesce(du.short_name, du.name) as university_short
+           from users u ${cardJoin('u')} join universities du on du.id = u.university_id
           where ${ELIGIBLE()}
             and (cardinality($3::text[]) = 0 or lower(u.course) = any($3::text[]))
             and (cardinality($4::text[]) = 0 or lower(u.faculty) = any($4::text[]))
@@ -67,14 +70,16 @@ export function discoverRoutes(ctx: Ctx) {
             and ($7::timestamptz is null or (u.created_at, u.id) < ($7::timestamptz, $8::uuid))
           order by u.created_at desc, u.id desc limit $9`,
         [me.id, me.universityId, courses.map((s: string) => s.toLowerCase()), faculties.map((s: string) => s.toLowerCase()),
-          years.map((s: string) => s.toLowerCase()), interests.map((s: string) => s.toLowerCase()), cur?.t ?? null, cur?.id ?? null, q.limit + 1],
+          years.map((s: string) => s.toLowerCase()), interests.map((s: string) => s.toLowerCase()), cur?.t ?? null, cur?.id ?? null, q.limit + 1,
+          resolveScope(q.campusScope, me.universityId)],
       );
       const page = toPage(rows as (CardRow & { cursorT: string; id: string })[], q.limit);
       const items = await Promise.all(page.items.map(async (r) => {
-        const row = r as unknown as CardRow & { course: string; faculty: string; year_of_study: string; interests: string[]; bio: string; shared_interests: string };
+        const row = r as unknown as CardRow & { course: string; faculty: string; year_of_study: string; interests: string[]; bio: string; shared_interests: string; university_id: string; university_name: string; university_short: string };
         return {
           ...(await toCard(ctx, row)), course: row.course, faculty: row.faculty, yearOfStudy: row.year_of_study,
           interests: row.interests, bio: row.bio, sharedInterests: Number(row.shared_interests),
+          universityId: row.university_id, universityName: row.university_name, universityShortName: row.university_short,
         };
       }));
       return { items, nextCursor: page.nextCursor };

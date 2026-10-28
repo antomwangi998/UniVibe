@@ -16,5 +16,8 @@ class SessionViewModel(
 
     init { viewModelScope.launch { repository.restoreSession() } }
 
-    fun logOut() { viewModelScope.launch { repository.logOut() } }
+    fun logOut() {
+        com.univibe.app.data.campus.CampusScopeStore.reset()
+        viewModelScope.launch { repository.logOut() }
+    }
 }

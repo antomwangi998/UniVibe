@@ -284,7 +284,8 @@ describe.skipIf(!url)('posts, comments and people (needs TEST_DATABASE_URL)', ()
     expect(profile.posts).toBe(2);
     expect(profile.followers).toBe(1);
     expect(profile.followedByMe).toBe(true);
-    expect((await call('GET', `/students/${a.id}`, outsider.token)).status).toBe(404);
+    // Another campus can see a profile (campuses are bridged); what it sees of the posts is covered in campus-bridge tests.
+    expect((await call('GET', `/students/${a.id}`, outsider.token)).status).toBe(200);
 
     const followers = (await call('GET', '/me/followers', a.token)).body;
     expect(followers.map((f: { student: { id: string } }) => f.student.id)).toEqual([b.id]);
@@ -293,10 +294,10 @@ describe.skipIf(!url)('posts, comments and people (needs TEST_DATABASE_URL)', ()
     expect(following.map((f: { student: { id: string } }) => f.student.id)).toEqual([b.id]);
   });
 
-  it('cannot follow yourself, an outsider or a stranger id', async () => {
+  it('cannot follow yourself or a stranger id, but can follow a student at another campus', async () => {
     const [a, outsider] = [await student(), await student('other')];
     expect((await call('PUT', `/students/${a.id}/follow`, a.token)).status).toBe(400);
-    expect((await call('PUT', `/students/${outsider.id}/follow`, a.token)).status).toBe(404);
+    expect((await call('PUT', `/students/${outsider.id}/follow`, a.token)).status).toBeLessThan(300);
     expect((await call('PUT', '/students/00000000-0000-4000-8000-000000000000/follow', a.token)).status).toBe(404);
   });
 

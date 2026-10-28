@@ -131,6 +131,15 @@ fun EventFormScreen(editId: String?, onBack: () -> Unit, onDone: (eventId: Strin
                             s.campuses.forEach { c -> InterestChip(c.name, selected = !s.allCampuses && s.campusId == c.id, onClick = { viewModel.setCampus(c.id) }) }
                         }
                     }
+                    if (s.hostCommunityId == null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Open to other universities", style = MaterialTheme.typography.bodyLarge)
+                                Text("Students from every university can find and join this event.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                            }
+                            Switch(checked = s.openToOtherCampuses, onCheckedChange = viewModel::setOpenToOtherCampuses)
+                        }
+                    }
                     Text("When", style = MaterialTheme.typography.titleSmall)
                     DateTimeRow("Starts", s.startMillis, viewModel::setStart)
                     if (!s.startOk) Text("Start at least 5 minutes from now.", style = MaterialTheme.typography.bodySmall, color = colors.error)

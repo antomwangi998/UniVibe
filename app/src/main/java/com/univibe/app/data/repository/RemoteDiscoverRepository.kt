@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.campus.withCampusScope
 import com.univibe.app.data.model.Student
 import com.univibe.app.data.net.AuthedApi
 import com.univibe.app.data.net.parseStudent
@@ -19,12 +20,11 @@ class RemoteDiscoverRepository(
 
     override suspend fun getCandidates(): List<Student> {
         val me = account()
-        val items = JSONObject(api.send("GET", "/api/v1/discover?limit=30")).getJSONArray("items")
+        val items = JSONObject(api.send("GET", "/api/v1/discover?limit=30".withCampusScope())).getJSONArray("items")
         val mine = me?.interests.orEmpty()
         return (0 until items.length()).map { i ->
             val student = parseStudent(items.getJSONObject(i))
             student.copy(
-                university = me?.universityName.orEmpty(),
                 // The data layer computes what you have in common; the UI never guesses it.
                 shared = student.interests.filter { it in mine },
                 sameCourse = student.course.isNotBlank() && student.course == me?.course,

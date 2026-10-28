@@ -1,5 +1,7 @@
 package com.univibe.app.features.search
 
+import com.univibe.app.data.campus.CampusScopeStore
+import kotlinx.coroutines.flow.drop
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -50,6 +52,13 @@ class SearchViewModel(
         viewModelScope.launch {
             // Wait for a pause in typing, skip repeats, and drop a slow answer the moment a newer query starts.
             queries.debounce(debounceMs).map { it.trim() }.distinctUntilChanged().collectLatest { run(it) }
+        }
+        // The campus filter changed: search the same words again across the newly chosen campuses.
+        viewModelScope.launch {
+            CampusScopeStore.scope.drop(1).collect {
+                val q = queries.value.trim()
+                if (q.length >= MIN_SEARCH_LENGTH) run(q)
+            }
         }
     }
 

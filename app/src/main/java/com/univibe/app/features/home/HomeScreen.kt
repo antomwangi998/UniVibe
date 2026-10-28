@@ -1,5 +1,6 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.ui.components.CampusScopeBar
 import com.univibe.app.ui.components.SuggestedPeopleCarousel
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIconButton
@@ -238,6 +239,7 @@ fun HomeScreen(
                     )
                 }
             }
+            item(key = "campusScope") { CampusScopeBar(Modifier.padding(bottom = Spacing.xs)) }
             item(key = "toolbar") {
                 Column {
                     FeedToolbar(state.filter, onOpenFilters = { showFilters = true })
@@ -252,7 +254,7 @@ fun HomeScreen(
                         EmptyState(
                             icon = VibeIcons.Feed,
                             title = "Nothing here yet",
-                            message = "Follow more students and communities to fill your feed.",
+                            message = if (com.univibe.app.data.campus.CampusScopeStore.menu.value?.others?.isNotEmpty() == true) "Follow more students and communities, or switch to All campuses above to see what others are posting." else "Follow more students and communities to fill your feed.",
                         )
                     }
                 }

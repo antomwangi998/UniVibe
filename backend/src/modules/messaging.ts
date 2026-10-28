@@ -188,8 +188,8 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
           where m.conversation_id = $1 and m.user_id <> $3`, [conversationId, me.universityId, me.id])).rows[0];
       const blocked = other && (await client.query(`select ${blockedBetween('$1::uuid', '$2::uuid')} as b`, [me.id, other.id])).rows[0].b;
       const follows = other && (await client.query(`select ${acceptedFollow('$1::uuid', '$2::uuid')} as f`, [me.id, other.id])).rows[0].f;
-      const denied = !other || blocked || other.suspended || !other.same_uni || other.permission === 'nobody'
-        || (other.permission === 'followers' && !follows);
+      const denied = !other || blocked || other.suspended || other.permission === 'nobody'
+        || ((other.permission === 'followers' || !other.same_uni) && !follows);
       // One generic answer, so a sender cannot tell a block from a privacy setting.
       if (denied) throw new HttpError(403, 'cannot_message', 'You cannot message this person.');
     }
@@ -316,10 +316,11 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
     const param = (req: FastifyRequest, name = 'id') => idParam((req.params as Record<string, string>)[name]);
 
     /** Of the requested people, those the creator may actually involve. Everyone else is skipped without saying why. */
-    async function eligibleUsers(me: AuthUser, ids: string[]): Promise<string[]> {
+    async function eligibleUsers(me: AuthUser, ids: string[], acrossCampuses = false): Promise<string[]> {
+      // Groups stay inside one campus. A 1:1 chat may cross campuses (checked again below: it needs a follow first).
       const { rows } = await pool.query<{ id: string }>(
-        `select u.id from users u where u.id = any($3::uuid[]) and u.id <> $1 and u.university_id = $2 and ${notSuspended('u')}
-            and not ${blockedBetween('$1', 'u.id')}`, [me.id, me.universityId, [...new Set(ids)]]);
+        `select u.id from users u where u.id = any($3::uuid[]) and u.id <> $1 and (u.university_id = $2 or ($4::boolean and coalesce((select xps.show_other_campuses from privacy_settings xps where xps.user_id = u.id), true))) and ${notSuspended('u')}
+            and not ${blockedBetween('$1', 'u.id')}`, [me.id, me.universityId, [...new Set(ids)], acrossCampuses]);
       return rows.map((r) => r.id);
     }
 
@@ -328,12 +329,13 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       const b = createSchema.parse(req.body ?? {});
       if (b.type === 'direct') {
         ctx.limit(`conv:${me.id}`, 30, 3600);
-        const [other] = await eligibleUsers(me, [b.userId]);
+        const [other] = await eligibleUsers(me, [b.userId], true);
         if (!other) throw new HttpError(404, 'not_found', 'Not found.');
         const perm = (await pool.query(
-          `select coalesce(ps.message_permission, 'everyone') as p, ${acceptedFollow('$2::uuid', '$1::uuid')} as follows
-             from users u left join privacy_settings ps on ps.user_id = u.id where u.id = $1`, [other, me.id])).rows[0];
-        if (perm.p === 'nobody' || (perm.p === 'followers' && !perm.follows)) throw new HttpError(403, 'cannot_message', 'You cannot message this person.');
+          `select coalesce(ps.message_permission, 'everyone') as p, ${acceptedFollow('$2::uuid', '$1::uuid')} as follows, u.university_id <> $3 as other_campus
+             from users u left join privacy_settings ps on ps.user_id = u.id where u.id = $1`, [other, me.id, me.universityId])).rows[0];
+        // Another campus: you must follow them first, so a stranger cannot cold-message across campuses.
+        if (perm.p === 'nobody' || ((perm.p === 'followers' || perm.other_campus) && !perm.follows)) throw new HttpError(403, 'cannot_message', 'You cannot message this person.');
         const key = [me.id, other].sort().join(':');
         const result = await withTx(pool, async (client) => {
           const made = await client.query<{ id: string }>(

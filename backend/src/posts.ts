@@ -1,6 +1,6 @@
 import { pollSchema, pollView } from './polls';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { blockedBetween, notSuspended } from './access';
+import { ALL_CAMPUSES, blockedBetween, notSuspended, resolveScope } from './access';
 import { enqueue } from './jobs';
 import { notify, retract } from './modules/notify';
 import { assertMayPostInCommunity, joinState } from './modules/community_state';
@@ -20,7 +20,7 @@ const text = z.string().trim().min(1, 'Write something first.').max(TEXT_MAX, `K
 const maybeText = z.string().trim().max(TEXT_MAX, `Keep it under ${TEXT_MAX} characters.`);
 const createSchema = z.object({
   text: maybeText.default(''),
-  audience: z.enum(['campus', 'followers']).default('campus'),
+  audience: z.enum(['campus', 'followers', 'all']).default('campus'),
   /** Publish into a community instead of the personal feed. Membership and posting rights are checked on the server. */
   communityId: z.string().uuid().optional(),
   /** Moderators only: an announcement notifies members (subject to their settings) and is flagged in the feed. */
@@ -40,6 +40,11 @@ const feedQuery = z.object({
   before: z.string().uuid().optional(),
   /** Only this student's posts (a profile). The usual visibility rules still apply. */
   author: z.string().uuid().optional(),
+  /**
+   * How far the feed reaches. Left out or `home`: this university plus people you follow. `all`: every campus.
+   * Any other value: that one university's id. Ignored on a profile (`author`), which always shows what you may see.
+   */
+  campusScope: z.string().trim().min(1).max(64).optional(),
 });
 const savedQuery = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
@@ -59,7 +64,7 @@ export const visible = (p: string, author: string) =>
   `and (${p}.shared_event_id is null or exists (select 1 from events ps where ps.id = ${p}.shared_event_id and ${eventVisible('$1', '$2', 'ps')})) and (` +
   // Personal-feed posts: unchanged rules.
   `(${p}.audience <> 'community' and (${p}.author_id = $1 or (` +
-  `((${p}.audience = 'campus' and ${author}.university_id = $2) or ` +
+  `((${p}.audience = 'campus' and ${author}.university_id = $2) or ${p}.audience = 'all' or ` +
   `(${p}.audience = 'followers' and exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = ${p}.author_id))) ` +
   `and ${notSuspended(author)} and not ${blockedBetween('$1', `${p}.author_id`)}))) or ` +
   // Community posts: the community must be live and readable by the viewer. Authorship alone is not enough, so a
@@ -267,7 +272,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
   // ---- reading
   app.get('/posts', async (req) => {
     const user = await ctx.requireUser(req);
-    const { filter, limit, before, author } = feedQuery.parse(req.query ?? {});
+    const { filter, limit, before, author, campusScope } = feedQuery.parse(req.query ?? {});
     const following =
       filter === 'following'
         ? 'and exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = p.author_id)'
@@ -283,6 +288,18 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
       if (!anchor.rows[0]) throw new HttpError(404, 'not_found', 'That page of the feed is no longer available.');
       params.push(before);
       older += `and (p.created_at, p.id) < (select c.created_at, c.id from posts c where c.id = $${params.length})`;
+    }
+    // Campus bridge: Home is your own campus plus the people you follow (a friend from another campus stays visible);
+    // `all` removes the limit; a university id shows just that campus.
+    let scopeGate = '';
+    if (!author) {
+      const scope = resolveScope(campusScope, user.university_id);
+      if (campusScope === undefined || campusScope === 'home') {
+        scopeGate = 'and (a.university_id = $2 or exists (select 1 from follows hf0 where hf0.follower_id = $1 and hf0.followee_id = p.author_id)) ';
+      } else if (scope !== ALL_CAMPUSES) {
+        params.push(scope);
+        scopeGate = `and a.university_id = $${params.length} `;
+      }
     }
     // Home never fans out every community post to everyone: only communities the viewer joined and has not muted.
     // (Public community posts reach non-members through Discover and community pages, not Home.)
@@ -305,7 +322,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
         "or exists (select 1 from saved_events es where es.event_id = p.event_id and es.user_id = $1)))) ";
     params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
-      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${communityGate} ${eventGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
+      `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${scopeGate} ${communityGate} ${eventGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
       params,
     );
     return present(rows, user);
@@ -485,7 +502,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     const id = paramId(req);
     ctx.tooMany(`share:${user.id}`, 120, 3600);
     const post = await visiblePost(user, id);
-    if (post.audience !== 'campus') throw new HttpError(403, 'forbidden', 'Only campus-wide posts can be shared.');
+    if (post.audience !== 'campus' && post.audience !== 'all') throw new HttpError(403, 'forbidden', 'Only campus-wide posts can be shared.');
     await pool.query('update posts set share_count = share_count + 1 where id = $1', [id]);
     return reply.status(204).send();
   });

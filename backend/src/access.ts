@@ -19,7 +19,33 @@ export const acceptedFollow = (follower: string, following: string) =>
 export const notSuspended = (userAlias: string) =>
   `((${userAlias}.suspended_until is null or ${userAlias}.suspended_until <= now()) and ${userAlias}.deactivated_at is null)`;
 
-/** A user row (alias `alias`) the viewer may see: same university, verified, not blocked, not suspended. */
+/**
+ * Campus bridge. A "scope" says how far a list reaches: `home` (the viewer's own university), `all` (every
+ * university) or one university id. Routes turn the raw query value into a single string with [resolveScope] and
+ * filter with [inScope]; `*` means "every university".
+ */
+export const ALL_CAMPUSES = '*';
+
+export function resolveScope(raw: string | undefined, homeUniversityId: string, fallback: 'home' | 'all' = 'home'): string {
+  const v = raw ?? fallback;
+  if (v === 'home') return homeUniversityId;
+  if (v === 'all') return ALL_CAMPUSES;
+  return v;
+}
+
+/** The author/owner row (alias) belongs to the university the scope names. `ref` is a placeholder holding the resolved scope. */
+export const inScope = (alias: string, ref: string) => `(${ref}::text = '*' or ${alias}.university_id = ${ref}::text)`;
+
+/** A person of another university may be found only when they have not opted out (default: found). Same university always passes. */
+export const crossCampusOk = (alias: string, viewerUni: string) =>
+  `(${alias}.university_id = ${viewerUni} or coalesce((select xps.show_other_campuses from privacy_settings xps where xps.user_id = ${alias}.id), true))`;
+
+/** A user row (alias `alias`) the viewer may see: verified, not blocked, not suspended, and from this university or an open campus. */
 export function userVisible(alias: string, viewer: string, viewerUni: string): string {
+  return `(${alias}.id = ${viewer} or (${crossCampusOk(alias, viewerUni)} and ${alias}.email_verified_at is not null and ${notSuspended(alias)} and not ${blockedBetween(viewer, `${alias}.id`)}))`;
+}
+
+/** The stricter, same-university-only rule, for places that stay inside one campus (community invites). */
+export function userVisibleHome(alias: string, viewer: string, viewerUni: string): string {
   return `(${alias}.id = ${viewer} or (${alias}.university_id = ${viewerUni} and ${alias}.email_verified_at is not null and ${notSuspended(alias)} and not ${blockedBetween(viewer, `${alias}.id`)}))`;
 }

@@ -92,7 +92,10 @@ class VerifyEmailViewModel(
         }
     }
 
-    fun logOut() { viewModelScope.launch { repository.logOut() } }
+    fun logOut() {
+        com.univibe.app.data.campus.CampusScopeStore.reset()
+        viewModelScope.launch { repository.logOut() }
+    }
 
     private fun refreshDevHint() {
         if (!BuildConfig.DEBUG) return

@@ -33,7 +33,7 @@ export function joinState(i: JoinInput): JoinState {
  * ACTIVE communities. Private, archived and suspended community posts never qualify. Callers still apply `visible()`.
  */
 export const discoverAudience = (p = 'p') =>
-  `(${p}.audience = 'campus' or (${p}.audience = 'community' and exists ` +
+  `(${p}.audience in ('campus', 'all') or (${p}.audience = 'community' and exists ` +
   `(select 1 from communities dc where dc.id = ${p}.community_id and dc.visibility = 'public' and dc.status = 'active')))`;
 
 /** Hides posts from communities this viewer muted. $1 = viewer. */

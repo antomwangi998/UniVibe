@@ -1,5 +1,7 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.data.campus.CampusScopeStore
+import kotlinx.coroutines.flow.drop
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -40,7 +42,11 @@ class DiscoverViewModel(
     private val _state = MutableStateFlow(DiscoverUiState())
     val state: StateFlow<DiscoverUiState> = _state.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        // The campus filter changed: deal a fresh deck from the chosen campuses.
+        viewModelScope.launch { CampusScopeStore.scope.drop(1).collect { load() } }
+    }
 
     fun load() {
         viewModelScope.launch {

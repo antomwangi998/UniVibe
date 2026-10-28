@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.campus.withCampusScope
 import android.content.Context
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.Student
@@ -32,7 +33,7 @@ interface SearchRepository {
 
 class RemoteSearchRepository(private val api: AuthedApi) : SearchRepository {
     override suspend fun search(query: String): SearchOverview {
-        val o = JSONObject(api.send("GET", "/api/v1/search?q=${URLEncoder.encode(query.trim(), "UTF-8")}"))
+        val o = JSONObject(api.send("GET", "/api/v1/search?q=${URLEncoder.encode(query.trim(), "UTF-8")}".withCampusScope()))
         val users = o.getJSONArray("users")
         val posts = o.getJSONArray("posts")
         val events = o.getJSONArray("events")

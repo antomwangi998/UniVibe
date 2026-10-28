@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
-import { blockedBetween, userVisible } from '../access';
+import { blockedBetween, userVisible, userVisibleHome } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { withTx } from '../db';
 import { HttpError } from '../errors';
@@ -490,7 +490,7 @@ export function communityRoutes(ctx: Ctx, hub: Hub) {
         if (c.status !== 'active') throw new HttpError(409, 'community_unavailable', 'This community is not accepting members.');
         if (!isStaff(c.my_role) && c.invite_permission !== 'members') throw new HttpError(403, 'forbidden', 'Only moderators can invite people to this community.');
         // The invitee must be someone the inviter may see; anything else looks like "no such person".
-        const target = await client.query<{ id: string }>(`select u.id from users u where u.id = $3 and u.id <> $1 and ${userVisible('u', '$1', '$2')}`, [me.id, me.universityId, userId]);
+        const target = await client.query<{ id: string }>(`select u.id from users u where u.id = $3 and u.id <> $1 and ${userVisibleHome('u', '$1', '$2')}`, [me.id, me.universityId, userId]);
         if (!target.rows[0]) throw new HttpError(404, 'not_found', 'Person not found.');
         const already = await client.query('select 1 from community_members where community_id = $1 and user_id = $2', [id, userId]);
         if (already.rowCount) throw new HttpError(409, 'already_member', 'That person is already a member.');

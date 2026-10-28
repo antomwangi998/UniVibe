@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Ctx } from './context';
 import { communityRoutes } from './modules/communities';
 import { communityChannelRoutes } from './modules/community_channels';
+import { campusScopeRoutes } from './modules/campus_scopes';
 import { discoverRoutes } from './modules/discover';
 import { discoverFeedRoutes } from './modules/discover_feed';
 import { discoverEventRoutes } from './modules/discover_events';
@@ -32,6 +33,7 @@ import { Hub } from './realtime';
 export function apiV1(ctx: Ctx, hub: Hub = new Hub()) {
   return async (app: FastifyInstance) => {
     await app.register(privacyRoutes(ctx));
+    await app.register(campusScopeRoutes(ctx));
     await app.register(discoverRoutes(ctx));
     await app.register(discoverFeedRoutes(ctx));
     await app.register(discoverEventRoutes(ctx));

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
-import { blockedBetween } from '../access';
+import { ALL_CAMPUSES, blockedBetween, resolveScope } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { withTx } from '../db';
 import { HttpError } from '../errors';
@@ -65,6 +65,8 @@ const listSchema = pageSchema.extend({
   from: when.optional(), to: when.optional(),
   q: z.string().trim().min(1).max(80).optional(),
   communityId: z.string().uuid().optional(),
+  // Campus bridge: `home`, `all` or one university id. Left out: everything the viewer may see.
+  campusScope: z.string().trim().min(1).max(64).optional(),
 });
 
 type Req = FastifyRequest;
@@ -135,7 +137,7 @@ async function audit(client: Q, eventId: string, actorId: string, action: 'creat
 }
 
 export const EVENT_SELECT = `
-  select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key, ecamp.name as campus_name,
+  select e.*, ${tsText('e.starts_at')} as "cursorT", ${cardColumns('o')}, cv.object_key as cover_key, ecamp.name as campus_name, euni.name as university_name, coalesce(euni.short_name, euni.name) as university_short,
          case when ec.visibility = 'public' or exists (select 1 from community_members vm where vm.community_id = ec.id and vm.user_id = $1 and vm.status = 'active') then ec.name end as community_name,
          (select count(*) from event_registrations r where r.event_id = e.id and r.status = 'registered') as registered_count,
          (select count(*) from event_interest i where i.event_id = e.id) as interested_count,
@@ -147,7 +149,8 @@ export const EVENT_SELECT = `
     from events e join users o on o.id = e.organizer_id ${cardJoin('o')}
     left join media cv on cv.id = e.cover_media_id and cv.status = 'ready'
     left join communities ec on ec.id = e.community_id and ec.status <> 'deleted'
-    left join campuses ecamp on ecamp.id = e.campus_id`;
+    left join campuses ecamp on ecamp.id = e.campus_id
+    left join universities euni on euni.id = e.university_id`;
 
 
 /**
@@ -182,6 +185,8 @@ export async function toEventView(ctx: Pick<Ctx, 'storage'>, meId: string, r: Re
     visibility: r.visibility, attendeesVisible: r.attendees_visible, status: r.status, ...deriveEventState(r, registered),
     communityId: r.community_name ? r.community_id : null, communityName: r.community_name ?? null,
     campusId: r.campus_id ?? null, campusName: r.campus_name ?? null,
+    // Which university hosts it, so events from other campuses are labelled.
+    universityId: r.university_id ?? null, universityName: r.university_name ?? null, universityShortName: r.university_short ?? null,
     coverUrl: await signedUrl(ctx, r.cover_key as string | null),
     myRegistration: joined ? (r.my_checked_in ? 'checked_in' : 'registered') : null,
     interestedCount: Number(r.interested_count),
@@ -411,8 +416,10 @@ export function eventRoutes(ctx: Ctx, hub: Hub) {
             and ($6::text is null or e.title ilike '%' || $6 || '%' or e.venue_name ilike '%' || $6 || '%')
             and ($7::timestamptz is null or (e.starts_at, e.id) ${upcoming ? '>' : '<'} ($7::timestamptz, $8::uuid))
             and ($9::uuid is null or e.community_id = $9)
+            and ($11::text = '*' or e.university_id = $11::text)
           order by e.starts_at ${upcoming ? 'asc' : 'desc'}, e.id ${upcoming ? 'asc' : 'desc'} limit $10`,
-        [me.id, me.universityId, q.category ?? null, q.from ?? null, q.to ?? null, q.q ? q.q.replace(/[%_\\]/g, '\\$&') : null, cur?.t ?? null, cur?.id ?? null, q.communityId ?? null, q.limit + 1],
+        [me.id, me.universityId, q.category ?? null, q.from ?? null, q.to ?? null, q.q ? q.q.replace(/[%_\\]/g, '\\$&') : null, cur?.t ?? null, cur?.id ?? null, q.communityId ?? null, q.limit + 1,
+          q.campusScope ? resolveScope(q.campusScope, me.universityId) : ALL_CAMPUSES],
       );
       const page = toPage(rows as (Record<string, unknown> & { cursorT: string; id: string })[], q.limit);
       return { items: await Promise.all(page.items.map((r) => toView(me, r as Record<string, unknown>))), nextCursor: page.nextCursor };

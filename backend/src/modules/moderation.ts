@@ -95,10 +95,19 @@ export function moderationRoutes(ctx: Ctx) {
       const b = reportSchema.parse(req.body ?? {});
       ctx.limit(`report:${me.id}`, 20, 3600);
       await assertReportable(me, b.targetType, b.targetId);
+      // Content can now cross campuses, so the report goes to the moderators of the campus that owns it, not the reporter's.
+      let reportUniversity = me.universityId;
+      if (['user', 'post', 'comment', 'event', 'story'].includes(b.targetType)) {
+        const owner = await ownerOf(pool as unknown as Q, b.targetType, b.targetId);
+        if (owner) {
+          const ownerUni = (await pool.query<{ university_id: string }>('select university_id from users where id = $1', [owner])).rows[0]?.university_id;
+          if (ownerUni) reportUniversity = ownerUni;
+        }
+      }
       const made = await pool.query<{ id: string }>(
         `insert into reports (reporter_id, university_id, target_type, target_id, reason, details) values ($1, $2, $3, $4, $5, $6)
          on conflict (reporter_id, target_type, target_id) where reporter_id is not null do nothing returning id`,
-        [me.id, me.universityId, b.targetType, b.targetId, b.reason, b.details],
+        [me.id, reportUniversity, b.targetType, b.targetId, b.reason, b.details],
       );
       if (made.rowCount) return reply.status(201).send({ id: made.rows[0].id });
       // Already reported by this person: same answer, nothing new created, nothing revealed.

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { blockedBetween, notSuspended } from '../access';
+import { blockedBetween, crossCampusOk, inScope, notSuspended, resolveScope } from '../access';
 import type { AuthUser, Ctx } from '../context';
 import { HttpError } from '../errors';
 import { decodeCursor, tsText } from '../http';
@@ -30,6 +30,8 @@ const normalizeTag = (raw: string) => raw.trim().replace(/^#/, '').toLowerCase()
 const tagSchema = z.string().transform(normalizeTag).refine((t) => tagRe.test(t), 'Not a valid topic.');
 
 const limitSchema = z.coerce.number().int().min(1).max(30).default(15);
+/** `home` (default), `all`, or one university id; see `resolveScope`. */
+const campusScopeSchema = z.string().trim().min(1).max(64).optional();
 const scoredCursor = z.object({ s: z.string().regex(/^-?\d{1,6}(\.\d{1,9})?$/), id: z.string().uuid(), a: z.string().refine((v) => !Number.isNaN(Date.parse(v))) });
 type ScoredCursor = z.infer<typeof scoredCursor>;
 
@@ -66,7 +68,7 @@ const candidateSql = (personal: boolean, audienceOnlyCampus = true) => `
     followed, interest_match,
     round((((0.6 * (ln(1 + likers) + 1.5 * ln(1 + commenters) + 0.3 * ln(1 + least(p.share_count, 20)))
         + (ln(1 + recent_likes) + 1.5 * ln(1 + recent_commenters)) + 0.4
-        ${personal ? '+ (case when followed then 0.5 else 0 end) + (case when interest_match then 0.4 else 0 end)' : ''})
+        ${personal ? '+ (case when followed then 0.5 else 0 end) + (case when interest_match then 0.4 else 0 end) + (case when a.university_id = $2 then 0.3 else 0 end)' : ''})
       / power(1 + extract(epoch from ($3::timestamptz - p.created_at)) / 3600.0 / 12.0, 1.2)
       / (1 + reports)))::numeric, 9) as score
   from posts p join users a on a.id = p.author_id
@@ -79,7 +81,7 @@ const candidateSql = (personal: boolean, audienceOnlyCampus = true) => `
       exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = p.author_id) as followed,
       exists (select 1 from users me, unnest(me.interests) i where me.id = $1 and length(i) >= 2 and position(lower(i) in lower(p.text)) > 0) as interest_match
   ) sig
-  where ${visible('p', 'a')} ${audienceOnlyCampus ? `and ${discoverAudience('p')}` : ''}
+  where ${visible('p', 'a')} and ${inScope('a', '$8')} ${audienceOnlyCampus ? `and ${discoverAudience('p')}` : ''}
     and p.created_at <= $3 and p.created_at > $3::timestamptz - make_interval(hours => $4::int)
     and ${NOT_HIDDEN}`;
 
@@ -141,7 +143,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
     app.get('/discover/feed', async (req) => {
       const me = await ctx.auth(req);
       ctx.limit(`discover-feed:${me.id}`, 240, 600);
-      const q = z.object({ limit: limitSchema, cursor: z.string().max(400).optional() }).parse(req.query);
+      const q = z.object({ limit: limitSchema, cursor: z.string().max(400).optional(), campusScope: campusScopeSchema }).parse(req.query);
       const cur = readScoredCursor(q.cursor);
       const asOf = cur?.a ?? new Date().toISOString();
       const { rows } = await pool.query(
@@ -151,7 +153,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
            from ranked
           where rn <= ${PER_AUTHOR_FEED} and ($5::numeric is null or (score, id) < ($5::numeric, $6::uuid))
           order by score desc, id desc limit $7`,
-        [me.id, me.universityId, asOf, FEED_WINDOW_HOURS, cur?.s ?? null, cur?.id ?? null, q.limit + 1],
+        [me.id, me.universityId, asOf, FEED_WINDOW_HOURS, cur?.s ?? null, cur?.id ?? null, q.limit + 1, resolveScope(q.campusScope, me.universityId)],
       );
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
@@ -163,13 +165,14 @@ export function discoverFeedRoutes(ctx: Ctx) {
       };
     });
 
-    // ---- Trending: one shared, short-lived ranking per university; each student's own filters are applied on top
+    // ---- Trending: one shared, short-lived ranking per campus scope; each student's own filters are applied on top
     app.get('/discover/trending', async (req) => {
       const me = await ctx.auth(req);
       ctx.limit(`discover-trending:${me.id}`, 240, 600);
-      const q = z.object({ window: z.enum(['24h', '7d']).default('24h'), limit: limitSchema, cursor: z.string().max(400).optional() }).parse(req.query);
+      const q = z.object({ window: z.enum(['24h', '7d']).default('24h'), limit: limitSchema, cursor: z.string().max(400).optional(), campusScope: campusScopeSchema }).parse(req.query);
       const cur = readScoredCursor(q.cursor);
-      const key = `${me.universityId}|${q.window}`;
+      const scope = resolveScope(q.campusScope, me.universityId);
+      const key = `${scope}|${q.window}`;
       let list = trendingCache.get(key);
       if (!list) {
         // Viewer-independent: this university's active campus posts. No blocks, feedback or private audiences here;
@@ -189,12 +192,12 @@ export function discoverFeedRoutes(ctx: Ctx) {
                 (select count(*) from post_likes l where l.post_id = p.id and l.created_at <= $3 and l.created_at > $3::timestamptz - interval '6 hours' and l.user_id <> p.author_id) as recent_likes,
                 (select count(distinct c.author_id) from comments c where c.post_id = p.id and c.status = 'active' and c.created_at <= $3 and c.created_at > $3::timestamptz - interval '6 hours' and c.author_id <> p.author_id) as recent_commenters,
                 (select count(*) from post_reports r where r.post_id = p.id) as reports) sig
-            where $1::uuid is not null and p.status = 'active' and ${discoverAudience('p')} and a.university_id = $2 and ${notSuspended('a')}
+            where $1::uuid is not null and p.status = 'active' and ${discoverAudience('p')} and ${inScope('a', '$2')} and ${notSuspended('a')}
               and p.created_at <= $3 and p.created_at > $3::timestamptz - make_interval(hours => $4::int))
            select id, author_id, score::text as score from cand
             where likers + commenters >= ${TRENDING_MIN_PEOPLE}
             order by score desc, id desc limit ${TRENDING_LIST_SIZE}`,
-          [me.id, me.universityId, asOf, WINDOWS[q.window]], // $1 is unused by the ranking: the list is the same for everyone
+          [me.id, scope, asOf, WINDOWS[q.window]], // $2 is the resolved campus scope; $1 is unused by the ranking: the list is the same for everyone
         );
         list = { asOf, refs: rows };
         trendingCache.set(key, list, CACHE_SECONDS);
@@ -226,16 +229,16 @@ export function discoverFeedRoutes(ctx: Ctx) {
       app.get(`/discover/${path}`, async (req) => {
         const me = await ctx.auth(req);
         ctx.limit(`discover-${path}:${me.id}`, 240, 600);
-        const q = z.object({ limit: limitSchema, cursor: z.string().max(300).optional() }).parse(req.query);
+        const q = z.object({ limit: limitSchema, cursor: z.string().max(300).optional(), campusScope: campusScopeSchema }).parse(req.query);
         const cur = decodeCursor(q.cursor);
         const { rows } = await pool.query<{ id: string; cursorT: string }>(
           `select p.id, ${tsText('p.created_at')} as "cursorT"
              from posts p join users a on a.id = p.author_id
-            where ${visible('p', 'a')} and ${discoverAudience('p')} and p.author_id <> $1 and ${NOT_HIDDEN}
+            where ${visible('p', 'a')} and ${discoverAudience('p')} and ${inScope('a', '$7')} and p.author_id <> $1 and ${NOT_HIDDEN}
               and exists (select 1 from media m where m.post_id = p.id and m.status = 'ready' and m.kind = $3)
               and ($4::timestamptz is null or (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
             order by p.created_at desc, p.id desc limit $6`,
-          [me.id, me.universityId, kind, cur?.t ?? null, cur?.id ?? null, q.limit + 1],
+          [me.id, me.universityId, kind, cur?.t ?? null, cur?.id ?? null, q.limit + 1, resolveScope(q.campusScope, me.universityId)],
         );
         const more = rows.length > q.limit;
         const page = more ? rows.slice(0, q.limit) : rows;
@@ -251,19 +254,20 @@ export function discoverFeedRoutes(ctx: Ctx) {
     app.get('/discover/topics', async (req) => {
       const me = await ctx.auth(req);
       ctx.limit(`discover-topics:${me.id}`, 120, 600);
-      const q = z.object({ window: z.enum(['24h', '7d']).default('7d'), limit: z.coerce.number().int().min(1).max(50).default(30) }).parse(req.query);
-      const key = `${me.universityId}|${q.window}`;
+      const q = z.object({ window: z.enum(['24h', '7d']).default('7d'), limit: z.coerce.number().int().min(1).max(50).default(30), campusScope: campusScopeSchema }).parse(req.query);
+      const scope = resolveScope(q.campusScope, me.universityId);
+      const key = `${scope}|${q.window}`;
       let topics = topicCache.get(key);
       if (!topics) {
         const { rows } = await pool.query<{ tag: string; posts: string; authors: string }>(
           `select m[1] as tag, count(distinct p.id) as posts, count(distinct p.author_id) as authors
              from posts p join users a on a.id = p.author_id,
                   lateral regexp_matches(lower(p.text), '(?:^|[^a-z0-9_])#([a-z0-9_]{2,30})', 'g') as m
-            where p.status = 'active' and ${discoverAudience('p')} and a.university_id = $1 and ${notSuspended('a')}
+            where p.status = 'active' and ${discoverAudience('p')} and ${inScope('a', '$1')} and ${notSuspended('a')}
               and p.created_at > now() - make_interval(hours => $2::int)
             group by m[1] having count(distinct p.author_id) >= ${TOPIC_MIN_AUTHORS}
             order by count(distinct p.author_id) * 2 + count(distinct p.id) desc, m[1] limit 100`,
-          [me.universityId, WINDOWS[q.window]],
+          [scope, WINDOWS[q.window]],
         );
         topics = rows.map((r) => ({ tag: r.tag, posts: Number(r.posts), authors: Number(r.authors) }));
         topicCache.set(key, topics, TOPIC_CACHE_SECONDS);
@@ -278,17 +282,17 @@ export function discoverFeedRoutes(ctx: Ctx) {
       ctx.limit(`discover-topic:${me.id}`, 240, 600);
       const tag = tagSchema.safeParse((req.params as { tag: string }).tag);
       if (!tag.success) throw new HttpError(404, 'not_found', 'Not found.');
-      const q = z.object({ limit: limitSchema, cursor: z.string().max(300).optional() }).parse(req.query);
+      const q = z.object({ limit: limitSchema, cursor: z.string().max(300).optional(), campusScope: campusScopeSchema }).parse(req.query);
       const cur = decodeCursor(q.cursor);
       const { rows } = await pool.query<{ id: string; cursorT: string }>(
         `select p.id, ${tsText('p.created_at')} as "cursorT"
            from posts p join users a on a.id = p.author_id
-          where ${visible('p', 'a')} and ${discoverAudience('p')} and (p.audience <> 'community' or ${communityNotMuted('p')})
+          where ${visible('p', 'a')} and ${discoverAudience('p')} and ${inScope('a', '$7')} and (p.audience <> 'community' or ${communityNotMuted('p')})
             and not exists (select 1 from discover_feedback f where f.user_id = $1 and ((f.kind = 'not_interested' and f.post_id = p.id) or (f.kind = 'hide_author' and f.author_id = p.author_id)))
             and lower(p.text) ~ ('(^|[^a-z0-9_])#' || $3::text || '($|[^a-z0-9_])')
             and ($4::timestamptz is null or (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
           order by p.created_at desc, p.id desc limit $6`,
-        [me.id, me.universityId, tag.data, cur?.t ?? null, cur?.id ?? null, q.limit + 1],
+        [me.id, me.universityId, tag.data, cur?.t ?? null, cur?.id ?? null, q.limit + 1, resolveScope(q.campusScope, me.universityId)],
       );
       const more = rows.length > q.limit;
       const page = more ? rows.slice(0, q.limit) : rows;
@@ -311,7 +315,7 @@ export function discoverFeedRoutes(ctx: Ctx) {
         await pool.query("insert into discover_feedback (user_id, kind, post_id) values ($1, 'not_interested', $2) on conflict do nothing", [me.id, b.postId]);
       } else if (b.kind === 'hide_author') {
         if (b.authorId === me.id) throw new HttpError(400, 'invalid_request', 'You cannot hide yourself.');
-        const ok = await pool.query(`select 1 from users u where u.id = $3 and u.university_id = $2 and not ${blockedBetween('$1', 'u.id')}`, [me.id, me.universityId, b.authorId]);
+        const ok = await pool.query(`select 1 from users u where u.id = $3 and ${crossCampusOk('u', '$2')} and not ${blockedBetween('$1', 'u.id')}`, [me.id, me.universityId, b.authorId]);
         if (!ok.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
         await pool.query("insert into discover_feedback (user_id, kind, author_id) values ($1, 'hide_author', $2) on conflict do nothing", [me.id, b.authorId]);
       } else {

@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.campus.withCampusScope
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.net.AuthedApi
@@ -50,7 +51,7 @@ class RemoteDiscoverContentRepository(private val api: AuthedApi) : DiscoverCont
     private fun cursorQuery(cursor: String?) = if (cursor == null) "" else "&cursor=$cursor"
 
     private suspend fun page(path: String): DiscoverPage {
-        val body = JSONObject(api.send("GET", path))
+        val body = JSONObject(api.send("GET", path.withCampusScope()))
         val items = body.getJSONArray("items")
         val posts = (0 until items.length()).map { i ->
             val o = items.getJSONObject(i)
@@ -68,7 +69,7 @@ class RemoteDiscoverContentRepository(private val api: AuthedApi) : DiscoverCont
     override suspend fun topicPosts(tag: String, cursor: String?) = page("/api/v1/discover/topics/$tag?limit=15${cursorQuery(cursor)}")
 
     override suspend fun topics(): List<DiscoverTopic> {
-        val items = JSONObject(api.send("GET", "/api/v1/discover/topics")).getJSONArray("items")
+        val items = JSONObject(api.send("GET", "/api/v1/discover/topics".withCampusScope())).getJSONArray("items")
         return (0 until items.length()).map { i ->
             val o = items.getJSONObject(i)
             DiscoverTopic(o.getString("tag"), o.optInt("posts"), o.optInt("authors"))

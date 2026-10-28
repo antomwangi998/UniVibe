@@ -67,6 +67,8 @@ data class EventFormUiState(
     val campuses: List<Campus> = emptyList(),
     val campusId: String? = null,
     val allCampuses: Boolean = false,
+    /** Open to students from other universities. */
+    val openToOtherCampuses: Boolean = false,
 ) {
     /** What the cover preview shows: the new photo, else the current one unless it was removed. */
     val coverShown: String? get() = coverPath ?: coverUrl.takeUnless { removeCover }
@@ -123,6 +125,7 @@ class EventFormViewModel(
                         venueName = e.location, venueLat = d.latitude, venueLng = d.longitude, customVenue = known == null && d.latitude == null,
                         limitPlaces = d.capacity != null, capacityText = d.capacity?.toString().orEmpty(),
                         coverUrl = e.coverUrl, isDraft = e.draft, campusId = e.campusId, allCampuses = e.campusId == null && it.campuses.isNotEmpty(),
+                        openToOtherCampuses = e.openToOtherCampuses,
                     )
                 }
             }
@@ -142,6 +145,7 @@ class EventFormViewModel(
     fun setHost(id: String?) = _state.update { it.copy(hostCommunityId = id) }
     fun setCampus(id: String) = _state.update { it.copy(campusId = id, allCampuses = false) }
     fun setAllCampuses() = _state.update { it.copy(campusId = null, allCampuses = true) }
+    fun setOpenToOtherCampuses(on: Boolean) = _state.update { it.copy(openToOtherCampuses = on) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
     fun setCover(path: String) = _state.update { it.copy(coverPath = path, removeCover = false) }
     fun removeCover() = _state.update { it.copy(coverPath = null, removeCover = true) }
@@ -178,6 +182,7 @@ class EventFormViewModel(
                     registrationDeadlineMillis = s.deadlineMillis.takeIf { s.hasDeadline }, timezone = ZoneId.systemDefault().id,
                     coverPath = s.coverPath, removeCover = s.removeCover, asDraft = asDraft,
                     campusId = s.campusId.takeIf { s.campuses.isNotEmpty() }, allCampuses = s.allCampuses && s.campuses.isNotEmpty(),
+                    openToOtherCampuses = s.openToOtherCampuses,
                 )
                 val id = if (editId != null) { repository.updateEvent(editId, draft); editId } else repository.createEvent(draft)
                 _state.update { it.copy(submitting = false, doneId = id) }

@@ -23,7 +23,7 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     return rows[0];
   });
 
-  /** Another student's public profile. Only students of the same university can see each other. */
+  /** Another student's public profile. Same-university students always see each other; other campuses see you unless you opted out. */
   app.get('/students/:id', async (req) => {
     const user = await ctx.requireUser(req);
     const id = paramId(req);
@@ -32,12 +32,12 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     >(
       `select ${AUTHOR_COLS}, a.bio, ` +
         // Only the posts this viewer is allowed to see are counted.
-        '(select count(*) from posts p where p.author_id = a.id and p.status = \'active\' and (p.audience = \'campus\' or a.id = $1 or ' +
+        '(select count(*) from posts p where p.author_id = a.id and p.status = \'active\' and (p.audience = \'all\' or (p.audience = \'campus\' and a.university_id = $2) or a.id = $1 or ' +
         'exists (select 1 from follows f where f.follower_id = $1 and f.followee_id = a.id)))::int as posts, ' +
         '(select count(*) from follows where followee_id = a.id)::int as followers, ' +
         '(select count(*) from follows where follower_id = a.id)::int as following, ' +
         'exists (select 1 from follows where follower_id = $1 and followee_id = a.id) as followed_by_me ' +
-        `${PEOPLE_FROM} where a.id = $3 and a.university_id = $2 and a.email_verified_at is not null and ${userVisible('a', '$1', '$2')}`,
+        `${PEOPLE_FROM} where a.id = $3 and ${userVisible('a', '$1', '$2')}`,
       [user.id, user.university_id, id],
     );
     const r = rows[0];
@@ -60,7 +60,7 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
     if (id === user.id) throw new HttpError(400, 'validation', "You can't follow yourself.");
     // Blocked pairs and suspended students look like "not found", so a block cannot be probed through this route.
     const target = await pool.query(
-      `select 1 from users u where u.id = $1 and u.university_id = $2 and u.email_verified_at is not null and ${userVisible('u', '$3', '$2')}`,
+      `select 1 from users u where u.id = $1 and ${userVisible('u', '$3', '$2')}`,
       [id, user.university_id, user.id],
     );
     if (!target.rowCount) throw new HttpError(404, 'not_found', 'That student was not found.');
@@ -112,7 +112,7 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
    */
   async function assertProfileVisible(viewerId: string, universityId: string, targetId: string) {
     const target = await pool.query(
-      `select 1 from users u where u.id = $1 and u.university_id = $2 and u.email_verified_at is not null and ${userVisible('u', '$3', '$2')}`,
+      `select 1 from users u where u.id = $1 and ${userVisible('u', '$3', '$2')}`,
       [targetId, universityId, viewerId],
     );
     if (!target.rowCount) throw new HttpError(404, 'not_found', 'That student was not found.');

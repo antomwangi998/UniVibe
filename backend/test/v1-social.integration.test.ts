@@ -135,7 +135,7 @@ describe.skipIf(!url)('blocking, notifications and privacy on top of the existin
     const a = await h.student();
     const outsider = await h.student('other.example', 'other');
     expect((await call('POST', `${V1}/users/${a.id}/block`, a.token)).status).toBe(400);
-    expect((await call('POST', `${V1}/users/${outsider.id}/block`, a.token)).status).toBe(404);
+    expect((await call('POST', `${V1}/users/${outsider.id}/block`, a.token)).status).toBeLessThan(300); // another campus can be blocked too
     expect((await call('POST', `${V1}/users/nobody/block`, a.token)).status).toBe(404);
     expect((await call('POST', `${V1}/users/${a.id}/block`)).status).toBe(401);
   });

@@ -4,6 +4,7 @@ import type { Ctx } from '../context';
 import { withTx } from '../db';
 import { HttpError } from '../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
+import { crossCampusOk } from '../access';
 import { CARD_COLUMNS, CARD_JOIN, type CardRow, toCard } from './cards';
 
 const privacyPut = z.object({
@@ -11,16 +12,18 @@ const privacyPut = z.object({
   showOnline: z.boolean(),
   readReceipts: z.boolean(),
   typingIndicators: z.boolean(),
+  showOtherCampuses: z.boolean(),
   messagePermission: z.enum(['everyone', 'followers', 'nobody']),
 }).partial().strict();
 
-const PRIVACY_SQL = 'select discoverable, show_online, read_receipts, typing_indicators, message_permission from privacy_settings where user_id = $1';
+const PRIVACY_SQL = 'select discoverable, show_online, read_receipts, typing_indicators, message_permission, show_other_campuses from privacy_settings where user_id = $1';
 const toPrivacy = (r?: Record<string, unknown>) => ({
   discoverable: r?.discoverable ?? true,
   showOnline: r?.show_online ?? true,
   readReceipts: r?.read_receipts ?? true,
   typingIndicators: r?.typing_indicators ?? true,
   messagePermission: r?.message_permission ?? 'everyone',
+  showOtherCampuses: r?.show_other_campuses ?? true,
 });
 
 /**
@@ -44,15 +47,16 @@ export function privacyRoutes(ctx: Ctx) {
       const me = await ctx.auth(req);
       const b = privacyPut.parse(req.body ?? {});
       await pool.query(
-        `insert into privacy_settings (user_id, discoverable, show_online, message_permission, read_receipts, typing_indicators)
-         values ($1, coalesce($2::boolean, true), coalesce($3::boolean, true), coalesce($4::text, 'everyone'), coalesce($5::boolean, true), coalesce($6::boolean, true))
+        `insert into privacy_settings (user_id, discoverable, show_online, message_permission, read_receipts, typing_indicators, show_other_campuses)
+         values ($1, coalesce($2::boolean, true), coalesce($3::boolean, true), coalesce($4::text, 'everyone'), coalesce($5::boolean, true), coalesce($6::boolean, true), coalesce($7::boolean, true))
          on conflict (user_id) do update set
            discoverable = coalesce($2::boolean, privacy_settings.discoverable),
            show_online = coalesce($3::boolean, privacy_settings.show_online),
            message_permission = coalesce($4::text, privacy_settings.message_permission),
            read_receipts = coalesce($5::boolean, privacy_settings.read_receipts),
-           typing_indicators = coalesce($6::boolean, privacy_settings.typing_indicators), updated_at = now()`,
-        [me.id, b.discoverable ?? null, b.showOnline ?? null, b.messagePermission ?? null, b.readReceipts ?? null, b.typingIndicators ?? null],
+           typing_indicators = coalesce($6::boolean, privacy_settings.typing_indicators),
+           show_other_campuses = coalesce($7::boolean, privacy_settings.show_other_campuses), updated_at = now()`,
+        [me.id, b.discoverable ?? null, b.showOnline ?? null, b.messagePermission ?? null, b.readReceipts ?? null, b.typingIndicators ?? null, b.showOtherCampuses ?? null],
       );
       return toPrivacy((await pool.query(PRIVACY_SQL, [me.id])).rows[0]);
     });
@@ -62,7 +66,7 @@ export function privacyRoutes(ctx: Ctx) {
       const targetId = idParam((req.params as { userId: string }).userId);
       if (targetId === me.id) throw new HttpError(400, 'validation', 'You cannot block yourself.');
       ctx.limit(`block:${me.id}`, 60, 3600);
-      const exists = await pool.query('select 1 from users where id = $1 and university_id = $2', [targetId, me.universityId]);
+      const exists = await pool.query(`select 1 from users u where u.id = $1 and ${crossCampusOk('u', '$2')}`, [targetId, me.universityId]);
       if (!exists.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
       await withTx(pool, async (client) => {
         await client.query('insert into blocks (blocker_id, blocked_id) values ($1, $2) on conflict do nothing', [me.id, targetId]);

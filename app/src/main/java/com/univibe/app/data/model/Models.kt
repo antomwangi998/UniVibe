@@ -22,7 +22,14 @@ data class Student(
     val avatarUrl: String? = null,
     /** The university's short code ("ku", "cuk"), shown as a small badge next to the name. Empty when unknown. */
     val universityCode: String = "",
+    /** Short label for the campus badge ("KU"). Falls back to [universityCode] when the server sent none. */
+    val universityShort: String = "",
+    /** The campus inside the university when it has several ("Main Campus"). Empty otherwise. */
+    val campusName: String = "",
 ) {
+    /** What the badge reads: the short name, or the code. Empty when neither is known. */
+    val badge: String get() = universityShort.ifBlank { universityCode }
+
     /** "Computer Science · 2nd Year", or just the course when no year is set. */
     val courseLine: String
         get() = listOf(course, year).filter { it.isNotBlank() }.joinToString(" · ")
@@ -34,6 +41,9 @@ enum class FeedFilter { Campus, Following }
 sealed interface PostAudience {
     data object Campus : PostAudience
     data object Followers : PostAudience
+
+    /** Shared with every campus. Campus-only is the default, so nothing crosses unless the author chooses it. */
+    data object AllCampuses : PostAudience
     data class Community(val id: String, val name: String) : PostAudience
 }
 
@@ -223,6 +233,11 @@ data class CampusEvent(
     /** The campus the event is for. Null means every campus (or a university without campuses). */
     val campusId: String? = null,
     val campusName: String? = null,
+    /** The university hosting the event, so events from other campuses can be labelled. */
+    val universityId: String? = null,
+    val universityShort: String? = null,
+    /** Students at other universities can see and join it (the server's "public" visibility). */
+    val openToOtherCampuses: Boolean = false,
 ) {
     /** After this moment the event is deleted for everyone (see [EVENT_RETENTION_MILLIS]). */
     val expiresAtMillis: Long get() = endMillis + EVENT_RETENTION_MILLIS
@@ -339,6 +354,8 @@ data class NewEvent(
     val campusId: String? = null,
     /** Open to every campus of the university. Wins over [campusId]. */
     val allCampuses: Boolean = false,
+    /** Open to students from other universities (public). Ignored for community-hosted events, whose community decides. */
+    val openToOtherCampuses: Boolean = false,
 )
 
 /** Someone going to an event. [checkedIn] is only known to the organizer. */
