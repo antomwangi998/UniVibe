@@ -1,5 +1,6 @@
 package com.univibe.app.features.profile
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.VibePullToRefresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.derivedStateOf
@@ -245,7 +246,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, studentId: String? = 
                         ) {
                             StudentAvatar(entry.student.name, size = 48.dp, accent = entry.student.accent, online = entry.student.online, imagePath = entry.student.avatarUrl)
                             Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
-                                Text(entry.student.name, style = MaterialTheme.typography.titleSmall)
+                                VerifiedName(entry.student.name, entry.student.verified, style = MaterialTheme.typography.titleSmall)
                                 Text(entry.student.course.ifBlank { entry.student.handle }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (!entry.isMe) FollowButton(entry.isFollowing, { viewModel.toggle(entry.student.id) }, compact = true)
@@ -294,11 +295,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
                         }
                         Column(Modifier.offset(y = (-40).dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(student.name, style = MaterialTheme.typography.headlineSmall)
-                                if (student.verified) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Icon(Icons.Filled.Verified, contentDescription = "Verified student", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                }
+                                VerifiedName(student.name, student.verified, style = MaterialTheme.typography.headlineSmall, badgeSize = 22.dp)
                             }
                             Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(

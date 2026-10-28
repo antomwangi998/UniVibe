@@ -233,6 +233,8 @@ describe.skipIf(!url)('discover content feed (needs TEST_DATABASE_URL)', () => {
   it('feedback validates its input and cannot be used to probe other universities or hidden posts', async () => {
     const [viewer, author] = await students(2);
     const outsider = await h.student('other.example', 'other');
+    // Other campuses can see each other by default (campus bridge); this person has opted out, so they cannot be probed.
+    await call('PUT', '/api/v1/me/privacy', outsider.token, { showOtherCampuses: false });
     const priv = await post(author, 'private to followers', 'followers');
     const fb = (body: unknown) => call('POST', `${D}/feedback`, viewer.token, body);
     expect((await fb({})).status).toBe(400);

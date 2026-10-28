@@ -189,11 +189,7 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit,
             Spacer(Modifier.width(Spacing.sm + 2.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(post.author.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (post.author.verified) {
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Filled.Verified, contentDescription = "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                    }
+                    VerifiedName(post.author.name, post.author.verified, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
                     // The campus badge. A person from another campus always gets one (in the accent colour), so a mixed feed never hides where someone is from.
                     val home = com.univibe.app.data.campus.CampusScopeStore.homeId
                     val otherCampus = home != null && post.author.universityCode.isNotBlank() && post.author.universityCode != home

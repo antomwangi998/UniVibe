@@ -166,6 +166,8 @@ data class Chat(
     val groupPhotoUrl: String? = null,
     /** When the other person was last active (epoch ms). Null when they keep it private or have not been seen yet. */
     val lastActiveMs: Long? = null,
+    /** The other person in a direct chat is a verified student (never set for groups). */
+    val verified: Boolean = false,
 ) {
     val hasUnread: Boolean get() = unread > 0
 }
@@ -501,6 +503,8 @@ data class Message(
     val location: SharedLocation? = null,
     /** Set when the place is shared live (a position that keeps updating for a while). */
     val live: LiveShare? = null,
+    /** The sender is a verified student (as the server reports for this chat's members). */
+    val senderVerified: Boolean = false,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }

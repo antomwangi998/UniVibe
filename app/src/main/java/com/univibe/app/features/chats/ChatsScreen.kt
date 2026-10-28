@@ -2,6 +2,7 @@
 
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.VibePullToRefresh
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -373,11 +374,10 @@ private fun ChatRow(
         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
             // Name and time share a row; the name takes what is left and truncates, so it can never run into the time.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    chat.title,
+                VerifiedName(
+                    chat.title, chat.verified,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
@@ -496,7 +496,7 @@ private fun ChatActionsSheet(
     VibeBottomSheet(onDismiss = onDismiss) {
         Row(Modifier.fillMaxWidth().padding(bottom = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
             if (chat.isGroup) GroupAvatar(chat.groupPhotoUrl, 40.dp, name = chat.title, memberNames = chat.members.map { it.name }) else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl)
-            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = Spacing.md))
+            VerifiedName(chat.title, chat.verified, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(start = Spacing.md))
         }
         if (archived) {
             // Pin, mute and read state belong to the main list; from the archive the one action is to bring the chat back.

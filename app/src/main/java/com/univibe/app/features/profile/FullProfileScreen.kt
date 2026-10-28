@@ -134,7 +134,7 @@ fun FullProfileScreen(
                                 }
                                 // Only when the server says this student is verified.
                                 if (student.verified) {
-                                    VerifiedBadge(size = 30.dp, modifier = Modifier.align(Alignment.TopStart).padding(start = 84.dp, top = 84.dp))
+                                    VerifiedBadge(size = 30.dp, ringColor = MaterialTheme.colorScheme.background, modifier = Modifier.align(Alignment.TopStart).padding(start = 84.dp, top = 84.dp))
                                 }
                             }
                         },

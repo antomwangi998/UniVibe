@@ -68,6 +68,8 @@ class RemoteMessageRepository(
         /** Lowest seq seen so far, unsent messages included, so paging back always makes progress. */
         var oldestSeq = Long.MAX_VALUE
         @Volatile var names: Map<String, String> = emptyMap()
+        /** Members the server reports as verified students, so a sender's name can carry the verified seal. */
+        @Volatile var verifiedIds: Set<String> = emptySet()
         /** How far each other member has read (seq). Drives the "seen" tick; a group counts as seen once everyone has read. */
         val readCursors = HashMap<String, Long>()
         /** How far each other member's device has received (seq). Drives the "delivered" tick. */
@@ -227,10 +229,12 @@ class RemoteMessageRepository(
         val s = state(chatId)
         val me = myId()
         val names = HashMap<String, String>()
+        val verified = HashSet<String>()
         for (i in 0 until members.length()) {
             val m = members.getJSONObject(i)
             val id = m.getString("id")
             names[id] = m.getString("fullName")
+            if (m.optBoolean("studentVerified", false)) verified += id
             if (id != me && !m.isNull("lastReadSeq")) {
                 synchronized(s) { s.readCursors[id] = maxOf(s.readCursors[id] ?: 0L, m.getLong("lastReadSeq")) }
             }
@@ -240,6 +244,7 @@ class RemoteMessageRepository(
         }
         synchronized(s) { s.readCursors.keys.retainAll(names.keys); s.deliveredCursors.keys.retainAll(names.keys) } // someone who left no longer counts
         s.names = names
+        s.verifiedIds = verified
     }
 
     /** Folds server messages into the list: replaces by id, drops unsent ones and our unconfirmed copies, keeps server order. */
@@ -253,7 +258,7 @@ class RemoteMessageRepository(
                 s.oldestSeq = minOf(s.oldestSeq, o.getLong("seq"))
                 if (o.optBoolean("deleted", false)) { byId.remove(id); s.seqById.remove(id); continue }
                 s.seqById[id] = o.getLong("seq")
-                byId[id] = toMessage(o, chatId, s.names)
+                byId[id] = toMessage(o, chatId, s.names, s.verifiedIds)
             }
             val sent = byId.values.sortedBy { s.seqById[it.id] ?: Long.MAX_VALUE }
             // Messages still on their way keep showing at the bottom until the server confirms them.
@@ -483,7 +488,7 @@ class RemoteMessageRepository(
         return JSONObject(api.send("POST", "/api/v1/conversations", body, ok = setOf(200, 201))).getString("id")
     }
 
-    private fun toMessage(o: JSONObject, chatId: String, names: Map<String, String>): Message {
+    private fun toMessage(o: JSONObject, chatId: String, names: Map<String, String>, verifiedIds: Set<String> = emptySet()): Message {
         val me = myId()
         val senderId = o.strOrNull("senderId").orEmpty()
         val mine = senderId == me
@@ -527,6 +532,7 @@ class RemoteMessageRepository(
             chatId = chatId,
             senderId = senderId,
             senderName = if (mine) "You" else names[senderId] ?: "Student",
+            senderVerified = !mine && senderId in verifiedIds,
             // A photo with no caption shows as the picture alone; the word is only a fallback when no link is available.
             text = if (content.isBlank() && photo == null && media != null && media.length() > 0) "Photo" else content,
             imagePath = photo,

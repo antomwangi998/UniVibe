@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.app.AppContainer
 import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.model.EventAttendee
@@ -102,7 +103,7 @@ fun EventAttendeesScreen(eventId: String, onBack: () -> Unit, onOpenStudent: (St
                     ) {
                         StudentAvatar(p.student.name, size = 44.dp, accent = p.student.accent, imagePath = p.student.avatarUrl)
                         Column(Modifier.weight(1f)) {
-                            Text(p.student.name, style = MaterialTheme.typography.titleSmall)
+                            VerifiedName(p.student.name, p.student.verified, style = MaterialTheme.typography.titleSmall)
                             Text(p.student.handle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (p.checkedIn == true) Text("Checked in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)

@@ -132,7 +132,7 @@ export function noteRoutes(ctx: Ctx, hub: Hub) {
           `select ${NOTE_COLUMNS} from notes n join users u on u.id = n.author_id ${CARD_JOIN}
             where n.expires_at > now() and n.author_id <> $1
               and ${userVisible('u', '$1::uuid', '$2')}
-              and (n.audience = 'campus' or ${acceptedFollow('$1::uuid', 'n.author_id')})
+              and ((n.audience = 'campus' and u.university_id = $2) or ${acceptedFollow('$1::uuid', 'n.author_id')})
               and not exists (select 1 from note_mutes nm where nm.user_id = $1 and nm.muted_id = n.author_id)
             order by n.created_at desc, n.id desc limit 60`, [me.id, me.universityId]),
       ]);
@@ -154,7 +154,7 @@ export function noteRoutes(ctx: Ctx, hub: Hub) {
           where n.author_id = $1 and n.expires_at > now()
             and (n.author_id = $2 or (
               ${userVisible('u', '$2::uuid', '$3')}
-              and (n.audience = 'campus' or ${acceptedFollow('$2::uuid', 'n.author_id')})))`,
+              and ((n.audience = 'campus' and u.university_id = $3) or ${acceptedFollow('$2::uuid', 'n.author_id')})))`,
         [authorId, me.id, me.universityId]);
       if (!rows[0]) throw new HttpError(404, 'not_found', 'Not found.');
       return toView(ctx, rows[0], rows[0].author_id === me.id ? undefined : await presenceOf(ctx, hub, me.id, [authorId]));
@@ -204,7 +204,7 @@ export function noteRoutes(ctx: Ctx, hub: Hub) {
         `select n.text from notes n join users u on u.id = n.author_id
           where n.author_id = $1 and n.expires_at > now()
             and ${userVisible('u', '$2::uuid', '$3')}
-            and (n.audience = 'campus' or ${acceptedFollow('$2::uuid', 'n.author_id')})`,
+            and ((n.audience = 'campus' and u.university_id = $3) or ${acceptedFollow('$2::uuid', 'n.author_id')})`,
         [authorId, me.id, me.universityId]);
       if (!rows[0]) throw new HttpError(404, 'not_found', 'Not found.');
       const perm = (await pool.query<{ p: string; follows: boolean }>(

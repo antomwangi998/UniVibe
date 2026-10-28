@@ -1,5 +1,6 @@
 package com.univibe.app.features.search
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.CampusScopeBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -88,7 +89,7 @@ fun SearchScreen(
                         item(key = "h-people") { SectionTitle("Students") }
                         items(results.people, key = { "u-" + it.id }) { s ->
                             ResultRow(s.name, "${s.handle}${if (s.course.isNotBlank()) " · ${s.course}" else ""}",
-                                lead = { StudentAvatar(s.name, size = 40.dp, accent = s.accent, imagePath = s.avatarUrl) }) {
+                                lead = { StudentAvatar(s.name, size = 40.dp, accent = s.accent, imagePath = s.avatarUrl) }, verified = s.verified) {
                                 viewModel.remember(); onOpenStudent(s.id)
                             }
                         }
@@ -130,7 +131,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun ResultRow(title: String, subtitle: String, lead: @Composable () -> Unit, onClick: () -> Unit) {
+private fun ResultRow(title: String, subtitle: String, lead: @Composable () -> Unit, verified: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(horizontal = Spacing.md, vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
@@ -138,7 +139,8 @@ private fun ResultRow(title: String, subtitle: String, lead: @Composable () -> U
     ) {
         lead()
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (verified) VerifiedName(title, true, style = MaterialTheme.typography.bodyLarge)
+            else Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
     }

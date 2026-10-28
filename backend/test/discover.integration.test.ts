@@ -70,6 +70,8 @@ describe.skipIf(!url)('discover (needs TEST_DATABASE_URL)', () => {
     const fresh = await h.student(); // never completed onboarding
     const outsider = await h.student('other.example', 'other');
     await call('PUT', '/me/profile', outsider.token, { course, interests: ['chess'], bio: '' });
+    // Other campuses can see each other by default (campus bridge); this person has opted out, so they stay hidden.
+    await call('PUT', `${V1}/me/privacy`, outsider.token, { showOtherCampuses: false });
     await call('POST', `${V1}/users/${blocked.id}/block`, a.token);
     await call('POST', `${V1}/users/${a.id}/block`, blocker.token);
     await pool.query("update users set suspended_until = now() + interval '1 day' where id = $1", [suspended.id]);
