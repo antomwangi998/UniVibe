@@ -37,6 +37,7 @@ import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.AppNotification
 import com.univibe.app.data.model.MyProfile
 import com.univibe.app.data.model.NewPost
+import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.PostLimits
 import com.univibe.app.data.model.RsvpState
@@ -89,6 +90,8 @@ interface FeedRepository {
         pollOptions: List<String> = emptyList(),
         /** How long the poll stays open, in hours (1 to 72). Ignored without poll options. */
         pollHours: Int = PostLimits.DEFAULT_POLL_HOURS,
+        /** Who may see the post. Campus-only unless the author picks otherwise; the server enforces it. */
+        audience: PostAudience = PostAudience.Campus,
     ): Post
     /**
      * Creates a post with attached photos and an audience. The server must validate text length, photo count/size/type

@@ -209,8 +209,9 @@ class RemoteFeedRepository(
         videoPath: String?,
         pollOptions: List<String>,
         pollHours: Int,
+        audience: PostAudience,
     ): Post {
-        val body = JSONObject().put("text", text.trim()).put("audience", "campus")
+        val body = JSONObject().put("text", text.trim()).put("audience", audience.wireValue())
         if (pollOptions.isNotEmpty()) {
             body.put(
                 "poll",
@@ -242,13 +243,16 @@ class RemoteFeedRepository(
         VideoStore.delete(video)
     }
 
+    /** What the server expects in `audience`. A community post is sent as "campus": the server derives it from communityId. */
+    private fun PostAudience.wireValue(): String = when (this) {
+        PostAudience.Campus -> "campus"
+        PostAudience.Followers -> "followers"
+        PostAudience.AllCampuses -> "all"
+        is PostAudience.Community -> "campus"
+    }
+
     override suspend fun publishPost(post: NewPost): Post {
-        val audience = when (post.audience) {
-            PostAudience.Campus -> "campus"
-            PostAudience.Followers -> "followers"
-            PostAudience.AllCampuses -> "all"
-            is PostAudience.Community -> "campus" // the server derives the audience from communityId
-        }
+        val audience = post.audience.wireValue()
         val body = JSONObject().put("text", post.text.trim()).put("audience", audience)
         // The server checks membership and posting rights again; this only says where the post goes.
         (post.audience as? PostAudience.Community)?.let { body.put("communityId", it.id) }

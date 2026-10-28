@@ -352,6 +352,7 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         videoPath: String?,
         pollOptions: List<String>,
         pollHours: Int,
+        audience: PostAudience,
     ): Post {
         delay(250)
         val clean = text.trim()
@@ -367,7 +368,7 @@ class MockFeedRepository(private val store: MockStore = MockStore()) : FeedRepos
         val post = Post(
             "p${System.nanoTime()}", MockData.aisha, "now", clean, 0, 0,
             mediaAccent = if (hasMedia && imagePath == null && videoPath == null) 0 else null,
-            imagePath = imagePath, videoPath = videoPath, poll = poll,
+            imagePath = imagePath, videoPath = videoPath, poll = poll, audience = audience,
         )
         store.posts.add(0, post)
         return post

@@ -49,6 +49,8 @@ import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.LocalFloatingBarVisible
 import com.univibe.app.ui.components.FloatingBarClearance
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostAudience
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.foundation.layout.navigationBars
@@ -172,6 +174,7 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val composerFocus = remember { FocusRequester() }
     var showFilters by rememberSaveable { mutableStateOf(false) }
+    val campusScope by com.univibe.app.data.campus.CampusScopeStore.scope.collectAsState()
     val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
@@ -239,7 +242,7 @@ fun HomeScreen(
                         postedCount = state.postedCount,
                         focusRequester = composerFocus,
                         onOpenEvents = onOpenEvents,
-                        onPost = { text, media, imagePath, videoPath, poll, hours -> viewModel.publish(text, media, imagePath, videoPath, poll, hours) },
+                        onPost = { text, media, imagePath, videoPath, poll, hours, audience -> viewModel.publish(text, media, imagePath, videoPath, poll, hours, audience) },
                     )
                 }
             }
@@ -263,7 +266,11 @@ fun HomeScreen(
                         EmptyState(
                             icon = VibeIcons.Feed,
                             title = "Nothing here yet",
-                            message = if (com.univibe.app.data.campus.CampusScopeStore.menu.value?.others?.isNotEmpty() == true) "Follow more students and communities, or switch to All campuses above to see what others are posting." else "Follow more students and communities to fill your feed.",
+                            message = when {
+                                com.univibe.app.data.campus.CampusScopeStore.menu.value?.others?.isNotEmpty() != true -> "Follow more students and communities to fill your feed."
+                                campusScope != com.univibe.app.data.campus.CampusScope.Home -> "No posts shared with other campuses yet. Students appear here when they choose All campuses as their audience."
+                                else -> "Follow more students and communities. Posts that students share with all campuses show up when you switch campus above."
+                            },
                         )
                     }
                 }
@@ -489,7 +496,7 @@ private fun Composer(
     postedCount: Int,
     focusRequester: FocusRequester,
     onOpenEvents: () -> Unit,
-    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>, pollHours: Int) -> Unit,
+    onPost: (text: String, hasMedia: Boolean, imagePath: String?, videoPath: String?, pollOptions: List<String>, pollHours: Int, audience: PostAudience) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -502,6 +509,10 @@ private fun Composer(
     var pollDraft by rememberSaveable { mutableStateOf("") }
     var pollHours by rememberSaveable { mutableStateOf(PostLimits.DEFAULT_POLL_HOURS) }
     var buildingPoll by remember { mutableStateOf(false) }
+    // Who may see the post. Campus-only is the default; "all" is what lets other campuses see it.
+    var audienceKey by rememberSaveable { mutableStateOf("campus") }
+    var choosingAudience by remember { mutableStateOf(false) }
+    val audience = when (audienceKey) { "all" -> PostAudience.AllCampuses; "followers" -> PostAudience.Followers; else -> PostAudience.Campus }
     var seenPosts by rememberSaveable { mutableStateOf(postedCount) }
     val pollOptions = if (pollDraft.isEmpty()) emptyList() else pollDraft.split("\n")
 
@@ -613,12 +624,14 @@ private fun Composer(
             }
         }
 
-        AnimatedVisibility(visible = hasContent) {
-            Row(Modifier.fillMaxWidth().padding(top = Spacing.sm), horizontalArrangement = Arrangement.End) {
+        Row(Modifier.fillMaxWidth().padding(top = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            AudiencePill(audience) { choosingAudience = true }
+            Spacer(Modifier.weight(1f))
+            AnimatedVisibility(visible = hasContent) {
                 VibeButton(
                     text = "Post",
                     onClick = {
-                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions, pollHours)
+                        onPost(text, attached != null, attachedPath.takeIf { attached == "Photo" }, attachedPath.takeIf { attached == "Video" }, pollOptions, pollHours, audience)
                     },
                     enabled = !tooLong && !needsQuestion,
                     loading = publishing,
@@ -644,6 +657,14 @@ private fun Composer(
         }
     }
 
+    if (choosingAudience) {
+        HomeAudienceSheet(
+            selected = audience,
+            onSelect = { audienceKey = when (it) { PostAudience.AllCampuses -> "all"; PostAudience.Followers -> "followers"; else -> "campus" }; choosingAudience = false },
+            onDismiss = { choosingAudience = false },
+        )
+    }
+
     if (buildingPoll) {
         PollBuilderSheet(
             initial = pollOptions,
@@ -656,6 +677,71 @@ private fun Composer(
                 buildingPoll = false
             },
         )
+    }
+}
+
+private fun PostAudience.homeLabel() = when (this) {
+    PostAudience.AllCampuses -> "All campuses"
+    PostAudience.Followers -> "Followers"
+    else -> "My campus"
+}
+
+private fun PostAudience.homeIcon() = when (this) {
+    PostAudience.AllCampuses -> VibeIcons.Public
+    PostAudience.Followers -> VibeIcons.Profile
+    else -> VibeIcons.School
+}
+
+/** Who will see this post, right next to the Post button. Teal when it reaches beyond your own campus. */
+@Composable
+private fun AudiencePill(audience: PostAudience, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val wide = audience == PostAudience.AllCampuses
+    val tint = if (wide) colors.primary else colors.onSurfaceVariant
+    Row(
+        modifier
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(50))
+            .border(1.dp, if (wide) colors.primary.copy(alpha = 0.6f) else colors.outlineVariant, RoundedCornerShape(50))
+            .clickable(role = Role.Button, onClickLabel = "Change who can see this post", onClick = onClick)
+            .semantics { contentDescription = "Audience: ${audience.homeLabel()}. Double tap to change." }
+            .padding(horizontal = Spacing.sm + 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(audience.homeIcon(), contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(audience.homeLabel(), style = MaterialTheme.typography.labelLarge, color = tint)
+        Icon(VibeIcons.ChevronDown, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+    }
+}
+
+@Composable
+private fun HomeAudienceSheet(selected: PostAudience, onSelect: (PostAudience) -> Unit, onDismiss: () -> Unit) {
+    val options = listOf(
+        PostAudience.Campus to "Everyone at your university",
+        PostAudience.AllCampuses to "Students at every campus can see and find this",
+        PostAudience.Followers to "Only people who follow you",
+    )
+    VibeBottomSheet(onDismiss = onDismiss) {
+        Text("Who can see this?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = Spacing.sm))
+        Column(Modifier.selectableGroup()) {
+            options.forEach { (option, blurb) ->
+                val isSelected = option == selected
+                val tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(16.dp))
+                        .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onSelect(option) }),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(option.homeIcon(), contentDescription = null, tint = tint, modifier = Modifier.size(VibeIconSize.Navigation))
+                    Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
+                        Text(option.homeLabel(), style = MaterialTheme.typography.titleMedium, color = tint)
+                        Text(blurb, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (isSelected) Icon(VibeIcons.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
     }
 }
 

@@ -14,6 +14,7 @@ import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.settings.PrivacyRepository
 import com.univibe.app.data.settings.SettingsRepository
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.PostAudience
 import com.univibe.app.data.model.RsvpState
 import com.univibe.app.data.repository.EventRepository
 import com.univibe.app.data.model.PostLimits
@@ -436,6 +437,7 @@ class HomeViewModel(
         videoPath: String? = null,
         pollOptions: List<String> = emptyList(),
         pollHours: Int = PostLimits.DEFAULT_POLL_HOURS,
+        audience: PostAudience = PostAudience.Campus,
     ) {
         val clean = text.trim()
         val options = pollOptions.map { it.trim() }
@@ -445,7 +447,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _state.update { it.copy(publishing = true, publishError = null) }
             try {
-                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options, pollHours)
+                val post = repository.createPost(clean, hasMedia, imagePath, videoPath, options, pollHours, audience)
                 _state.update { it.copy(publishing = false, posts = listOf(post) + it.posts, postedCount = it.postedCount + 1) }
             } catch (e: Exception) {
                 val message = when {
