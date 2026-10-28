@@ -24,11 +24,12 @@ export type SignedInUser = { id: string; university_id: string; full_name: strin
 export const AUTHOR_COLS =
   'a.id as a_id, a.full_name as a_name, a.handle as a_handle, a.course as a_course, a.year_of_study as a_year, ' +
   'a.interests as a_interests, a.student_verified as a_verified, a.has_photo as a_photo, uni.name as a_university, uni.id as a_university_code, ' +
+  "(select c.name from campuses c where c.id = a.campus_id) as a_campus, coalesce(uni.short_name, uni.name) as a_university_short, " +
   "(select m.object_key from media m where m.id = a.avatar_media_id and m.status = 'ready') as a_avatar_key";
 
 export type AuthorCols = {
   a_id: string; a_name: string; a_handle: string; a_course: string; a_year: string;
-  a_interests: string[]; a_verified: boolean; a_photo: boolean; a_university: string; a_university_code: string;
+  a_interests: string[]; a_verified: boolean; a_photo: boolean; a_university: string; a_university_code: string; a_campus?: string | null; a_university_short?: string;
   a_avatar_key: string | null;
   /** Filled in by [signAuthors] right before the row is sent. */
   a_avatar_url?: string | null;
@@ -58,6 +59,9 @@ export function authorJson(r: AuthorCols) {
     universityName: r.a_university,
     // The university's short id (for example "ku"), shown as a small badge next to the name.
     universityCode: r.a_university_code,
+    // Short label for the campus badge ("KU"), and the campus inside the university when it has several ("Main Campus").
+    universityShortName: r.a_university_short ?? r.a_university,
+    campusName: r.a_campus ?? null,
   };
 }
 

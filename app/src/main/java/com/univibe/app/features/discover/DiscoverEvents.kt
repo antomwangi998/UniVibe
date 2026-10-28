@@ -1,5 +1,7 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.data.campus.CampusScopeStore
+import kotlinx.coroutines.flow.drop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -102,6 +104,11 @@ class DiscoverEventsViewModel(
     val state: StateFlow<DiscoverEventsState> = _state.asStateFlow()
 
     private var loadJob: Job? = null
+
+    init {
+        // The campus filter changed: events already on screen are for the old campuses, so load them again.
+        viewModelScope.launch { CampusScopeStore.scope.drop(1).collect { if (_state.value.loaded) load() } }
+    }
 
     /** Loads once, the first time the Events category is opened. */
     fun ensureLoaded() { if (!_state.value.loaded && !_state.value.loading) load() }

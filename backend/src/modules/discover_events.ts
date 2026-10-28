@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../context';
+import { inScope, resolveScope } from '../access';
 import { HttpError } from '../errors';
 import { idParam } from '../http';
 import { EVENT_SELECT, eventTextMatch, eventVisible, toEventView } from './events';
@@ -42,6 +43,8 @@ const filterSchema = z.object({
   from: when.optional(), to: when.optional(),
   communityId: z.string().uuid().optional(),
   campus: z.enum(['mine', 'any']).default('any'), // whole university
+  // Campus bridge: `home`, `all`, or one university id. Left out: everything the viewer may see (public events from other campuses included).
+  campusScope: z.string().trim().min(1).max(64).optional(),
   // Only events for my own campus, plus events for every campus of the university.
   myCampus: bool.optional(),
   registrationOpen: bool.optional(),
@@ -96,7 +99,7 @@ function reasonOf(r: { f_comm: boolean; f_follow: boolean; f_interest: boolean; 
   if (r.days_out >= 0 && r.days_out <= 3) return 'Starting soon';
   if (r.reg + r.soft >= 5) return 'Popular on your campus';
   if (r.f_campus) return 'At your campus';
-  return null;
+  return 'From another campus';
 }
 
 export function discoverEventRoutes(ctx: Ctx) {
@@ -123,6 +126,7 @@ export function discoverEventRoutes(ctx: Ctx) {
       if (f.to) where.push(`e.starts_at < ${add(f.to)}::timestamptz`);
       if (f.communityId) where.push(`e.community_id = ${add(f.communityId)}::uuid`);
       if (f.campus === 'mine') where.push('e.university_id = $2');
+      if (f.campusScope) where.push(inScope('e', add(resolveScope(f.campusScope, me.universityId))));
       if (f.myCampus === true) where.push('(e.campus_id is null or e.campus_id = (select vc.campus_id from users vc where vc.id = $1))');
       if (f.registrationOpen === true) {
         where.push("(e.registration_deadline is null or e.registration_deadline > now())");
@@ -178,7 +182,7 @@ export function discoverEventRoutes(ctx: Ctx) {
     app.get('/discover/events/sections', async (req) => {
       const me = await ctx.auth(req);
       ctx.limit(`discover-events:${me.id}`, 120, 60);
-      const base = filterSchema.parse({});
+      const base = filterSchema.parse({ campusScope: (req.query as { campusScope?: string } | undefined)?.campusScope });
       const pool100 = await rank(me, base, 100, 0);
       const used = new Set<string>();
       const sections: Array<{ key: string; title: string; ids: string[] }> = [];

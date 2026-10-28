@@ -194,21 +194,26 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit,
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.Filled.Verified, contentDescription = "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                     }
-                    if (post.author.verified && post.author.universityCode.isNotBlank()) {
+                    // The campus badge. A person from another campus always gets one (in the accent colour), so a mixed feed never hides where someone is from.
+                    val home = com.univibe.app.data.campus.CampusScopeStore.homeId
+                    val otherCampus = home != null && post.author.universityCode.isNotBlank() && post.author.universityCode != home
+                    if (post.author.badge.isNotBlank() && (post.author.verified || otherCampus)) {
+                        val tone = if (otherCampus) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            post.author.universityCode,
+                            post.author.badge,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = tone,
                             maxLines = 1,
-                            modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)
-                                .semantics { contentDescription = "University ${post.author.universityCode}" },
+                            modifier = Modifier.background(tone.copy(alpha = 0.14f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)
+                                .semantics { contentDescription = if (otherCampus) "From another campus, ${post.author.badge}" else "University ${post.author.badge}" },
                         )
                     }
                 }
                 val audience = when (val a = post.audience) {
                     PostAudience.Campus -> ""
                     PostAudience.Followers -> " · Followers"
+                    PostAudience.AllCampuses -> " · All campuses"
                     is PostAudience.Community -> if (post.community != null) "" else " · ${a.name}"
                 }
                 Text(

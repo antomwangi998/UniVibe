@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { userVisible } from '../access';
+import { inScope, resolveScope, userVisible } from '../access';
 import type { Ctx } from '../context';
 import { HttpError } from '../errors';
 import { decodeCursor, pageSchema, toPage, tsText } from '../http';
@@ -9,7 +9,7 @@ import { cardColumns, cardJoin, type CardRow, toCard } from './cards';
 import { listCommunities } from './communities';
 import { eventTextMatch, eventVisible } from './events';
 
-const termSchema = z.object({ q: z.string().trim().min(2, 'Type at least 2 characters.').max(80) });
+const termSchema = z.object({ q: z.string().trim().min(2, 'Type at least 2 characters.').max(80), campusScope: z.string().trim().min(1).max(64).optional() });
 /** The term is matched literally: % and _ typed by the user are not wildcards. Everything goes through parameters. */
 const escapeLike = (q: string) => q.replace(/[\\%_]/g, '\\$&');
 
@@ -18,15 +18,15 @@ export function searchRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     const { pool } = ctx;
 
-    const users = async (meId: string, uni: string, term: string, limit: number, after: { h: string; id: string } | null) => {
+    const users = async (meId: string, uni: string, term: string, limit: number, after: { h: string; id: string } | null, scope: string = uni) => {
       const { rows } = await pool.query(
         `select u.id, lower(u.handle) as sort_handle, u.course, ${cardColumns('u')}
            from users u ${cardJoin('u')}
-          where ${userVisible('u', '$1', '$2')} and u.id <> $1
+          where ${userVisible('u', '$1', '$2')} and ${inScope('u', '$7')} and u.id <> $1
             and (u.handle ilike $3 || '%' or u.full_name ilike '%' || $3 || '%')
             and ($4::text is null or (lower(u.handle), u.id) > ($4::text, $5::uuid))
           order by lower(u.handle), u.id limit $6`,
-        [meId, uni, escapeLike(term), after?.h ?? null, after?.id ?? null, limit + 1],
+        [meId, uni, escapeLike(term), after?.h ?? null, after?.id ?? null, limit + 1, scope],
       );
       const more = rows.length > limit;
       const page = more ? rows.slice(0, limit) : rows;
@@ -37,14 +37,14 @@ export function searchRoutes(ctx: Ctx) {
       };
     };
 
-    const posts = async (meId: string, uni: string, term: string, limit: number, cur: { t: string; id: string } | null) => {
+    const posts = async (meId: string, uni: string, term: string, limit: number, cur: { t: string; id: string } | null, scope: string = uni) => {
       const { rows } = await pool.query(
         `select p.id, left(p.text, 200) as snippet, p.audience, p.created_at, ${tsText('p.created_at')} as "cursorT", ${cardColumns('a')}
            from posts p join users a on a.id = p.author_id ${cardJoin('a')}
-          where ${visible('p', 'a')} and p.text ilike '%' || $3 || '%'
+          where ${visible('p', 'a')} and ${inScope('a', '$7')} and p.text ilike '%' || $3 || '%'
             and ($4::timestamptz is null or (p.created_at, p.id) < ($4::timestamptz, $5::uuid))
           order by p.created_at desc, p.id desc limit $6`,
-        [meId, uni, escapeLike(term), cur?.t ?? null, cur?.id ?? null, limit + 1],
+        [meId, uni, escapeLike(term), cur?.t ?? null, cur?.id ?? null, limit + 1, scope],
       );
       const page = toPage(rows as (CardRow & { cursorT: string; id: string })[], limit);
       return {
@@ -87,11 +87,12 @@ export function searchRoutes(ctx: Ctx) {
 
     app.get('/search', async (req) => {
       const me = await ctx.auth(req);
-      const { q } = termSchema.parse(req.query);
+      const { q, campusScope } = termSchema.parse(req.query);
+      const scope = resolveScope(campusScope, me.universityId);
       ctx.limit(`search:${me.id}`, 60, 60);
       // The overview shows a few of each kind; use the typed endpoints to page through more.
       const [u, p, e, c] = await Promise.all([
-        users(me.id, me.universityId, q, 5, null), posts(me.id, me.universityId, q, 5, null), events(me.id, me.universityId, q, 5, null),
+        users(me.id, me.universityId, q, 5, null, scope), posts(me.id, me.universityId, q, 5, null, scope), events(me.id, me.universityId, q, 5, null),
         // Community profiles only (name, description, counts, my membership): never posts or members of private ones.
         listCommunities(ctx, me, { term: q, limit: 5 }),
       ]);
@@ -100,18 +101,18 @@ export function searchRoutes(ctx: Ctx) {
 
     app.get('/search/users', async (req) => {
       const me = await ctx.auth(req);
-      const { q } = termSchema.parse(req.query);
+      const { q, campusScope } = termSchema.parse(req.query);
       const page = pageSchema.parse(req.query);
       ctx.limit(`search:${me.id}`, 60, 60);
-      return users(me.id, me.universityId, q, page.limit, userCursor(page.cursor));
+      return users(me.id, me.universityId, q, page.limit, userCursor(page.cursor), resolveScope(campusScope, me.universityId));
     });
 
     app.get('/search/posts', async (req) => {
       const me = await ctx.auth(req);
-      const { q } = termSchema.parse(req.query);
+      const { q, campusScope } = termSchema.parse(req.query);
       const page = pageSchema.parse(req.query);
       ctx.limit(`search:${me.id}`, 60, 60);
-      return posts(me.id, me.universityId, q, page.limit, decodeCursor(page.cursor));
+      return posts(me.id, me.universityId, q, page.limit, decodeCursor(page.cursor), resolveScope(campusScope, me.universityId));
     });
 
     app.get('/search/communities', async (req) => {

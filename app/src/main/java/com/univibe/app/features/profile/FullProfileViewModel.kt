@@ -98,7 +98,12 @@ class FullProfileViewModel(
             _state.update { it.copy(opening = true) }
             val id = runCatching { messages.openChatWith(student) }.getOrNull()
             _state.update { it.copy(opening = false) }
-            if (id != null) onReady(id) else _state.update { it.copy(notice = "Couldn't open the chat. Try again.") }
+            if (id != null) onReady(id) else _state.update {
+                // Another campus: the server asks for a follow first, so a stranger cannot cold-message across campuses.
+                val home = com.univibe.app.data.campus.CampusScopeStore.homeId
+                val otherCampus = home != null && student.universityCode.isNotBlank() && student.universityCode != home
+                it.copy(notice = if (otherCampus && !it.following) "Follow ${student.name} first to message someone at another campus." else "Couldn't open the chat. Try again.")
+            }
         }
     }
 

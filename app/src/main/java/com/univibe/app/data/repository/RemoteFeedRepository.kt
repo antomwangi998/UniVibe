@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.campus.withCampusScope
 import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.media.VideoStore
@@ -80,6 +81,7 @@ private fun buildPost(
     fromFollowing = fromFollowing,
     audience = when (o.optString("audience")) {
         "followers" -> PostAudience.Followers
+        "all" -> PostAudience.AllCampuses
         "community" -> o.optJSONObject("community")?.let { PostAudience.Community(it.getString("id"), it.optString("name")) } ?: PostAudience.Campus
         else -> PostAudience.Campus
     },
@@ -132,13 +134,13 @@ class RemoteFeedRepository(
 
     override suspend fun getPosts(filter: FeedFilter): List<Post> {
         val following = filter == FeedFilter.Following
-        return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}"), following)
+        return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}".withCampusScope()), following)
     }
 
     override suspend fun getPostsPage(filter: FeedFilter, beforeId: String?, limit: Int): List<Post> {
         val following = filter == FeedFilter.Following
         val before = if (beforeId != null) "&before=$beforeId" else ""
-        return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}&limit=$limit$before"), following)
+        return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}&limit=$limit$before".withCampusScope()), following)
     }
 
     override suspend fun getPost(id: String): Post? = try {
@@ -244,6 +246,7 @@ class RemoteFeedRepository(
         val audience = when (post.audience) {
             PostAudience.Campus -> "campus"
             PostAudience.Followers -> "followers"
+            PostAudience.AllCampuses -> "all"
             is PostAudience.Community -> "campus" // the server derives the audience from communityId
         }
         val body = JSONObject().put("text", post.text.trim()).put("audience", audience)

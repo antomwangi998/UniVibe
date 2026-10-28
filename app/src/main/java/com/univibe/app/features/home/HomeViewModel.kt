@@ -1,5 +1,7 @@
 package com.univibe.app.features.home
 
+import com.univibe.app.data.campus.CampusScopeStore
+import kotlinx.coroutines.flow.drop
 import com.univibe.app.data.repository.DiscoverRepository
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -94,6 +96,8 @@ class HomeViewModel(
             if (saved != null) _state.update { it.copy(filter = saved) }
             load()
         }
+        // The campus filter changed: reload the feed for the chosen campuses.
+        viewModelScope.launch { CampusScopeStore.scope.drop(1).collect { load() } }
         viewModelScope.launch {
             settings.settings.collect { s -> _state.update { it.copy(blocked = s.blocked.map { b -> b.id }.toSet()) } }
         }

@@ -1,5 +1,6 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.ui.components.CampusScopeBar
 import com.univibe.app.guide.guideTarget
 import com.univibe.app.ui.components.VibeIcons
 import com.univibe.app.ui.components.rememberBottomClearance
@@ -123,6 +124,8 @@ fun DiscoverScreen(
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Discover", actions = { VibeIconButton(VibeIcons.Search, "Search", onOpenSearch, Modifier.guideTarget("discover.search")) })
         Box(Modifier.guideTarget("discover.categories")) { CategoryChips(state.category, viewModel::select) }
+        // Communities stay inside one campus for now, so the campus filter only appears where it changes the results.
+        if (state.category != DiscoverCategory.Communities) CampusScopeBar(Modifier.padding(bottom = Spacing.xs))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state.category) {
                 DiscoverCategory.People -> PeopleDeck(onOpenStudent, peopleViewModel)

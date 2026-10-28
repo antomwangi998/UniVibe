@@ -51,7 +51,7 @@ describe.skipIf(!url)('moderation and search (needs TEST_DATABASE_URL)', () => {
       expect((await report(author.token, 'user', author.id)).status).toBe(404);
       expect((await report(stranger.token, 'post', followersOnly)).status).toBe(404);
       expect((await report(outsider.token, 'post', own)).status).toBe(404);
-      expect((await report(outsider.token, 'user', author.id)).status).toBe(404);
+      expect((await report(outsider.token, 'user', author.id)).status).toBeLessThan(300); // another campus's student can be reported
       await call('POST', `${V1}/users/${stranger.id}/block`, author.token);
       expect((await report(author.token, 'user', stranger.id)).status).toBe(404); // blocked pairs cannot see each other
     });

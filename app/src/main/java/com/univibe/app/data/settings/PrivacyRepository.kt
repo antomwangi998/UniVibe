@@ -14,6 +14,8 @@ data class ServerPrivacy(
     val messagePolicy: MessagePolicy,
     /** When off, other people are never told you are typing. Enforced by the server. */
     val typingIndicators: Boolean = true,
+    /** When off, students at other campuses cannot find, follow or message you. Your own campus still sees you. */
+    val showOtherCampuses: Boolean = true,
 )
 
 /** Only the fields that are set are sent. */
@@ -23,11 +25,12 @@ data class PrivacyChange(
     val readReceipts: Boolean? = null,
     val messagePolicy: MessagePolicy? = null,
     val typingIndicators: Boolean? = null,
+    val showOtherCampuses: Boolean? = null,
 )
 
 fun ServerPrivacy.updated(c: PrivacyChange) = ServerPrivacy(
     c.discoverable ?: discoverable, c.showOnline ?: showOnline, c.readReceipts ?: readReceipts, c.messagePolicy ?: messagePolicy,
-    c.typingIndicators ?: typingIndicators,
+    c.typingIndicators ?: typingIndicators, c.showOtherCampuses ?: showOtherCampuses,
 )
 
 interface PrivacyRepository {
@@ -76,6 +79,7 @@ class RemotePrivacyRepository(private val api: AuthedApi, private val settings: 
         showOnline = json.optBoolean("showOnline", true),
         readReceipts = json.optBoolean("readReceipts", true),
         typingIndicators = json.optBoolean("typingIndicators", true),
+        showOtherCampuses = json.optBoolean("showOtherCampuses", true),
         messagePolicy = when (json.optString("messagePermission")) {
             "followers" -> MessagePolicy.Following
             "nobody" -> MessagePolicy.Nobody
@@ -96,6 +100,7 @@ class RemotePrivacyRepository(private val api: AuthedApi, private val settings: 
         change.showOnline?.let { body.put("showOnline", it) }
         change.readReceipts?.let { body.put("readReceipts", it) }
         change.typingIndicators?.let { body.put("typingIndicators", it) }
+        change.showOtherCampuses?.let { body.put("showOtherCampuses", it) }
         change.messagePolicy?.let {
             body.put("messagePermission", when (it) { MessagePolicy.Everyone -> "everyone"; MessagePolicy.Following -> "followers"; MessagePolicy.Nobody -> "nobody" })
         }

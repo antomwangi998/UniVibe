@@ -1,5 +1,6 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.ui.components.CampusScopeBar
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.app.AppContainer
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +73,7 @@ fun EventsScreen(onOpenEvent: (String) -> Unit = {}, onCreateEvent: () -> Unit =
             leadingIcon = VibeIcons.Search,
             modifier = Modifier.padding(horizontal = Spacing.md),
         )
+        CampusScopeBar(Modifier.padding(top = Spacing.xs))
         Row(
             Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),

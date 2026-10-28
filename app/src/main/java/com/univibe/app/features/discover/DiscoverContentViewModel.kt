@@ -1,5 +1,7 @@
 package com.univibe.app.features.discover
 
+import com.univibe.app.data.campus.CampusScopeStore
+import kotlinx.coroutines.flow.drop
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -98,6 +100,14 @@ class DiscoverContentViewModel(
     init {
         viewModelScope.launch { runCatching { feed.getCurrentUser().id }.onSuccess { id -> _state.update { it.copy(meId = id) } } }
         load(ListKey.ForYou)
+        // The campus filter changed: every loaded list is for the old campuses, so drop them and reload what is on screen.
+        viewModelScope.launch {
+            CampusScopeStore.scope.drop(1).collect {
+                _state.update { s -> s.copy(lists = emptyMap()) }
+                _state.value.currentKey?.let { load(it, force = true) }
+                if (_state.value.category == DiscoverCategory.Topics && _state.value.openTopic == null) loadTopics(force = true)
+            }
+        }
     }
 
     // ---- navigation inside Discover

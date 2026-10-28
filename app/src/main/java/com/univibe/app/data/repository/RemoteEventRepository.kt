@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.data.campus.withCampusScope
 import com.univibe.app.core.eventDateParts
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventCategoryInfo
@@ -74,6 +75,9 @@ internal fun parseCampusEvent(o: JSONObject): CampusEvent {
         remindersOn = if (o.isNull("remindersOn") || !o.has("remindersOn")) null else o.optBoolean("remindersOn", true),
         campusId = if (o.isNull("campusId")) null else o.optString("campusId").ifBlank { null },
         campusName = if (o.isNull("campusName")) null else o.optString("campusName").ifBlank { null },
+        universityId = if (o.isNull("universityId")) null else o.optString("universityId").ifBlank { null },
+        universityShort = if (o.isNull("universityShortName")) null else o.optString("universityShortName").ifBlank { null },
+        openToOtherCampuses = o.optString("visibility") == "public",
     )
 }
 
@@ -127,7 +131,7 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
     }
 
     override suspend fun discoverSections(): List<EventSection> {
-        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections")).getJSONArray("sections")
+        val sections = JSONObject(api.send("GET", "/api/v1/discover/events/sections".withCampusScope(explicitHome = true))).getJSONArray("sections")
         return (0 until sections.length()).map { i ->
             val s = sections.getJSONObject(i)
             val items = s.getJSONArray("items")
@@ -144,7 +148,7 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         if (filter.savedOnly) q += "saved=true"
         if (filter.myCampus) q += "myCampus=true"
         cursor?.let { q += "cursor=" + URLEncoder.encode(it, "UTF-8") }
-        val body = JSONObject(api.send("GET", "/api/v1/discover/events?" + q.joinToString("&")))
+        val body = JSONObject(api.send("GET", ("/api/v1/discover/events?" + q.joinToString("&")).withCampusScope(explicitHome = true)))
         val items = body.getJSONArray("items")
         return EventDiscoverPage(
             (0 until items.length()).map { toEvent(items.getJSONObject(it)) },
@@ -163,7 +167,7 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         for (scope in listOf("upcoming", "past")) {
             var cursor: String? = null
             for (page in 0 until MAX_PAGES) {
-                val body = JSONObject(api.send("GET", "/api/v1/events?scope=$scope&limit=$PAGE${cursor?.let { "&cursor=$it" } ?: ""}"))
+                val body = JSONObject(api.send("GET", "/api/v1/events?scope=$scope&limit=$PAGE${cursor?.let { "&cursor=$it" } ?: ""}".withCampusScope(explicitHome = true)))
                 val items = body.getJSONArray("items")
                 for (i in 0 until items.length()) toEvent(items.getJSONObject(i)).let { out[it.id] = it }
                 cursor = if (body.isNull("nextCursor")) null else body.optString("nextCursor").ifBlank { null }
@@ -239,6 +243,8 @@ class RemoteEventRepository(private val api: AuthedApi, private val uploader: Me
         o.put("longitude", if (pinned) d.longitude else JSONObject.NULL)
         // Left out, the server uses the organizer's own campus when creating and keeps the current one when editing.
         if (d.allCampuses) o.put("campusId", JSONObject.NULL) else d.campusId?.let { o.put("campusId", it) }
+        // Reach beyond the university. A community-hosted event is left alone: its community decides who can see it.
+        if (d.hostCommunityId == null) o.put("visibility", if (d.openToOtherCampuses) "public" else "university")
         if (creating) {
             o.put("communityId", d.hostCommunityId ?: JSONObject.NULL)
             o.put("status", if (d.asDraft) "draft" else "published")

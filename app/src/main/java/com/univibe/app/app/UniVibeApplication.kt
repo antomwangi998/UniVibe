@@ -250,6 +250,8 @@ object AppContainer {
     /** One shared instance so RSVPs made on the details screen show up in the list. */
     /** One shared instance so a decision made on a full profile also updates the Discover deck. */
     // With a backend these are the real thing (no sample people or sample notifications); the mocks are offline demo only.
+    /** The campus filter's menu (which campuses exist). Offline demo builds have none, so the filter stays hidden. */
+    val campusScopeRepository: com.univibe.app.data.campus.CampusScopeRepository by lazy { com.univibe.app.data.campus.CampusScopeRepository(api) }
     val discoverRepository: DiscoverRepository by lazy {
         api?.let { RemoteDiscoverRepository(it) { accountOf(authRepository.session.value) } } ?: MockDiscoverRepository()
     }

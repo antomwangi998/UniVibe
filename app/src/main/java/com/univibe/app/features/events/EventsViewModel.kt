@@ -1,5 +1,7 @@
 package com.univibe.app.features.events
 
+import com.univibe.app.data.campus.CampusScopeStore
+import kotlinx.coroutines.flow.drop
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.univibe.app.app.AppContainer
@@ -58,7 +60,10 @@ class EventsViewModel(
     /** Bookmarks need the server; the offline demo hides them. */
     val supportsSaving: Boolean get() = repository.supportsSaved
 
-    init { load() }
+    init {
+        load()
+        viewModelScope.launch { CampusScopeStore.scope.drop(1).collect { load() } }
+    }
 
     fun load() {
         viewModelScope.launch {

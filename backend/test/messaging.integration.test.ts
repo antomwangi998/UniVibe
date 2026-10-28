@@ -240,9 +240,11 @@ describe.skipIf(!url)('messaging (needs TEST_DATABASE_URL)', () => {
     expect((await call('POST', `${V1}/conversations`, a.token, { type: 'direct', userId: c.id })).status).toBe(403);
     await call('PUT', `/students/${c.id}/follow`, a.token);
     expect((await call('POST', `${V1}/conversations`, a.token, { type: 'direct', userId: c.id })).status).toBe(201);
-    // other universities cannot be messaged
+    // another campus can be messaged only after following them
     const out = await h.student('other.example', 'other');
-    expect((await call('POST', `${V1}/conversations`, a.token, { type: 'direct', userId: out.id })).status).toBe(404);
+    expect((await call('POST', `${V1}/conversations`, a.token, { type: 'direct', userId: out.id })).status).toBe(403);
+    await call('PUT', `/students/${out.id}/follow`, a.token);
+    expect((await call('POST', `${V1}/conversations`, a.token, { type: 'direct', userId: out.id })).status).toBe(201);
   });
 
   it('edits within the window, unsends for everyone, and protects other people\'s messages', async () => {

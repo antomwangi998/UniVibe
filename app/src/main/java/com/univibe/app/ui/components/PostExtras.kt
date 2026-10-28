@@ -270,7 +270,7 @@ fun PostVideo(path: String, authorName: String, modifier: Modifier = Modifier, k
  * returns false for followers-only and community posts so the caller can explain why.
  */
 fun sharePost(context: Context, post: Post): Boolean {
-    if (post.audience != PostAudience.Campus) return false
+    if (post.audience != PostAudience.Campus && post.audience != PostAudience.AllCampuses) return false
     val body = buildString {
         append("${post.author.name} (${post.author.handle}) on UniVibe")
         if (post.text.isNotBlank()) append(":\n\n${post.text.take(280)}")
