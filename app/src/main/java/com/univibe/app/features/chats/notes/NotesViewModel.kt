@@ -43,6 +43,7 @@ data class RowPerson(
     val story: StoryTrayEntry?,
 ) {
     val online: Boolean get() = note?.online == true
+    val verified: Boolean get() = note?.authorVerified == true || story?.authorVerified == true
     val hasUnviewedStory: Boolean get() = story?.hasUnviewed == true
 }
 

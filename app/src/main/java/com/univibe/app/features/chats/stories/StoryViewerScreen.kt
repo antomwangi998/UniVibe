@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats.stories
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.withSentenceCaps
 import android.app.Activity
 import android.content.Context
@@ -248,9 +249,9 @@ fun StoryViewerScreen(startAuthorId: String, onClose: () -> Unit) {
             if (author != null) Row(verticalAlignment = Alignment.CenterVertically) {
                 StudentAvatar(name = author.authorName, size = 36.dp, imagePath = author.avatarUrl)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Text(
-                        if (author.isMine) "Your story" else author.authorName, color = Color.White,
-                        style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    VerifiedName(
+                        if (author.isMine) "Your story" else author.authorName, author.authorVerified && !author.isMine, color = Color.White,
+                        style = MaterialTheme.typography.titleSmall,
                     )
                     if (item != null) Text(
                         timeAgo(((System.currentTimeMillis() - item.createdAtMs) / 1000).coerceAtLeast(0)),

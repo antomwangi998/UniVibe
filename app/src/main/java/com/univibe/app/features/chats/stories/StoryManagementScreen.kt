@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats.stories
 
+import com.univibe.app.ui.components.VerifiedName
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -213,7 +214,7 @@ private fun ViewerRow(v: StoryViewer) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
         StudentAvatar(name = v.name, size = 40.dp, imagePath = v.avatarUrl)
         Column(Modifier.weight(1f)) {
-            Text(v.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            VerifiedName(v.name, v.verified, style = MaterialTheme.typography.bodyLarge)
             Text(
                 (if (v.handle.isNotEmpty()) "@${v.handle} · " else "") + timeAgo(((System.currentTimeMillis() - v.viewedAtMs) / 1000).coerceAtLeast(0)) + " ago",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
