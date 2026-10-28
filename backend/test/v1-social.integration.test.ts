@@ -177,9 +177,9 @@ describe.skipIf(!url)('blocking, notifications and privacy on top of the existin
   describe('privacy settings', () => {
     it('defaults, partial updates, validation, and effects', async () => {
       const a = await h.student();
-      expect((await call('GET', `${V1}/me/privacy`, a.token)).body).toEqual({ discoverable: true, showOnline: true, messagePermission: 'everyone', readReceipts: true, typingIndicators: true });
+      expect((await call('GET', `${V1}/me/privacy`, a.token)).body).toEqual({ discoverable: true, showOnline: true, messagePermission: 'everyone', readReceipts: true, typingIndicators: true, showOtherCampuses: true });
       const res = await call('PUT', `${V1}/me/privacy`, a.token, { messagePermission: 'nobody' });
-      expect(res.body).toEqual({ discoverable: true, showOnline: true, messagePermission: 'nobody', readReceipts: true, typingIndicators: true });
+      expect(res.body).toEqual({ discoverable: true, showOnline: true, messagePermission: 'nobody', readReceipts: true, typingIndicators: true, showOtherCampuses: true });
       expect((await call('PUT', `${V1}/me/privacy`, a.token, { discoverable: false })).body.messagePermission).toBe('nobody'); // earlier choice kept
       expect((await call('PUT', `${V1}/me/privacy`, a.token, { messagePermission: 'friends' })).status).toBe(400);
       expect((await call('PUT', `${V1}/me/privacy`, a.token, { role: 'admin' })).status).toBe(400);

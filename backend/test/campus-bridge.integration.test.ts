@@ -31,24 +31,24 @@ describe.skipIf(!url)('campus bridge: scopes across campuses (needs TEST_DATABAS
   it('keeps campus posts home-only and lets an "all campuses" post cross, labelled with its campus', async () => {
     const home = await h.student();
     const away1 = await away(label());
-    const campusOnly = (await call('POST', `${V1}/posts`, away1.token, { text: 'private to campus b' })).body;
-    const shared = (await call('POST', `${V1}/posts`, away1.token, { text: 'hello every campus', audience: 'all' })).body;
+    const campusOnly = (await call('POST', `/posts`, away1.token, { text: 'private to campus b' })).body;
+    const shared = (await call('POST', `/posts`, away1.token, { text: 'hello every campus', audience: 'all' })).body;
     expect(shared.audience).toBe('all');
     // Home default: neither post, because you do not follow the author.
-    expect(postIds((await call('GET', `${V1}/posts`, home.token)).body.items ?? (await call('GET', `${V1}/posts`, home.token)).body)).not.toContain(shared.id);
+    expect(postIds((await call('GET', `/posts`, home.token)).body.items ?? (await call('GET', `/posts`, home.token)).body)).not.toContain(shared.id);
     // All campuses: the shared post, never the campus-only one.
-    const all = await call('GET', `${V1}/posts?campusScope=all&limit=100`, home.token);
+    const all = await call('GET', `/posts?campusScope=all&limit=50`, home.token);
     const list = all.body.items ?? all.body;
     expect(postIds(list)).toContain(shared.id);
     expect(postIds(list)).not.toContain(campusOnly.id);
     expect(list.find((p: { id: string }) => p.id === shared.id).author.universityCode).toBe('bridge-b');
     // A direct fetch obeys the same rules.
-    expect((await call('GET', `${V1}/posts/${shared.id}`, home.token)).status).toBe(200);
-    expect((await call('GET', `${V1}/posts/${campusOnly.id}`, home.token)).status).toBe(404);
+    expect((await call('GET', `/posts/${shared.id}`, home.token)).status).toBe(200);
+    expect((await call('GET', `/posts/${campusOnly.id}`, home.token)).status).toBe(404);
     // One specific campus.
-    const one = await call('GET', `${V1}/posts?campusScope=bridge-b&limit=100`, home.token);
+    const one = await call('GET', `/posts?campusScope=bridge-b&limit=50`, home.token);
     expect(postIds(one.body.items ?? one.body)).toContain(shared.id);
-    const wrong = await call('GET', `${V1}/posts?campusScope=lakeside&limit=100`, home.token);
+    const wrong = await call('GET', `/posts?campusScope=lakeside&limit=50`, home.token);
     expect(postIds(wrong.body.items ?? wrong.body)).not.toContain(shared.id);
   });
 
@@ -66,15 +66,15 @@ describe.skipIf(!url)('campus bridge: scopes across campuses (needs TEST_DATABAS
     // Opting out hides them from other campuses, not from their own.
     expect((await call('PUT', `${V1}/me/privacy`, friend.token, { showOtherCampuses: false })).status).toBe(200);
     expect(await ids('all')).not.toContain(friend.id);
-    expect((await call('GET', `${V1}/students/${friend.id}`, home.token)).status).toBe(404);
+    expect((await call('GET', `/students/${friend.id}`, home.token)).status).toBe(404);
   });
 
   it('lets a student follow someone on another campus and then message them, but not cold-message', async () => {
     const home = await h.student();
     const friend = await away(label());
-    expect((await call('GET', `${V1}/students/${friend.id}`, home.token)).status).toBe(200);
+    expect((await call('GET', `/students/${friend.id}`, home.token)).status).toBe(200);
     expect((await call('POST', `${V1}/conversations`, home.token, { type: 'direct', userId: friend.id })).status).toBe(403);
-    expect((await call('PUT', `${V1}/students/${friend.id}/follow`, home.token)).status).toBeLessThan(300);
+    expect((await call('PUT', `/students/${friend.id}/follow`, home.token)).status).toBeLessThan(300);
     expect((await call('POST', `${V1}/conversations`, home.token, { type: 'direct', userId: friend.id })).status).toBeLessThan(300);
   });
 
@@ -91,7 +91,7 @@ describe.skipIf(!url)('campus bridge: scopes across campuses (needs TEST_DATABAS
   it('routes a report on another campus\'s content to that campus\'s moderators', async () => {
     const home = await h.student();
     const away1 = await away(label());
-    const post = (await call('POST', `${V1}/posts`, away1.token, { text: 'reportable', audience: 'all' })).body;
+    const post = (await call('POST', `/posts`, away1.token, { text: 'reportable', audience: 'all' })).body;
     const res = await call('POST', `${V1}/reports`, home.token, { targetType: 'post', targetId: post.id, reason: 'spam' });
     expect(res.status).toBeLessThan(300);
     const row = (await pool.query("select university_id from reports where target_type = 'post' and target_id = $1", [post.id])).rows[0];
@@ -102,7 +102,7 @@ describe.skipIf(!url)('campus bridge: scopes across campuses (needs TEST_DATABAS
     const owner = await away(label());
     const mod = await away(label());
     await pool.query("update users set role = 'moderator' where id = $1", [mod.id]);
-    const post = (await call('POST', `${V1}/posts`, owner.token, { text: 'queue me', audience: 'all' })).body;
+    const post = (await call('POST', `/posts`, owner.token, { text: 'queue me', audience: 'all' })).body;
     const made = await call('POST', `${V1}/reports`, reporter.token, { targetType: 'post', targetId: post.id, reason: 'spam' });
     expect(made.status).toBeLessThan(300);
     const queue = (await call('GET', `${V1}/moderation/reports?status=open&limit=50`, mod.token)).body.items.map((r: { id: string }) => r.id);
@@ -117,15 +117,15 @@ describe.skipIf(!url)('campus bridge: scopes across campuses (needs TEST_DATABAS
     expect((await call('POST', `${V1}/conversations`, home.token, { type: 'direct', userId: friend.id })).status).toBe(404);
     // Their own campus still sees them.
     const mate = await away(label());
-    expect((await call('GET', `${V1}/students/${friend.id}`, mate.token)).status).toBe(200);
+    expect((await call('GET', `/students/${friend.id}`, mate.token)).status).toBe(200);
   });
 
   it('never lets an \'all campuses\' post be commented on or liked by someone who blocked the author', async () => {
     const reader = await h.student();
     const author = await away(label());
-    const post = (await call('POST', `${V1}/posts`, author.token, { text: 'open post', audience: 'all' })).body;
+    const post = (await call('POST', `/posts`, author.token, { text: 'open post', audience: 'all' })).body;
     expect((await call('PUT', `/posts/${post.id}/like`, reader.token)).status).toBeLessThan(300);
     await call('POST', `${V1}/users/${author.id}/block`, reader.token);
-    expect((await call('GET', `${V1}/posts/${post.id}`, reader.token)).status).toBe(404);
+    expect((await call('GET', `/posts/${post.id}`, reader.token)).status).toBe(404);
   });
 });

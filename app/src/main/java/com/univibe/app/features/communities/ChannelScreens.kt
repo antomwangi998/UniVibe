@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.core.keyedViewModel
 import com.univibe.app.data.media.PhotoStore
 import com.univibe.app.data.model.CHANNEL_REACTIONS
@@ -461,7 +462,7 @@ private fun MessageRow(
         Box(Modifier.clickable(enabled = a != null) { a?.let { onOpenStudent(it.id) } }) { StudentAvatar(a?.name ?: "?", size = 36.dp, accent = a?.accent ?: 0, imagePath = a?.avatarUrl) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(a?.name ?: "Deleted account", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                VerifiedName(a?.name ?: "Deleted account", a?.verified == true, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
                 if (m.authorRole == "owner" || m.authorRole == "moderator") Surface(shape = RoundedCornerShape(6.dp), color = colors.primary.copy(alpha = 0.15f)) {
                     Text(if (m.authorRole == "owner") "Owner" else "Mod", Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = colors.primary)
                 }

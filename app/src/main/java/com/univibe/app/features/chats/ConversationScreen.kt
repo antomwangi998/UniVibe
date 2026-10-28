@@ -2,6 +2,7 @@
 
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.withSentenceCaps
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.semantics.role
@@ -478,7 +479,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                         else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
                     }
                     Column(Modifier.weight(1f).padding(start = Spacing.sm + 2.dp)) {
-                        Text(s.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        VerifiedName(s.title, chat.verified && !chat.isGroup, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         // "Online", or when they were last active. Nothing at all (never "Offline") when they keep it private.
                         val status = when {
                             s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"
@@ -1120,7 +1121,7 @@ private fun MessageItem(
                 Spacer(Modifier.width(6.dp))
             }
             Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-                if (showSender) Text(m.senderName, style = MaterialTheme.typography.labelMedium, color = colors.primary, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
+                if (showSender) VerifiedName(m.senderName, m.senderVerified, style = MaterialTheme.typography.labelMedium, color = colors.primary, badgeSize = 13.dp, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
                 // The corners on the sender's side flatten where the bubble joins its neighbours; the last one keeps the "tail".
                 val big = GlassTokens.BubbleCorner; val small = GlassTokens.BubbleJoinCorner
                 val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (pos.joinsOlder) small else big, bottomEnd = small, bottomStart = big)

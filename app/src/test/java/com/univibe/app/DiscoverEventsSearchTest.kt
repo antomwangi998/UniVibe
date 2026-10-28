@@ -162,7 +162,8 @@ class RemoteEventDiscoveryTest {
         val repo = RemoteEventRepository(api)
         assertTrue(repo.supportsDiscover)
         val sections = repo.discoverSections()
-        assertEquals("GET /api/v1/discover/events/sections", api.calls.single().let { "${it.method} ${it.path}" })
+        // Events show other campuses' public events by default, so the Home filter is sent out loud.
+        assertEquals("GET /api/v1/discover/events/sections?campusScope=home", api.calls.single().let { "${it.method} ${it.path}" })
         assertEquals(listOf("communities", "online"), sections.map { it.key })
         assertEquals("From your communities", sections[0].title)
         assertEquals("From a community you joined", sections[0].events.single().reason)
@@ -186,10 +187,10 @@ class RemoteEventDiscoveryTest {
         assertEquals(listOf("a"), result.events.map { it.id })
     }
 
-    @Test fun anUnfilteredQueryAsksForNothingExtra() = runTest {
+    @Test fun anUnfilteredQueryAsksForNothingExtraBeyondTheHomeCampus() = runTest {
         val api = ScriptedApi { page() }
         RemoteEventRepository(api).discoverEvents(com.univibe.app.data.model.EventDiscoverFilter())
-        assertEquals("/api/v1/discover/events?limit=20", api.calls.single().path)
+        assertEquals("/api/v1/discover/events?limit=20&campusScope=home", api.calls.single().path)
     }
 
     @Test fun categoriesComeFromTheServer() = runTest {

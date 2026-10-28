@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.VibeIcons
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -363,7 +364,7 @@ private fun MemberRow(m: GroupMember, onClick: () -> Unit) {
     ) {
         StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online, imagePath = m.student.avatarUrl)
         Column(Modifier.weight(1f).padding(start = Spacing.md)) {
-            Text(if (m.isMe) "${m.student.name} (you)" else m.student.name, style = MaterialTheme.typography.titleSmall)
+            VerifiedName(if (m.isMe) "${m.student.name} (you)" else m.student.name, m.student.verified, style = MaterialTheme.typography.titleSmall)
             Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
         if (m.role != GroupRole.Member) {
@@ -449,7 +450,7 @@ private fun MemberSheet(
         Row(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
             StudentAvatar(member.student.name, size = 44.dp, accent = member.student.accent, imagePath = member.student.avatarUrl)
             Column(Modifier.padding(start = Spacing.md)) {
-                Text(member.student.name, style = MaterialTheme.typography.titleMedium)
+                VerifiedName(member.student.name, member.student.verified, style = MaterialTheme.typography.titleMedium)
                 Text(member.student.handle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

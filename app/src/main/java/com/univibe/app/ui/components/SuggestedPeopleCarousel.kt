@@ -72,7 +72,7 @@ fun SuggestedPeopleCarousel(
                                 StudentAvatar(student.name, size = 84.dp, accent = student.accent, imagePath = student.avatarUrl)
                             }
                             Spacer(Modifier.height(Spacing.sm))
-                            Text(student.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            VerifiedName(student.name, student.verified, style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.CenterHorizontally))
                             Text(
                                 reasonFor(student), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,

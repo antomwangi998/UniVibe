@@ -1,5 +1,6 @@
 package com.univibe.app.features.communities
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.VibePullToRefresh
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -254,7 +255,7 @@ fun CommunityDetailScreen(
             Row(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, imagePath = m.student.avatarUrl)
                 Column(Modifier.padding(start = Spacing.md)) {
-                    Text(m.student.name, style = MaterialTheme.typography.titleMedium)
+                    VerifiedName(m.student.name, m.student.verified, style = MaterialTheme.typography.titleMedium)
                     Text(m.role.name, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
             }
@@ -343,7 +344,7 @@ private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenSt
         Row(verticalAlignment = Alignment.CenterVertically) {
             StudentAvatar(p.author.name, size = 36.dp, accent = p.author.accent, imagePath = p.author.avatarUrl, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(p.author.id) })
             Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
-                Text(p.author.name, style = MaterialTheme.typography.titleSmall)
+                VerifiedName(p.author.name, p.author.verified, style = MaterialTheme.typography.titleSmall)
                 Text(p.timeAgo, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
@@ -397,7 +398,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
             ) {
                 StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online, imagePath = m.student.avatarUrl)
                 Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
-                    Text(if (m.isMe) "${m.student.name} (you)" else m.student.name, style = MaterialTheme.typography.titleSmall)
+                    VerifiedName(if (m.isMe) "${m.student.name} (you)" else m.student.name, m.student.verified, style = MaterialTheme.typography.titleSmall)
                     Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (m.role == CommunityRole.Owner || m.role == CommunityRole.Moderator) {
