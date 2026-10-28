@@ -1,5 +1,6 @@
 package com.univibe.app.features.chats.notes
 
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.guide.guideTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -178,7 +179,7 @@ private fun PersonItem(person: RowPerson, slot: Dp, online: Boolean, onAvatar: (
             }
             if (online) ActiveDot(Modifier.align(Alignment.BottomEnd).padding(end = 2.dp, bottom = 2.dp))
         }
-        ItemLabel(person.name.trim().substringBefore(' '))
+        ItemLabel(person.name.trim().substringBefore(' '), person.verified)
     }
 }
 
@@ -221,12 +222,12 @@ private fun ThoughtBubble(text: String, description: String, onClick: () -> Unit
 }
 
 @Composable
-private fun ItemLabel(text: String) {
-    Text(
-        text,
+private fun ItemLabel(text: String, verified: Boolean = false) {
+    VerifiedName(
+        text, verified,
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1, overflow = TextOverflow.Ellipsis,
+        badgeSize = 12.dp,
         modifier = Modifier.padding(top = 4.dp),
     )
 }
@@ -326,7 +327,7 @@ private fun TheirNoteSheet(note: Note, state: NotesUiState, vm: NotesViewModel) 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StudentAvatar(note.authorName, size = 40.dp, accent = note.authorId.hashCode(), imagePath = note.avatarUrl)
                 Column(Modifier.padding(start = Spacing.md)) {
-                    Text(note.authorName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    VerifiedName(note.authorName, note.authorVerified, style = MaterialTheme.typography.titleMedium)
                     if (note.authorHandle.isNotBlank()) Text("@${note.authorHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     activeLabel(note.online, note.lastActiveMs, state.nowMs)?.let {
                         Text(it, style = MaterialTheme.typography.labelMedium, color = if (note.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)

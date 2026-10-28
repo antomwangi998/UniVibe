@@ -99,6 +99,7 @@ fun parseNote(o: JSONObject): Note {
         authorId = author.getString("id"),
         authorName = author.getString("fullName"),
         authorHandle = author.optString("handle"),
+        authorVerified = author.optBoolean("studentVerified", false),
         avatarUrl = if (author.isNull("avatarUrl")) null else author.optString("avatarUrl").ifEmpty { null },
         text = o.getString("text"),
         audience = NoteAudience.fromWire(o.optString("audience")),

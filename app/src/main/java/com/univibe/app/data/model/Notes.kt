@@ -27,6 +27,8 @@ data class Note(
     val online: Boolean = false,
     /** When the author was last active (epoch ms); null when private or unknown. */
     val lastActiveMs: Long? = null,
+    /** The author is a verified student. */
+    val authorVerified: Boolean = false,
 ) {
     fun isActiveAt(nowMs: Long): Boolean = expiresAtMs > nowMs
 }

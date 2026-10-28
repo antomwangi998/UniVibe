@@ -171,7 +171,7 @@ fun parseStoryViewers(body: String): StoryViewersPage {
             val o = items.getJSONObject(i)
             val v = o.getJSONObject("viewer")
             StoryViewer(
-                id = v.getString("id"), name = v.getString("fullName"), handle = v.optString("handle"),
+                id = v.getString("id"), name = v.getString("fullName"), handle = v.optString("handle"), verified = v.optBoolean("studentVerified", false),
                 avatarUrl = if (v.isNull("avatarUrl")) null else v.optString("avatarUrl").ifEmpty { null },
                 viewedAtMs = Instant.parse(o.getString("viewedAt")).toEpochMilli(),
                 reaction = if (o.isNull("reaction")) null else o.optString("reaction").ifEmpty { null },
@@ -205,6 +205,7 @@ fun parseStoryTray(body: String): List<StoryTrayEntry> {
             authorId = author.getString("id"),
             authorName = author.getString("fullName"),
             authorHandle = author.optString("handle"),
+            authorVerified = author.optBoolean("studentVerified", false),
             avatarUrl = if (author.isNull("avatarUrl")) null else author.optString("avatarUrl").ifEmpty { null },
             count = o.optInt("count", 1),
             latestAtMs = Instant.parse(o.getString("latestAt")).toEpochMilli(),

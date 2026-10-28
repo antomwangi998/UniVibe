@@ -1,5 +1,10 @@
 package com.univibe.app.features.notifications
 
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import com.univibe.app.ui.components.VerifiedBadge
 import com.univibe.app.ui.components.VibePullToRefresh
 import com.univibe.app.ui.components.VibeIcons
 import androidx.compose.foundation.background
@@ -51,6 +56,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.univibe.app.data.model.AppNotification
@@ -157,12 +163,16 @@ private fun NotificationRow(n: AppNotification, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
+            // The title is the person's name when someone did this: a verified student gets the seal right after it.
+            val showSeal = n.actor?.verified == true && n.title == n.actor.name
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(n.title) }
+                    if (showSeal) { append(" "); appendInlineContent(SEAL_ID, "verified") }
                     append(" ")
                     append(n.body)
                 },
+                inlineContent = if (showSeal) sealContent else emptyMap(),
                 style = MaterialTheme.typography.bodyMedium, maxLines = 3,
             )
             Text(n.timeAgo, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
@@ -174,3 +184,10 @@ private fun NotificationRow(n: AppNotification, onClick: () -> Unit) {
 }
 
 private fun Modifier.clip20(): Modifier = this.then(Modifier.clip(RoundedCornerShape(20.dp)))
+
+private const val SEAL_ID = "verifiedSeal"
+
+/** The verified seal as a character inside a line of text, sized to sit on the text. */
+private val sealContent = mapOf(
+    SEAL_ID to InlineTextContent(Placeholder(16.sp, 16.sp, PlaceholderVerticalAlign.TextCenter)) { VerifiedBadge(size = 16.dp) },
+)

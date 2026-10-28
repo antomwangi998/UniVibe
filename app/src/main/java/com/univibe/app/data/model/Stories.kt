@@ -14,6 +14,8 @@ data class StoryTrayEntry(
     /** At least one of their Stories I have not opened yet: teal ring. False: every one seen, so a muted ring. */
     val hasUnviewed: Boolean,
     val isMine: Boolean,
+    /** The author is a verified student. */
+    val authorVerified: Boolean = false,
 )
 
 enum class StoryKind { Photo, Video, Text }
@@ -41,6 +43,6 @@ data class MyStory(
     val reactions: Map<String, Int>,
 )
 
-data class StoryViewer(val id: String, val name: String, val handle: String, val avatarUrl: String?, val viewedAtMs: Long, val reaction: String?)
+data class StoryViewer(val id: String, val name: String, val handle: String, val avatarUrl: String?, val viewedAtMs: Long, val reaction: String?, val verified: Boolean = false)
 
 data class StoryViewersPage(val total: Int, val viewers: List<StoryViewer>, val nextCursor: String?)
