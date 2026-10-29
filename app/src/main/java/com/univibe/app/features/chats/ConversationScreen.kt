@@ -220,17 +220,19 @@ private fun buildRows(messages: List<Message>): List<ChatRow> {
 }
 
 @Composable
-fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}) {
+fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}, onOpenPremium: () -> Unit = {}) {
     val viewModel = keyedViewModel("chat-$chatId") { ConversationViewModel(chatId) }
     // Only the theme id is watched here, so typing and new messages do not recompose the wrapper.
     val themeId by remember(viewModel) { viewModel.state.map { it.themeId }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(viewModel.state.value.themeId)
     // The chat's accent colours everything inside: my bubbles, the send button, links and reply bars.
-    ChatThemed(themeId) { ConversationBody(chatId, viewModel, onBack, onOpenGroupInfo, onOpenStudent) }
+    val unlocked by com.univibe.app.data.prefs.EntitlementsStore.keys.collectAsStateWithLifecycle()
+    val entitled = CHAT_THEMES_KEY in unlocked
+    ChatThemed(themeShown(themeId, entitled)) { ConversationBody(chatId, viewModel, onBack, onOpenGroupInfo, onOpenStudent, entitled, onOpenPremium) }
 }
 
 @Composable
-private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, onBack: () -> Unit, onOpenGroupInfo: () -> Unit, onOpenStudent: (String) -> Unit) {
+private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, onBack: () -> Unit, onOpenGroupInfo: () -> Unit, onOpenStudent: (String) -> Unit, entitled: Boolean, onOpenPremium: () -> Unit) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     // Photos are chosen first, then looked over (and captioned) in a sheet; nothing is sent until the person taps Send.
     var pendingPhotos by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
@@ -277,6 +279,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         themeId = s.themeId, wallpaperId = s.wallpaperId, wallpaperPhoto = s.wallpaperPhoto,
         onTheme = viewModel::setChatTheme, onWallpaper = viewModel::setWallpaper, onPickPhoto = pickWallpaper,
         onReset = viewModel::resetLook, onDismiss = { showLook = false },
+        premiumUnlocked = entitled, onPack = viewModel::setPremiumPack, onOpenPremium = { showLook = false; onOpenPremium() },
     )
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     var confirmBlock by rememberSaveable { mutableStateOf(false) }
@@ -438,8 +441,9 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
     // The wallpaper sits behind the whole screen (header and message box included) so the glass has something to sit on.
     // It is outside imePadding, so the keyboard resizes the chat but never the wallpaper.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-    if (s.wallpaperId == "none") GlassAmbientLayer(Modifier.matchParentSize())
-    ChatWallpaperLayer(s.wallpaperId, s.wallpaperPhoto, Modifier.matchParentSize())
+    val wallShown = wallpaperShown(s.wallpaperId, entitled)
+    if (wallShown == "none") GlassAmbientLayer(Modifier.matchParentSize())
+    ChatWallpaperLayer(wallShown, s.wallpaperPhoto, Modifier.matchParentSize())
     Column(Modifier.fillMaxSize().imePadding()) {
         if (s.searching) {
             Surface(color = MaterialTheme.colorScheme.surface) {

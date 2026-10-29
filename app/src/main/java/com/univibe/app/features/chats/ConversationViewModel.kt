@@ -153,6 +153,8 @@ class ConversationViewModel(
     init {
         val look = ChatAppearanceStore.get(chatId)
         _state.update { it.copy(themeId = look.themeId, wallpaperId = look.wallpaperId, wallpaperPhoto = look.wallpaperPhoto) }
+        // Ask the server what this person has unlocked. Premium looks show only while the server says so.
+        viewModelScope.launch { com.univibe.app.data.prefs.EntitlementsStore.refresh(AppContainer.premiumRepository) }
     }
 
     init {
@@ -424,6 +426,13 @@ class ConversationViewModel(
     fun setChatTheme(id: String) { _state.update { it.copy(themeId = id) }; saveLook() }
 
     fun setWallpaper(id: String) { _state.update { it.copy(wallpaperId = id) }; saveLook() }
+
+    /** A Premium pack sets accent and wallpaper together. Refused unless the server currently says it is unlocked. */
+    fun setPremiumPack(id: String) {
+        if (!com.univibe.app.data.prefs.EntitlementsStore.has(CHAT_THEMES_KEY) || !isPremiumLook(id)) return
+        _state.update { it.copy(themeId = id, wallpaperId = id) }
+        saveLook()
+    }
 
     /** A picked picture becomes the wallpaper. The one it replaces is deleted from app storage. */
     fun setWallpaperPhoto(path: String) {

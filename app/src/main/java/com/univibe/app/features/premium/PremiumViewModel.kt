@@ -47,6 +47,7 @@ class PremiumViewModel(
             try {
                 val o = repository.overview()
                 val h = repository.billing(null)
+                com.univibe.app.data.prefs.EntitlementsStore.update(o.entitlements)
                 _state.update {
                     it.copy(
                         loading = false, error = null, overview = o, history = h.items, historyNext = h.next,

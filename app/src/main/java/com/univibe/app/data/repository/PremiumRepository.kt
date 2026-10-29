@@ -15,6 +15,8 @@ import org.json.JSONObject
 /** Premium plans, status and purchase. The server prices, verifies and grants; the app only asks and shows. */
 interface PremiumRepository {
     suspend fun overview(): PremiumOverview
+    /** Just the keys the server says are live right now. */
+    suspend fun entitlements(): List<String>
     suspend fun billing(cursor: String?): PromoPage<BillingItem>
     /** [key] makes a repeated tap return the same order instead of creating another. */
     suspend fun checkout(planId: String, key: String): CheckoutResult
@@ -26,6 +28,7 @@ interface PremiumRepository {
 object NoPremiumRepository : PremiumRepository {
     private fun unavailable(): Nothing = throw UnsupportedOperationException("Premium needs a connection to UniVibe.")
     override suspend fun overview() = unavailable()
+    override suspend fun entitlements() = unavailable()
     override suspend fun billing(cursor: String?) = unavailable()
     override suspend fun checkout(planId: String, key: String) = unavailable()
     override suspend fun submitReceipt(orderId: String, receipt: String) = unavailable()
@@ -48,6 +51,8 @@ class RemotePremiumRepository(private val api: AuthedApi) : PremiumRepository {
             entitlements = me.optJSONArray("entitlements").toStrings(),
         )
     }
+
+    override suspend fun entitlements(): List<String> = get("/me/entitlements").optJSONArray("entitlements").toStrings()
 
     override suspend fun billing(cursor: String?): PromoPage<BillingItem> {
         val o = get("/me/billing-history" + if (cursor != null) "?cursor=" + java.net.URLEncoder.encode(cursor, "UTF-8") else "")

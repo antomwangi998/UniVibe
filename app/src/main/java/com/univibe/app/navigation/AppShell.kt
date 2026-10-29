@@ -369,6 +369,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 chatId = entry.arg("chatId"), onBack = back,
                                 onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
                                 onOpenStudent = { open(AppRoutes.student(it)) },
+                                onOpenPremium = { open(AppRoutes.PREMIUM) },
                             )
                         }
                     }
