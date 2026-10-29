@@ -11,6 +11,7 @@ import { type AnalyticsCampaign, loadAnalytics, rangeFor } from './analytics';
 import { resumeTarget } from './campaign_state';
 import { formatMoney } from './money';
 import { packageView } from './advertiser_routes';
+import { activateSubscriptionForOrder, endSubscriptionForOrder } from './subscriptions';
 import {
   PLACEMENTS_FOR_PACKAGE, advanceByClock, eventPromotable, isUnique, lockCampaign, moveCampaign, notifyPromotion, orderStatusOf,
   requestRefundIfPaid, stopCampaign, sweepCampaigns, type CampaignRow,
@@ -261,6 +262,7 @@ export function monetizationAdminRoutes(ctx: Ctx) {
             }
           }
         }
+        await activateSubscriptionForOrder(client, o.id, me.id); // no-op unless this order bought a subscription plan
         await notifyPromotion(client, o.advertiser_id, 'payment_confirmed', cid ?? null);
         await audit(client, me.id, 'payment.confirm', 'payment', id, { order: o.reference, amountMinor: expected, excessMinor: Math.max(0, excess), late });
         return { result: 'confirmed' as const, repeat: false };
@@ -335,6 +337,7 @@ export function monetizationAdminRoutes(ctx: Ctx) {
           if (r.kind === 'full') {
             await client.query("update payments set status = 'refunded', updated_at = now() where id = $1", [r.payment_id]);
             await client.query("update orders set status = 'refunded', updated_at = now() where id = $1", [r.order_id]);
+            await endSubscriptionForOrder(client, r.order_id, me.id);
           }
           if (cid && r.kind === 'full') { const c = await lockCampaign(client, cid); if (c.status === 'refund_pending') await moveCampaign(client, c, 'refunded', 'admin', me.id, 'refund paid'); }
         }
