@@ -267,6 +267,10 @@ object AppContainer {
     val promotionsRepository: com.univibe.app.data.repository.PromotionsRepository by lazy {
         api?.let { com.univibe.app.data.repository.RemotePromotionsRepository(it, MediaUploader(it, UrlConnectionFileUploader())) } ?: com.univibe.app.data.repository.NoPromotionsRepository
     }
+    /** UniVibe Premium plans, status and purchase. Needs the server; the offline demo says so. */
+    val premiumRepository: com.univibe.app.data.repository.PremiumRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemotePremiumRepository(it) } ?: com.univibe.app.data.repository.NoPremiumRepository
+    }
     /** Search the campus (students, posts, events). Needs the server; the offline demo says so. */
     val searchRepository: SearchRepository by lazy { api?.let { RemoteSearchRepository(it) } ?: UnavailableSearchRepository }
     val recentSearches: RecentSearches by lazy { PrefsRecentSearches(app) }

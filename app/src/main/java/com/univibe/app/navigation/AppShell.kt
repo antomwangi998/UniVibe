@@ -434,6 +434,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         )
                     }
                     subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
+                    subScreen(AppRoutes.PREMIUM) { com.univibe.app.features.premium.PremiumScreen(onBack = back) }
                     subScreen(AppRoutes.PROMOTIONS) {
                         com.univibe.app.features.promotions.PromotionsScreen(
                             onBack = back, onNewPromotion = { open(AppRoutes.PROMOTION_NEW) },

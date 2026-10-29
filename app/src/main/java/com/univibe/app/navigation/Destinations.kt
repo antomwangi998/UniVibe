@@ -92,6 +92,7 @@ object AppRoutes {
     const val FOLLOWING = "profile/following"
     const val STUDENT_FOLLOWERS = "student/{studentId}/followers"
     const val STUDENT_FOLLOWING = "student/{studentId}/following"
+    const val PREMIUM = "premium"
     const val PROMOTIONS = "promotions"
     const val PROMOTION_NEW = "promotion-new"
     const val PROMOTION = "promotion/{campaignId}"

@@ -47,6 +47,7 @@ object SettingsRegistry {
         e("delete", "Delete account", "Permanently delete your account and content", SettingsRoutes.DELETE, SettingsCategories.ACCOUNT, "Delete account", keywords = listOf("remove account", "close account", "erase")),
         e("deactivate", "Deactivate account", "Hide your account without deleting it; log in again to bring it back", SettingsRoutes.DEACTIVATE, SettingsCategories.ACCOUNT, "Deactivate account", keywords = listOf("hide account", "pause account", "take a break", "temporarily", "disable")),
         e("data-export", "Download your data", "Get a copy of your own data as a file", SettingsRoutes.DATA_EXPORT, SettingsCategories.ACCOUNT, "Download your data", keywords = listOf("export", "download my information", "copy of my data", "my data", "archive", "gdpr")),
+        e("premium", "UniVibe Premium", "Plans, your status and billing history", AppRoutes.PREMIUM, SettingsCategories.ACCOUNT, "UniVibe Premium", keywords = listOf("subscription", "upgrade", "billing", "plan", "pay")),
         // Security
         e("security", "Security", "Password and where you are logged in", SettingsRoutes.SECURITY, SettingsCategories.SECURITY, keywords = listOf("protect")),
         e("login-activity", "Login activity", "See your logged-in devices and log out the others", SettingsRoutes.LOGIN_ACTIVITY, SettingsCategories.SECURITY, "Login activity",
