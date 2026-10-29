@@ -161,6 +161,9 @@ describe.skipIf(!url)('community channels (needs TEST_DATABASE_URL)', () => {
     expect(r1.status).toBe(201);
     expect(r1.body.replyTo.id).toBe(root.body.id);
     expect(r1.body.replyTo.preview).toBe('who has notes?');
+    // The reply header needs the original author's name without a second request.
+    expect(typeof r1.body.replyTo.authorName).toBe('string');
+    expect(r1.body.replyTo.authorName.length).toBeGreaterThan(0);
     // A reply cannot point at a message in another channel.
     const other = await call('POST', `${w.chan(w.announcements.id)}/messages`, w.mod.token, { title: 'x', content: 'y' });
     expect((await call('POST', `${w.chan(w.general.id)}/messages`, w.owner.token, { content: 'bad', replyToId: other.body.id })).status).toBe(422);

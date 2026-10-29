@@ -151,7 +151,7 @@ fun parseChannelMessage(o: JSONObject): ChannelMessage {
         edited = !o.isNull("editedAt"),
         pinned = o.optBoolean("pinned", false),
         replyCount = o.optInt("replyCount", 0),
-        replyTo = replyTo?.let { ReplyPreview(it.getString("id"), it.str("preview"), it.optBoolean("deleted", false)) },
+        replyTo = replyTo?.let { ReplyPreview(it.getString("id"), it.str("preview"), it.optBoolean("deleted", false), it.str("authorName")) },
         acceptedAnswerId = o.str("acceptedAnswerId"),
         isAcceptedAnswer = o.optBoolean("isAcceptedAnswer", false),
         attachments = (0 until media.length()).map {

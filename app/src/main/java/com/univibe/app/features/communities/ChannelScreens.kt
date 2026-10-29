@@ -47,8 +47,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +78,7 @@ import com.univibe.app.data.model.Channel
 import com.univibe.app.data.model.ChannelAccess
 import com.univibe.app.data.model.ChannelMessage
 import com.univibe.app.data.model.ChannelType
+import com.univibe.app.data.model.ReplyPreview
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.repository.SearchFilters
 import com.univibe.app.features.chats.SheetRow
@@ -103,6 +118,11 @@ private val REPORT_REASONS = listOf("spam" to "Spam", "harassment" to "Harassmen
 private fun timeLabel(iso: String): String = runCatching {
     val t = OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault())
     if (t.toLocalDate() == LocalDate.now()) t.format(DateTimeFormatter.ofPattern("HH:mm")) else t.format(DateTimeFormatter.ofPattern("d MMM"))
+}.getOrDefault("")
+
+/** "14:05" in the phone's time zone: the small timestamp beside a message that continues an earlier one. */
+private fun clockLabel(iso: String): String = runCatching {
+    OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrDefault("")
 
 // ------------------------------------------------------------------ Discussions tab
@@ -249,6 +269,17 @@ fun ChannelScreen(
                 if (s.searching) SearchPanel(s.search, s.searchLoading, s.results, channel.access, myId, onChange = viewModel::search, onOpen = { menuFor = it }, onOpenStudent = onOpenStudent, modifier = Modifier.weight(1f))
                 else Box(Modifier.weight(1f)) {
                     val items = s.timeline.asReversed()
+                    // Grouping is computed once per list change. Question and announcement channels show cards, so they never group.
+                    val continuing = remember(s.messages, channel.type) {
+                        if (channel.type.threadedTimeline) emptySet() else channelContinuations(s.timeline)
+                    }
+                    var flashId by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(flashId) { if (flashId != null) { delay(1400); flashId = null } }
+                    val jumpToOriginal: (String) -> Unit = { originalId ->
+                        val at = items.indexOfFirst { it.id == originalId }
+                        if (at < 0) Toast.makeText(context, "Scroll up to load the original message.", Toast.LENGTH_SHORT).show()
+                        else scope.launch { listState.animateScrollToItem(at + s.pending.size); flashId = originalId }
+                    }
                     if (items.isEmpty() && s.pending.isEmpty()) {
                         EmptyState(channel.type.icon(), "Nothing here yet", if (channel.access.send) "Be the first to post." else "Check back soon.")
                     } else LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.sm)) {
@@ -261,6 +292,7 @@ fun ChannelScreen(
                                 onReact = { viewModel.toggleReaction(m, it) }, onMore = { menuFor = m },
                                 onThread = if (channel.type.threadedTimeline || m.replyCount > 0) ({ onOpenThread(m.id) }) else null,
                                 onOpenStudent = onOpenStudent, onVote = { i -> viewModel.vote(m, i) },
+                                highlighted = m.id == flashId, continuation = m.id in continuing, onJumpToReply = jumpToOriginal,
                             )
                         }
                         if (s.loadingOlder) item { Text("Loading earlier messages…", Modifier.fillMaxWidth().padding(Spacing.md), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -399,7 +431,7 @@ fun ThreadScreen(communityId: String, channelId: String, messageId: String, onBa
                         )
                     }
                     items(s.replies, key = { it.id }) { m ->
-                        MessageRow(m, mine = m.author?.id == myId, type = channel.type, canReact = channel.access.react, onReact = { viewModel.toggleReaction(m, it) }, onMore = { menuFor = m }, onThread = null, onOpenStudent = onOpenStudent)
+                        MessageRow(m, mine = m.author?.id == myId, type = channel.type, canReact = channel.access.react, onReact = { viewModel.toggleReaction(m, it) }, onMore = { menuFor = m }, onThread = null, onOpenStudent = onOpenStudent, showReplyHeader = false)
                     }
                     items(s.pending, key = { "pending-${it.draft.clientId}" }) { p -> PendingRow(p, onRetry = { viewModel.retry(p.draft.clientId) }, onDiscard = { viewModel.discard(p.draft.clientId) }) }
                     if (s.nextCursor != null) item { TextButton(onClick = viewModel::loadMore, Modifier.fillMaxWidth()) { Text("Load more") } }
@@ -446,70 +478,143 @@ fun ThreadScreen(communityId: String, channelId: String, messageId: String, onBa
 
 // ------------------------------------------------------------------ shared pieces
 
+/** Width of the avatar column. Continuation rows keep the same gutter so text stays aligned down the whole run. */
+private val AvatarGutter: Dp = 36.dp
+
 @Composable
 private fun MessageRow(
     m: ChannelMessage, mine: Boolean, type: ChannelType, canReact: Boolean,
     onReact: (String) -> Unit, onMore: () -> Unit, onThread: (() -> Unit)?, onOpenStudent: (String) -> Unit,
     highlighted: Boolean = false, onVote: ((Int) -> Unit)? = null,
+    /** True when this message continues the one above it from the same author: no avatar or name, just a small time. */
+    continuation: Boolean = false,
+    /** Off in a thread, where every reply points at the root and a connector on each would only repeat it. */
+    showReplyHeader: Boolean = true,
+    onJumpToReply: ((String) -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().then(if (highlighted) Modifier.background(colors.primary.copy(alpha = 0.06f)) else Modifier)
-            .clickable(onClick = onMore).padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    val reply = if (showReplyHeader) m.replyTo else null
+    Column(
+        Modifier.fillMaxWidth().then(if (highlighted) Modifier.background(colors.primary.copy(alpha = 0.10f)) else Modifier).clickable(onClick = onMore),
     ) {
-        val a = m.author
-        Box(Modifier.clickable(enabled = a != null) { a?.let { onOpenStudent(it.id) } }) { StudentAvatar(a?.name ?: "?", size = 36.dp, accent = a?.accent ?: 0, imagePath = a?.avatarUrl) }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                VerifiedName(a?.name ?: "Deleted account", a?.verified == true, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
-                if (m.authorRole == "owner" || m.authorRole == "moderator") Surface(shape = RoundedCornerShape(6.dp), color = colors.primary.copy(alpha = 0.15f)) {
-                    Text(if (m.authorRole == "owner") "Owner" else "Mod", Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = colors.primary)
+        if (reply != null) ReplyHeader(reply, onJump = onJumpToReply?.let { jump -> { jump(reply.id) } })
+        Row(
+            Modifier.fillMaxWidth().padding(
+                start = Spacing.md, end = Spacing.md,
+                top = if (reply != null || continuation) 2.dp else Spacing.sm, bottom = 4.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            val a = m.author
+            if (continuation) {
+                Text(
+                    clockLabel(m.createdAt), Modifier.width(AvatarGutter).padding(top = 3.dp), style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant.copy(alpha = 0.8f), textAlign = TextAlign.Center, maxLines = 1, softWrap = false,
+                )
+            } else {
+                Box(Modifier.width(AvatarGutter).clickable(enabled = a != null) { a?.let { onOpenStudent(it.id) } }) {
+                    StudentAvatar(a?.name ?: "?", size = AvatarGutter, accent = a?.accent ?: 0, imagePath = a?.avatarUrl)
                 }
-                Text(timeLabel(m.createdAt) + if (m.edited && !m.deleted) " · edited" else "", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
-                if (m.pinned) Icon(VibeIcons.Pin, contentDescription = "Pinned", modifier = Modifier.size(14.dp), tint = colors.onSurfaceVariant)
             }
-            m.replyTo?.let { r ->
-                Surface(shape = RoundedCornerShape(8.dp), color = colors.surfaceVariant.copy(alpha = 0.5f)) {
-                    Text(
-                        if (r.deleted) "Original message deleted" else r.preview?.let { "↪ $it" } ?: "↪ Original message", Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!continuation) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    VerifiedName(a?.name ?: "Deleted account", a?.verified == true, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+                    if (m.authorRole == "owner" || m.authorRole == "moderator") Surface(shape = RoundedCornerShape(6.dp), color = colors.primary.copy(alpha = 0.15f)) {
+                        Text(if (m.authorRole == "owner") "Owner" else "Mod", Modifier.padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = colors.primary)
+                    }
+                    Text(timeLabel(m.createdAt), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                    if (m.pinned) Icon(VibeIcons.Pin, contentDescription = "Pinned", modifier = Modifier.size(14.dp), tint = colors.onSurfaceVariant)
+                }
+                if (m.deleted) {
+                    Text(if (m.removedByModerators) "Removed by moderators." else "This message was deleted.", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = colors.onSurfaceVariant)
+                } else {
+                    m.title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+                    if (!m.content.isNullOrBlank()) {
+                        val editedStyle = MaterialTheme.typography.labelSmall.toSpanStyle().copy(color = colors.onSurfaceVariant)
+                        Text(
+                            if (m.edited) buildAnnotatedString { append(m.content); withStyle(editedStyle) { append(" (edited)") } } else AnnotatedString(m.content),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    // The same poll component the feed uses. Without voting rights (read-only member) it shows the results.
+                    m.poll?.let { PostPoll(it, onVote = if (canReact) onVote else null) }
+                    m.attachments.forEach { f ->
+                        if (f.isImage && f.url != null) Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))) { PhotoImage(f.url, f.fileName ?: "Photo") }
+                        else Row(Modifier.clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant.copy(alpha = 0.5f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(VibeIcons.File, contentDescription = null, modifier = Modifier.size(18.dp)); Text(f.fileName ?: "File", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    val counts = CHANNEL_REACTIONS.filter { (m.reactions[it.first] ?: 0) > 0 }
+                    if (counts.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        counts.forEach { (key, emoji) ->
+                            val on = key in m.myReactions
+                            Surface(
+                                shape = RoundedCornerShape(12.dp), color = if (on) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.clickable(enabled = canReact) { onReact(key) },
+                            ) { Text("$emoji ${m.reactions[key]}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelMedium) }
+                        }
+                    }
+                    if (type == ChannelType.Qa && m.replyTo == null) Text(
+                        if (m.resolved) "Resolved" else "Unresolved", style = MaterialTheme.typography.labelMedium, color = if (m.resolved) colors.primary else colors.onSurfaceVariant,
+                    )
+                    if (m.isAcceptedAnswer) Text("Accepted answer", style = MaterialTheme.typography.labelMedium, color = colors.primary, fontWeight = FontWeight.SemiBold)
+                    if (onThread != null) Text(
+                        when { m.replyCount == 0 -> if (type == ChannelType.Qa) "Answer" else "Reply"; type == ChannelType.Qa -> "${m.replyCount} ${if (m.replyCount == 1) "answer" else "answers"}"; else -> "${m.replyCount} ${if (m.replyCount == 1) "reply" else "replies"}" },
+                        Modifier.clickable(onClick = onThread), style = MaterialTheme.typography.labelLarge, color = colors.primary,
                     )
                 }
             }
-            if (m.deleted) {
-                Text(if (m.removedByModerators) "Removed by moderators." else "This message was deleted.", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = colors.onSurfaceVariant)
-            } else {
-                m.title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                if (!m.content.isNullOrBlank()) Text(m.content, style = MaterialTheme.typography.bodyMedium)
-                // The same poll component the feed uses. Without voting rights (read-only member) it shows the results.
-                m.poll?.let { PostPoll(it, onVote = if (canReact) onVote else null) }
-                m.attachments.forEach { f ->
-                    if (f.isImage && f.url != null) Box(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))) { PhotoImage(f.url, f.fileName ?: "Photo") }
-                    else Row(Modifier.clip(RoundedCornerShape(10.dp)).background(colors.surfaceVariant.copy(alpha = 0.5f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(VibeIcons.File, contentDescription = null, modifier = Modifier.size(18.dp)); Text(f.fileName ?: "File", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                val counts = CHANNEL_REACTIONS.filter { (m.reactions[it.first] ?: 0) > 0 }
-                if (counts.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    counts.forEach { (key, emoji) ->
-                        val on = key in m.myReactions
-                        Surface(
-                            shape = RoundedCornerShape(12.dp), color = if (on) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.clickable(enabled = canReact) { onReact(key) },
-                        ) { Text("$emoji ${m.reactions[key]}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelMedium) }
-                    }
-                }
-                if (type == ChannelType.Qa && m.replyTo == null) Text(
-                    if (m.resolved) "Resolved" else "Unresolved", style = MaterialTheme.typography.labelMedium, color = if (m.resolved) colors.primary else colors.onSurfaceVariant,
-                )
-                if (m.isAcceptedAnswer) Text("Accepted answer", style = MaterialTheme.typography.labelMedium, color = colors.primary, fontWeight = FontWeight.SemiBold)
-                if (onThread != null) Text(
-                    when { m.replyCount == 0 -> if (type == ChannelType.Qa) "Answer" else "Reply"; type == ChannelType.Qa -> "${m.replyCount} ${if (m.replyCount == 1) "answer" else "answers"}"; else -> "${m.replyCount} ${if (m.replyCount == 1) "reply" else "replies"}" },
-                    Modifier.clickable(onClick = onThread), style = MaterialTheme.typography.labelLarge, color = colors.primary,
-                )
-            }
         }
+    }
+}
+
+/**
+ * The line above a reply, Discord style: a curve rising from the replying author's avatar, then running right to
+ * "@name  excerpt". Tapping it scrolls to the original when it is loaded. The excerpt and name come from the server,
+ * which already withholds them when the original's author is blocked, so nothing here can reveal hidden content.
+ */
+@Composable
+private fun ReplyHeader(r: ReplyPreview, onJump: (() -> Unit)?) {
+    val colors = MaterialTheme.colorScheme
+    val lineColor = colors.outline.copy(alpha = 0.7f)
+    val label = when {
+        r.deleted -> "Original message was deleted"
+        r.preview.isNullOrBlank() -> "Original message"
+        else -> r.preview
+    }
+    val spoken = "Reply to ${r.authorName ?: "a message"}: $label" + if (onJump != null) ". Double tap to jump to it." else ""
+    val topPad = 6.dp
+    val bottomPad = 4.dp
+    val reach = 2.dp // how far the line runs past this row so it meets the top of the avatar below
+    Row(
+        Modifier.fillMaxWidth()
+            .drawBehind {
+                val rtl = layoutDirection == LayoutDirection.Rtl
+                fun x(v: Float) = if (rtl) size.width - v else v
+                val stroke = 2.dp.toPx()
+                val radius = 8.dp.toPx()
+                val cx = (Spacing.md + AvatarGutter / 2).toPx()
+                val endX = (Spacing.md + AvatarGutter + Spacing.sm / 2).toPx()
+                val midY = (topPad.toPx() + (size.height - bottomPad.toPx())) / 2f
+                val path = Path().apply {
+                    moveTo(x(cx), size.height + reach.toPx())
+                    lineTo(x(cx), midY + radius)
+                    quadraticBezierTo(x(cx), midY, x(cx + radius), midY)
+                    lineTo(x(endX), midY)
+                }
+                drawPath(path, lineColor, style = Stroke(width = stroke, cap = StrokeCap.Round))
+            }
+            .then(if (onJump != null) Modifier.clickable(onClick = onJump) else Modifier)
+            .semantics(mergeDescendants = true) { contentDescription = spoken; if (onJump != null) role = Role.Button }
+            .padding(start = Spacing.md + AvatarGutter + Spacing.sm, end = Spacing.md, top = topPad, bottom = bottomPad),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        r.authorName?.let { Text("@$it", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = colors.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)) }
+        Text(
+            label, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+            fontStyle = if (r.deleted) FontStyle.Italic else FontStyle.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

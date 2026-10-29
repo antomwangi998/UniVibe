@@ -111,7 +111,8 @@ data class ChannelAttachment(val id: String, val kind: String, val url: String?,
     val isImage: Boolean get() = kind == "image"
 }
 
-data class ReplyPreview(val id: String, val preview: String?, val deleted: Boolean)
+/** [authorName] is null when the original's author is hidden from this viewer (blocked) or the account is gone. */
+data class ReplyPreview(val id: String, val preview: String?, val deleted: Boolean, val authorName: String? = null)
 
 data class ChannelMessage(
     val id: String,

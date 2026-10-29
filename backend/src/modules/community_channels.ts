@@ -58,7 +58,7 @@ interface MsgRow extends CardRow {
   id: string; channel_id: string; seq: string; author_id: string | null; title: string | null; content: string;
   status: 'active' | 'deleted' | 'removed'; created_at: Date; edited_at: Date | null; pinned_at: Date | null;
   accepted_answer_id: string | null; reply_to_id: string | null;
-  reply_status: string | null; reply_author_id: string | null; reply_content: string | null; reply_title: string | null; reply_hidden: boolean | null;
+  reply_status: string | null; reply_author_id: string | null; reply_author_name: string | null; reply_content: string | null; reply_title: string | null; reply_hidden: boolean | null;
   reply_count: number; is_accepted: boolean; author_role: string | null; cursorT: string;
   poll_options: string[] | null; poll_seconds_left: number | null; my_vote: number | null; vote_counts: Record<string, number> | null;
 }
@@ -71,7 +71,7 @@ const msgSelect = (viewer: string) => `
          (select v.option_index from community_channel_poll_votes v where v.message_id = m.id and v.user_id = ${viewer}) as my_vote,
          (select coalesce(json_object_agg(t.option_index, t.n), '{}'::json)
             from (select option_index, count(*)::int as n from community_channel_poll_votes where message_id = m.id group by option_index) t) as vote_counts,
-         r.status as reply_status, r.author_id as reply_author_id, left(r.content, 120) as reply_content, r.title as reply_title,
+         r.status as reply_status, r.author_id as reply_author_id, ru.full_name as reply_author_name, left(r.content, 120) as reply_content, r.title as reply_title,
          (r.id is not null and ${blockedBetween(viewer, 'r.author_id')}) as reply_hidden,
          (select count(*)::int from community_channel_messages x where x.reply_to_id = m.id and x.status = 'active') as reply_count,
          exists (select 1 from community_channel_messages q where q.id = m.reply_to_id and q.accepted_answer_id = m.id) as is_accepted,
@@ -80,6 +80,7 @@ const msgSelect = (viewer: string) => `
          ${CARD_COLUMNS}
     from community_channel_messages m
     left join community_channel_messages r on r.id = m.reply_to_id
+    left join users ru on ru.id = r.author_id
     left join users u on u.id = m.author_id ${CARD_JOIN}`;
 
 export interface ChannelMessageView {
@@ -88,7 +89,7 @@ export interface ChannelMessageView {
   title: string | null; content: string | null; deleted: boolean; removedByModerators: boolean;
   createdAt: Date; editedAt: Date | null; pinned: boolean; pinnedAt: Date | null;
   replyCount: number;
-  replyTo: { id: string; authorId: string | null; preview: string | null; deleted: boolean } | null;
+  replyTo: { id: string; authorId: string | null; /** Display name of the original's author, for the reply header. Null when hidden (blocked) or the account is gone. */ authorName: string | null; preview: string | null; deleted: boolean } | null;
   acceptedAnswerId: string | null; isAcceptedAnswer: boolean;
   /** Same shape as a feed poll, so the app renders both with one component. Null for ordinary messages. */
   poll: PollView | null;
@@ -131,7 +132,7 @@ async function presentMessages(ctx: Ctx, rows: MsgRow[], viewerId: string | null
       createdAt: r.created_at, editedAt: r.edited_at, pinned: !gone && r.pinned_at !== null, pinnedAt: gone ? null : r.pinned_at,
       replyCount: r.reply_count,
       replyTo: r.reply_to_id
-        ? { id: r.reply_to_id, authorId: r.reply_hidden ? null : r.reply_author_id, preview: replyVisible ? String(r.reply_title ?? r.reply_content ?? '').slice(0, 80) : null, deleted: r.reply_status !== null && r.reply_status !== 'active' }
+        ? { id: r.reply_to_id, authorId: r.reply_hidden ? null : r.reply_author_id, authorName: r.reply_hidden ? null : r.reply_author_name, preview: replyVisible ? String(r.reply_title ?? r.reply_content ?? '').slice(0, 80) : null, deleted: r.reply_status !== null && r.reply_status !== 'active' }
         : null,
       acceptedAnswerId: gone ? null : r.accepted_answer_id, isAcceptedAnswer: !gone && r.is_accepted,
       poll: gone || !r.poll_options ? null : pollView(r.poll_options, r.poll_seconds_left, viewerId ? r.my_vote : null, r.vote_counts),
