@@ -9,6 +9,7 @@ import com.univibe.app.data.model.ChannelDraft
 import com.univibe.app.data.model.ChannelMessage
 import com.univibe.app.data.model.ChannelType
 import com.univibe.app.data.model.PollDraft
+import com.univibe.app.data.model.withReactionToggled
 import com.univibe.app.data.model.MembershipState
 import com.univibe.app.data.model.latestSeq
 import com.univibe.app.data.model.tombstoned
@@ -358,14 +359,30 @@ class ChannelViewModel(
 
     // ---------- message actions
 
+    /** "messageId:reaction" pairs whose request is still running. Touched only on the main thread. */
+    private val reacting = HashSet<String>()
+
+    /**
+     * Adds or removes this student's reaction. The chip answers at once (optimistic), a second tap on the same chip is
+     * ignored until the first request finishes, the server's counts then replace the guess, and a failure puts back
+     * exactly what was there before. Whether it is an add or a remove is decided from the current state, not from the
+     * message the menu was opened on, which may be stale.
+     */
     fun toggleReaction(m: ChannelMessage, reaction: String) {
-        val on = reaction !in m.myReactions
+        val before = _state.value.messages.firstOrNull { it.id == m.id } ?: return
+        val key = "${m.id}:$reaction"
+        if (before.deleted || !reacting.add(key)) return
+        val on = reaction !in before.myReactions
+        _state.update { st -> st.copy(messages = st.messages.map { if (it.id == m.id) it.withReactionToggled(reaction, on) else it }) }
         viewModelScope.launch {
             try {
                 val r = repository.react(communityId, channelId, m.id, reaction, on)
-                _state.update { it.copy(messages = it.messages.map { x -> if (x.id == m.id) x.copy(reactions = r.reactions, myReactions = r.mine) else x }) }
+                _state.update { st -> st.copy(messages = st.messages.map { if (it.id == m.id) it.copy(reactions = r.reactions, myReactions = r.mine) else it }) }
             } catch (e: Exception) {
+                _state.update { st -> st.copy(messages = st.messages.map { if (it.id == m.id) it.copy(reactions = before.reactions, myReactions = before.myReactions) else it }) }
                 if (e.lostAccess()) _state.update { it.copy(accessLost = true) } else _state.update { it.copy(notice = e.userText()) }
+            } finally {
+                reacting.remove(key)
             }
         }
     }
@@ -580,14 +597,29 @@ class ThreadViewModel(
         }
     }
 
+    private val reacting = HashSet<String>()
+
+    /** Same rules as in the channel: optimistic, one request per chip at a time, server counts win, failure restores. */
     fun toggleReaction(m: ChannelMessage, reaction: String) {
-        val on = reaction !in m.myReactions
+        val st0 = _state.value
+        val before = (listOfNotNull(st0.root) + st0.replies).firstOrNull { it.id == m.id } ?: return
+        val key = "${m.id}:$reaction"
+        if (before.deleted || !reacting.add(key)) return
+        val on = reaction !in before.myReactions
+        fun edit(change: (ChannelMessage) -> ChannelMessage) = _state.update { st ->
+            st.copy(root = st.root?.let { x -> if (x.id == m.id) change(x) else x }, replies = st.replies.map { x -> if (x.id == m.id) change(x) else x })
+        }
+        edit { it.withReactionToggled(reaction, on) }
         viewModelScope.launch {
             try {
                 val r = repository.react(communityId, channelId, m.id, reaction, on)
-                val apply = { x: ChannelMessage -> if (x.id == m.id) x.copy(reactions = r.reactions, myReactions = r.mine) else x }
-                _state.update { it.copy(root = it.root?.let(apply), replies = it.replies.map(apply)) }
-            } catch (e: Exception) { if (e.lostAccess()) _state.update { it.copy(accessLost = true) } else _state.update { it.copy(notice = e.userText()) } }
+                edit { it.copy(reactions = r.reactions, myReactions = r.mine) }
+            } catch (e: Exception) {
+                edit { it.copy(reactions = before.reactions, myReactions = before.myReactions) }
+                if (e.lostAccess()) _state.update { it.copy(accessLost = true) } else _state.update { it.copy(notice = e.userText()) }
+            } finally {
+                reacting.remove(key)
+            }
         }
     }
 

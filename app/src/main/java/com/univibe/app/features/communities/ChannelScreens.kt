@@ -1,11 +1,16 @@
 package com.univibe.app.features.communities
 
+import android.content.Context
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +25,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -28,6 +34,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +54,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -119,6 +129,16 @@ private fun timeLabel(iso: String): String = runCatching {
     val t = OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault())
     if (t.toLocalDate() == LocalDate.now()) t.format(DateTimeFormatter.ofPattern("HH:mm")) else t.format(DateTimeFormatter.ofPattern("d MMM"))
 }.getOrDefault("")
+
+/** What "Copy text" puts on the clipboard: the title (if any) and the text. Null for a deleted message or one with only files. */
+private fun ChannelMessage.copyableText(): String? =
+    if (deleted) null else listOfNotNull(title, content).filter { it.isNotBlank() }.joinToString("\n").ifBlank { null }
+
+private fun copyMessageText(clipboard: ClipboardManager, context: Context, text: String) {
+    clipboard.setText(AnnotatedString(text))
+    // From Android 13 the system shows its own "copied" confirmation; earlier versions show nothing.
+    if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+}
 
 /** "14:05" in the phone's time zone: the small timestamp beside a message that continues an earlier one. */
 private fun clockLabel(iso: String): String = runCatching {
@@ -229,6 +249,7 @@ fun ChannelScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val clipboard = LocalClipboardManager.current
     var menuFor by remember { mutableStateOf<ChannelMessage?>(null) }
     var reportFor by remember { mutableStateOf<ChannelMessage?>(null) }
     var deleteFor by remember { mutableStateOf<ChannelMessage?>(null) }
@@ -328,6 +349,7 @@ fun ChannelScreen(
             onEdit = { viewModel.startEdit(m); menuFor = null },
             onDelete = { deleteFor = m; menuFor = null },
             onReport = { reportFor = m; menuFor = null },
+            onCopy = m.copyableText()?.let { text -> { copyMessageText(clipboard, context, text); menuFor = null } },
             onAccept = null,
         )
     }
@@ -348,7 +370,7 @@ fun ChannelScreen(
             Text("Pinned messages", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = Spacing.sm))
             if (pins.isEmpty()) Text("Nothing is pinned in this channel.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-                pins.forEach { MessageRow(it, mine = it.author?.id == myId, type = channel?.type ?: ChannelType.Text, canReact = false, onReact = {}, onMore = { menuFor = it; viewModel.showPins(false) }, onThread = null, onOpenStudent = onOpenStudent) }
+                pins.forEach { MessageRow(it, mine = it.author?.id == myId, type = channel?.type ?: ChannelType.Text, canReact = false, onReact = {}, onMore = { menuFor = it; viewModel.showPins(false) }, onThread = null, onOpenStudent = onOpenStudent, tapOpensMenu = true) }
             }
         }
     }
@@ -386,7 +408,7 @@ private fun SearchPanel(
             results.isEmpty() -> EmptyState(VibeIcons.Search, "No matches", "Try different words.")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(results, key = { it.id }) { m ->
-                    MessageRow(m, mine = m.author?.id == myId, type = ChannelType.Text, canReact = false, onReact = {}, onMore = { onOpen(m) }, onThread = null, onOpenStudent = onOpenStudent)
+                    MessageRow(m, mine = m.author?.id == myId, type = ChannelType.Text, canReact = false, onReact = {}, onMore = { onOpen(m) }, onThread = null, onOpenStudent = onOpenStudent, tapOpensMenu = true)
                 }
             }
         }
@@ -401,6 +423,7 @@ fun ThreadScreen(communityId: String, channelId: String, messageId: String, onBa
     val s by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     var menuFor by remember { mutableStateOf<ChannelMessage?>(null) }
     var reportFor by remember { mutableStateOf<ChannelMessage?>(null) }
     var deleteFor by remember { mutableStateOf<ChannelMessage?>(null) }
@@ -458,6 +481,7 @@ fun ThreadScreen(communityId: String, channelId: String, messageId: String, onBa
             onDismiss = { menuFor = null }, onReact = { viewModel.toggleReaction(m, it); menuFor = null },
             onReply = null, onThread = null, onPin = null, onEdit = null,
             onDelete = { deleteFor = m; menuFor = null }, onReport = { reportFor = m; menuFor = null },
+            onCopy = m.copyableText()?.let { text -> { copyMessageText(clipboard, context, text); menuFor = null } },
             onAccept = if (canAccept) ({ viewModel.accept(if (root?.acceptedAnswerId == m.id) null else m.id); menuFor = null }) else null,
             acceptLabel = if (root?.acceptedAnswerId == m.id) "Remove accepted mark" else "Mark as accepted answer",
         )
@@ -481,6 +505,7 @@ fun ThreadScreen(communityId: String, channelId: String, messageId: String, onBa
 /** Width of the avatar column. Continuation rows keep the same gutter so text stays aligned down the whole run. */
 private val AvatarGutter: Dp = 36.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(
     m: ChannelMessage, mine: Boolean, type: ChannelType, canReact: Boolean,
@@ -491,11 +516,13 @@ private fun MessageRow(
     /** Off in a thread, where every reply points at the root and a connector on each would only repeat it. */
     showReplyHeader: Boolean = true,
     onJumpToReply: ((String) -> Unit)? = null,
+    /** Pins and search results have nothing else to do on a tap, so there a tap opens the menu too. */
+    tapOpensMenu: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val reply = if (showReplyHeader) m.replyTo else null
     Column(
-        Modifier.fillMaxWidth().then(if (highlighted) Modifier.background(colors.primary.copy(alpha = 0.10f)) else Modifier).clickable(onClick = onMore),
+        Modifier.fillMaxWidth().then(if (highlighted) Modifier.background(colors.primary.copy(alpha = 0.10f)) else Modifier).combinedClickable(onClick = { if (tapOpensMenu) onMore() }, onLongClick = onMore, onLongClickLabel = "Message actions"),
     ) {
         if (reply != null) ReplyHeader(reply, onJump = onJumpToReply?.let { jump -> { jump(reply.id) } })
         Row(
@@ -545,14 +572,15 @@ private fun MessageRow(
                         }
                     }
                     val counts = CHANNEL_REACTIONS.filter { (m.reactions[it.first] ?: 0) > 0 }
-                    if (counts.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (counts.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         counts.forEach { (key, emoji) ->
-                            val on = key in m.myReactions
-                            Surface(
-                                shape = RoundedCornerShape(12.dp), color = if (on) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.clickable(enabled = canReact) { onReact(key) },
-                            ) { Text("$emoji ${m.reactions[key]}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelMedium) }
+                            ReactionChip(emoji, m.reactions[key] ?: 0, selected = key in m.myReactions, enabled = canReact, onClick = { onReact(key) })
                         }
+                        // "Add reaction" opens the same menu, whose first row is the quick-reaction picker.
+                        if (canReact) Surface(
+                            shape = RoundedCornerShape(12.dp), color = colors.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.semantics { contentDescription = "Add reaction"; role = Role.Button }.clickable(onClick = onMore),
+                        ) { Box(Modifier.heightIn(min = 32.dp).widthIn(min = 40.dp), contentAlignment = Alignment.Center) { Icon(VibeIcons.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.onSurfaceVariant) } }
                     }
                     if (type == ChannelType.Qa && m.replyTo == null) Text(
                         if (m.resolved) "Resolved" else "Unresolved", style = MaterialTheme.typography.labelMedium, color = if (m.resolved) colors.primary else colors.onSurfaceVariant,
@@ -564,6 +592,23 @@ private fun MessageRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/** One reaction: emoji and count, tinted with a teal outline when it is mine. The tint eases in and out instead of jumping. */
+@Composable
+private fun ReactionChip(emoji: String, count: Int, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val background by animateColorAsState(if (selected) colors.primary.copy(alpha = 0.18f) else colors.surfaceVariant.copy(alpha = 0.6f), label = "reactionBackground")
+    val spoken = "$emoji, $count ${if (count == 1) "reaction" else "reactions"}" + if (selected) ", including yours" else ""
+    Surface(
+        shape = RoundedCornerShape(12.dp), color = background,
+        border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = 0.6f) else Color.Transparent),
+        modifier = Modifier.semantics { contentDescription = spoken; role = Role.Button }.clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Box(Modifier.heightIn(min = 32.dp).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+            Text("$emoji $count", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -682,6 +727,8 @@ private fun MessageSheet(
     m: ChannelMessage, access: ChannelAccess, mine: Boolean, type: ChannelType, onDismiss: () -> Unit,
     onReact: (String) -> Unit, onReply: (() -> Unit)?, onThread: (() -> Unit)?, onPin: (() -> Unit)?, onEdit: (() -> Unit)?,
     onDelete: () -> Unit, onReport: () -> Unit, onAccept: (() -> Unit)?, acceptLabel: String = "Mark as accepted answer",
+    /** Copies the message text on this phone. Null when there is no text to copy. */
+    onCopy: (() -> Unit)? = null,
 ) {
     VibeBottomSheet(onDismiss = onDismiss) {
         if (m.deleted) { Text("This message was deleted.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Spacing.md)); return@VibeBottomSheet }
@@ -693,6 +740,7 @@ private fun MessageSheet(
             }
         }
         if (onReply != null && access.reply) SheetRow(VibeIcons.Reply, "Reply", false, onReply)
+        if (onCopy != null) SheetRow(VibeIcons.Copy, "Copy text", false, onCopy)
         if (onThread != null && (m.replyCount > 0 || type.threadedTimeline)) SheetRow(VibeIcons.Comment, if (type == ChannelType.Qa) "View answers" else "View thread", false, onThread)
         if (onAccept != null) SheetRow(VibeIcons.Check, acceptLabel, false, onAccept)
         if (onPin != null && access.pin) SheetRow(VibeIcons.Pin, if (m.pinned) "Unpin" else "Pin", false, onPin)

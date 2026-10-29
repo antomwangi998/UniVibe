@@ -199,5 +199,19 @@ fun List<ChannelMessage>.withReaction(messageId: String, userId: String, reactio
     )
 }
 
+/**
+ * The optimistic result of this student adding or removing [reaction]: their own mark flips and the count moves by one.
+ * A no-op when it already matches (so a double tap cannot count twice) and for deleted messages. The server's counts
+ * replace this as soon as the response (or the socket event) arrives; it only exists so the chip answers at once.
+ */
+fun ChannelMessage.withReactionToggled(reaction: String, on: Boolean): ChannelMessage {
+    if (deleted || (reaction in myReactions) == on) return this
+    val n = (reactions[reaction] ?: 0) + if (on) 1 else -1
+    return copy(
+        reactions = if (n <= 0) reactions - reaction else reactions + (reaction to n),
+        myReactions = if (on) myReactions + reaction else myReactions - reaction,
+    )
+}
+
 /** The highest message number held, for "everything after this" catch-up. */
 fun List<ChannelMessage>.latestSeq(): Long = maxOfOrNull { it.seq } ?: 0L

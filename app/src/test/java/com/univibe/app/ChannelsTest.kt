@@ -27,6 +27,7 @@ import com.univibe.app.data.repository.ThreadPage
 import com.univibe.app.data.repository.parseChannelMessage
 import com.univibe.app.data.model.MessagePage
 import com.univibe.app.features.communities.ChannelViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -186,7 +187,16 @@ class ChannelViewModelTest {
         }
         override suspend fun edit(communityId: String, channelId: String, messageId: String, title: String?, content: String) = msg(messageId, 1, content)
         override suspend fun delete(communityId: String, channelId: String, messageId: String) = Unit
-        override suspend fun react(communityId: String, channelId: String, messageId: String, reaction: String, on: Boolean) = ReactionState(mapOf(reaction to if (on) 1 else 0), if (on) setOf(reaction) else emptySet())
+        val reacts = mutableListOf<Pair<String, Boolean>>()
+        var reactError: Throwable? = null
+        /** While set, react() waits here, so a test can look at the screen while the request is still in flight. */
+        var reactGate: CompletableDeferred<Unit>? = null
+        override suspend fun react(communityId: String, channelId: String, messageId: String, reaction: String, on: Boolean): ReactionState {
+            reacts += reaction to on
+            reactGate?.await()
+            reactError?.let { throw it }
+            return ReactionState(mapOf(reaction to if (on) 1 else 0), if (on) setOf(reaction) else emptySet())
+        }
         override suspend fun pin(communityId: String, channelId: String, messageId: String, on: Boolean) = msg(messageId, 1)
         override suspend fun pins(communityId: String, channelId: String) = emptyList<ChannelMessage>()
         override suspend fun thread(communityId: String, channelId: String, messageId: String, cursor: String?) = ThreadPage(msg(messageId, 1), emptyList(), null)
@@ -354,5 +364,46 @@ class ChannelViewModelTest {
         assertEquals(listOf("Friday", "Saturday"), sent.poll?.options)
         assertEquals(24, sent.poll?.durationHours)
         assertNull(sent.replyToId)
+    }
+
+    @Test fun `a reaction shows at once, then the server's count replaces the guess`() {
+        val repo = FakeChannels().apply { history = listOf(msg("a", 1)); reactGate = CompletableDeferred() }
+        val vm = ChannelViewModel("k", "ch", repo)
+        vm.toggleReaction(vm.state.value.messages[0], "heart")
+        // The request has not finished, yet the chip is already there and marked as mine.
+        assertEquals(1, vm.state.value.messages[0].reactions["heart"]); assertTrue("heart" in vm.state.value.messages[0].myReactions)
+        repo.reactGate!!.complete(Unit)
+        assertEquals(1, vm.state.value.messages[0].reactions["heart"]); assertEquals(setOf("heart"), vm.state.value.messages[0].myReactions)
+    }
+
+    @Test fun `tapping the same reaction while it is still sending sends it once`() {
+        val repo = FakeChannels().apply { history = listOf(msg("a", 1)); reactGate = CompletableDeferred() }
+        val vm = ChannelViewModel("k", "ch", repo)
+        val m = vm.state.value.messages[0]
+        vm.toggleReaction(m, "heart"); vm.toggleReaction(m, "heart"); vm.toggleReaction(m, "heart")
+        assertEquals(1, repo.reacts.size)
+        repo.reactGate!!.complete(Unit)
+        // Once it has finished, the next tap is a real second action: it removes the reaction.
+        repo.reactGate = null
+        vm.toggleReaction(vm.state.value.messages[0], "heart")
+        assertEquals(listOf("heart" to true, "heart" to false), repo.reacts)
+    }
+
+    @Test fun `a failed reaction puts the message back as it was and says so`() {
+        val repo = FakeChannels().apply { history = listOf(msg("a", 1, reactions = mapOf("fire" to 1))); reactError = IOException("offline") }
+        val vm = ChannelViewModel("k", "ch", repo)
+        vm.toggleReaction(vm.state.value.messages[0], "heart")
+        val after = vm.state.value.messages[0]
+        assertEquals(mapOf("fire" to 1), after.reactions); assertTrue(after.myReactions.isEmpty())
+        assertTrue(vm.state.value.notice != null)
+    }
+
+    @Test fun `a failed reaction can be tried again`() {
+        val repo = FakeChannels().apply { history = listOf(msg("a", 1)); reactError = IOException("offline") }
+        val vm = ChannelViewModel("k", "ch", repo)
+        vm.toggleReaction(vm.state.value.messages[0], "heart")
+        repo.reactError = null
+        vm.toggleReaction(vm.state.value.messages[0], "heart")
+        assertEquals(2, repo.reacts.size); assertEquals(setOf("heart"), vm.state.value.messages[0].myReactions)
     }
 }
