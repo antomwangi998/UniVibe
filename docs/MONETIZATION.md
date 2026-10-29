@@ -132,3 +132,11 @@ Entry: Settings (searchable as "UniVibe Premium") opens route `premium`. Code: `
 - Subscribe creates an order (price from the server, one idempotency key per attempt) and shows the till, amount and reference. "I have paid" only records the receipt claim and says Premium starts after confirmation. A waiting order in the history can be resumed with "Enter receipt code".
 - No sample data: the offline demo shows "needs a connection" (`NoPremiumRepository`).
 - Not built: Profile entry point, actual Premium features, business subscription screens, cached entitlement use by other screens. Tests: `PremiumLogicTest` (wording and comparison rows) has not run; Gradle was not available.
+
+## Premium chat themes (first working Premium feature) - written, NOT compiled or run
+- **What it is:** six Premium packs (Aurora Live, Neon Nights, Golden Hour, Starfield, Rainy Window, Sakura). Each sets an accent for my bubbles and an animated wallpaper together. They sit beside the existing free themes and wallpapers, which are unchanged. Chat menu > Theme and wallpaper > "Premium packs".
+- **Gate:** entitlement key `premium.chat_themes`. The app holds the server's answer in memory only (`EntitlementsStore`, refreshed at most once a minute when a chat opens or the Premium screen loads, cleared on sign-out). Nothing is stored on disk, so editing local preferences grants nothing. If the plan ends, or the server cannot be reached, a stored Premium look shows the free default and the sheet says it is paused; the choice comes back with Premium.
+- **Honest limit:** these looks are visible only to the person who picked them, on their own phone. The server decides whether the person is entitled, but it cannot stop a modified app from drawing the animation locally. That is acceptable for a private cosmetic; anything other people see (profile themes) must be enforced by the server.
+- **Performance:** plain Canvas drawing, no assets. Holds still on Reduce motion and on low-memory phones (glass off). Time is read while drawing only, so the chat does not recompose per frame.
+- **Migration 057:** plans now list only `premium.chat_themes`; the business plan lists nothing. Keys return one migration per shipped feature.
+- **Tests (not run):** `PremiumChatThemesTest`.
