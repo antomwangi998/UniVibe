@@ -140,3 +140,12 @@ Entry: Settings (searchable as "UniVibe Premium") opens route `premium`. Code: `
 - **Performance:** plain Canvas drawing, no assets. Holds still on Reduce motion and on low-memory phones (glass off). Time is read while drawing only, so the chat does not recompose per frame.
 - **Migration 057:** plans now list only `premium.chat_themes`; the business plan lists nothing. Keys return one migration per shipped feature.
 - **Tests (not run):** `PremiumChatThemesTest`.
+
+## Premium profile looks (visible to other students) - written, NOT compiled; backend rules tested with a stand-in runner
+- **What:** a theme (cover gradient and artwork), an accent colour, an avatar frame and a small badge. Every choice comes from a fixed list or a #RRGGBB colour, so there is no free text: nothing can carry an insult, a link or a fake "verified" mark. Badges show their words ("Night owl") and look nothing like the verified student mark.
+- **Server is the authority:** migration `058_profile_looks.sql` adds `profile_looks`. `PUT /me/profile-look` refuses anything not unlocked right now (theme, accent, badge need `premium.profile_themes`; a frame needs `premium.profile_frames`); clearing is always allowed. `GET /me/profile-look` returns the saved look, what is shown, and what is unlocked.
+- **Others see it:** `GET /students/:id` now includes `look`, computed per request from the owner's live entitlements. When the owner's Premium ends the look stops showing at once, stays saved, and returns when Premium does. Existing visibility rules (blocks, suspended students, campus rules) are untouched: the look rides on the same route.
+- **Android:** rendered on the full student profile and on my own profile tab (cover gradient and artwork, rim colour, avatar frame, badge chip). Editor at Settings > Profile look (also reachable from the Premium screen): live preview, free to try; Save needs the unlocked parts and the server checks again.
+- **Scope limit:** the look shows on profile screens only. It is not yet on post author rows, comments or lists, which keeps those lists fast and the change reviewable.
+- **Plans:** 058 lists `premium.profile_themes` and `premium.profile_frames` on the personal plans beside chat themes. Plans stay inactive until staff switch one on.
+- **Tests:** `test/profile-look.test.ts` (16, passed under a stand-in runner), `ProfileLookTest` (Android, not run). The Android ids test must stay equal to the server lists.
