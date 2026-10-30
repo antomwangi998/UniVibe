@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysLeft, effectiveEntitlements, isEntitlementKey, nextPeriod, type PeriodRow } from '../src/modules/monetization/entitlements';
+import { coverageEnd, daysLeft, effectiveEntitlements, isEntitlementKey, nextPeriod, type PeriodRow } from '../src/modules/monetization/entitlements';
 
 const D = (s: string) => new Date(`${s}T00:00:00Z`);
 const row = (over: Partial<PeriodRow> = {}): PeriodRow => ({ status: 'active', period_start: D('2026-10-01'), period_end: D('2026-11-01'), entitlements: ['premium.chat_themes'], ...over });
@@ -40,4 +40,11 @@ describe('applySwitches (staff kill switches)', () => {
   it('removes only the switched-off keys', () => expect(applySwitches(['premium.chat_themes', 'premium.profile_themes'], ['premium.chat_themes'])).toEqual(['premium.profile_themes']));
   it('leaves everything when nothing is off', () => expect(applySwitches(['premium.chat_themes'], [])).toEqual(['premium.chat_themes']));
   it('switching off a key nobody has changes nothing', () => expect(applySwitches(['premium.chat_themes'], ['business.offers'])).toEqual(['premium.chat_themes']));
+});
+
+describe('coverageEnd (days already paid for, including queued periods)', () => {
+  it('counts a queued period behind the running one', () => expect(coverageEnd([row(), row({ period_start: D('2026-11-01'), period_end: D('2026-12-01') })], now)).toEqual(D('2026-12-01')));
+  it('is null when nothing is live', () => expect(coverageEnd([row({ period_end: D('2026-10-10') })], now)).toBe(null));
+  it('is null when only a future period exists', () => expect(coverageEnd([row({ period_start: D('2026-11-01'), period_end: D('2026-12-01') })], now)).toBe(null));
+  it('ignores a refunded period', () => expect(coverageEnd([row({ status: 'refunded' })], now)).toBe(null));
 });

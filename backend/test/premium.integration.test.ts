@@ -145,8 +145,8 @@ describe.skipIf(!url)('premium subscriptions (needs TEST_DATABASE_URL)', () => {
     expect((await call('POST', '/posts', plain.token, { text: 'hello from free' })).status).toBe(201);
     const feed = await call('GET', '/posts', viewer.token);
     expect(feed.status).toBe(200);
-    const mine = feed.body.items.find((p: { author: { id: string } }) => p.author.id === premium.id);
-    const theirs = feed.body.items.find((p: { author: { id: string } }) => p.author.id === plain.id);
+    const mine = feed.body.find((p: { author: { id: string } }) => p.author.id === premium.id);
+    const theirs = feed.body.find((p: { author: { id: string } }) => p.author.id === plain.id);
     expect(mine.author.look).toMatchObject({ theme: 'bloom', frame: 'halo' });
     expect(theirs.author.look ?? null).toBeNull();
   });
