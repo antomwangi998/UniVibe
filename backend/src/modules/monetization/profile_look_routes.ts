@@ -39,7 +39,7 @@ export function profileLookRoutes(ctx: Ctx) {
       const v = validateLook(req.body ?? {});
       if (!v.ok) throw new HttpError(422, 'validation', v.error);
       const keys = await userEntitlements(pool, me.id);
-      if (keysNeeded(v.look).some((k) => !keys.includes(k))) throw new HttpError(403, 'premium_required', 'These options need UniVibe Premium.');
+      if (keysNeeded(v.look).some((k) => !(keys as string[]).includes(k))) throw new HttpError(403, 'premium_required', 'These options need UniVibe Premium.');
       const l = v.look;
       if (!l.theme && !l.accent && !l.frame && !l.badge) await pool.query('delete from profile_looks where user_id = $1', [me.id]);
       else await pool.query(
