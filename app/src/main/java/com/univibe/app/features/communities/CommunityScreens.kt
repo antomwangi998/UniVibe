@@ -255,7 +255,7 @@ fun CommunityDetailScreen(
             Row(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, imagePath = m.student.avatarUrl, look = m.student.look)
                 Column(Modifier.padding(start = Spacing.md)) {
-                    VerifiedName(m.student.name, m.student.verified, style = MaterialTheme.typography.titleMedium)
+                    VerifiedName(m.student.name, m.student.verified, look = m.student.look, style = MaterialTheme.typography.titleMedium)
                     Text(m.role.name, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
             }
@@ -344,7 +344,7 @@ private fun CommunityPostRow(p: Post, onOpenComments: (String) -> Unit, onOpenSt
         Row(verticalAlignment = Alignment.CenterVertically) {
             StudentAvatar(p.author.name, size = 36.dp, accent = p.author.accent, imagePath = p.author.avatarUrl, look = p.author.look, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(p.author.id) })
             Column(Modifier.padding(start = Spacing.sm + 4.dp)) {
-                VerifiedName(p.author.name, p.author.verified, style = MaterialTheme.typography.titleSmall)
+                VerifiedName(p.author.name, p.author.verified, look = p.author.look, style = MaterialTheme.typography.titleSmall)
                 Text(p.timeAgo, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
@@ -398,7 +398,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTab(
             ) {
                 StudentAvatar(m.student.name, size = 44.dp, accent = m.student.accent, online = m.student.online, imagePath = m.student.avatarUrl, look = m.student.look)
                 Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
-                    VerifiedName(if (m.isMe) "${m.student.name} (you)" else m.student.name, m.student.verified, style = MaterialTheme.typography.titleSmall)
+                    VerifiedName(if (m.isMe) "${m.student.name} (you)" else m.student.name, m.student.verified, look = m.student.look, style = MaterialTheme.typography.titleSmall)
                     Text("${m.student.courseLine}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (m.role == CommunityRole.Owner || m.role == CommunityRole.Moderator) {

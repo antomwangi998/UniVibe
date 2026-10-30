@@ -483,7 +483,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                         else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl, look = chat.look)
                     }
                     Column(Modifier.weight(1f).padding(start = Spacing.sm + 2.dp)) {
-                        VerifiedName(s.title, chat.verified && !chat.isGroup, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        VerifiedName(s.title, chat.verified && !chat.isGroup, look = chat.look, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         // "Online", or when they were last active. Nothing at all (never "Offline") when they keep it private.
                         val status = when {
                             s.typing -> if (chat.isGroup) "Someone is typing…" else "typing…"

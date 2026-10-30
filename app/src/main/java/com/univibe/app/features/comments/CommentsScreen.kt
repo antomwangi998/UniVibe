@@ -124,7 +124,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                                 Row(verticalAlignment = Alignment.Top) {
                                     StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl, look = post.author.look, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(post.author.id) })
                                     Column(Modifier.weight(1f).padding(start = Spacing.sm + 4.dp)) {
-                                        VerifiedName(post.author.name, post.author.verified, style = MaterialTheme.typography.titleSmall)
+                                        VerifiedName(post.author.name, post.author.verified, look = post.author.look, style = MaterialTheme.typography.titleSmall)
                                         Text(post.text, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
@@ -268,7 +268,7 @@ private fun CommentRow(c: Comment, isReply: Boolean, onLike: () -> Unit, onReply
         StudentAvatar(c.author.name, size = avatar, accent = c.author.accent, imagePath = c.author.avatarUrl, look = c.author.look, modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthor))
         Column(Modifier.weight(1f).padding(start = Spacing.sm + 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                VerifiedName(c.author.name, c.author.verified, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+                VerifiedName(c.author.name, c.author.verified, look = c.author.look, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
                 com.univibe.app.features.profile.BadgeGlyph(c.author.look?.badge, Modifier.padding(start = 4.dp))
                 if (c.isPostAuthor) {
                     Surface(shape = CircleShape, color = colors.primaryContainer, contentColor = colors.onPrimaryContainer, modifier = Modifier.padding(start = 6.dp)) {

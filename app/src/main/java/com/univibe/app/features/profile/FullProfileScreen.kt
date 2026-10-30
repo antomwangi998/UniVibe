@@ -65,7 +65,7 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.StudentAvatar
-import com.univibe.app.ui.components.VerifiedBadge
+import com.univibe.app.ui.components.VerifiedName
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeButtonStyle
@@ -133,15 +133,12 @@ fun FullProfileScreen(
                                         contentAlignment = Alignment.Center,
                                     ) { StudentAvatar(student.name, size = 104.dp, accent = student.accent, imagePath = student.avatarUrl, look = student.look) }
                                 }
-                                // Only when the server says this student is verified.
-                                if (student.verified) {
-                                    VerifiedBadge(size = 30.dp, ringColor = MaterialTheme.colorScheme.background, modifier = Modifier.align(Alignment.TopStart).padding(start = 84.dp, top = 84.dp))
-                                }
                             }
                         },
                     )
                     Spacer(Modifier.height(64.dp))
-                    Text(student.name, style = MaterialTheme.typography.headlineSmall)
+                    // The seal sits beside the name (only when the server says verified) and takes the look's accent.
+                    VerifiedName(student.name, student.verified, style = MaterialTheme.typography.headlineSmall, badgeSize = 22.dp, look = profile.look)
                     Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                     ProfileBadgeChip(profile.look?.badge, lookAccent(profile.look, colors.primary), Modifier.padding(top = Spacing.xs))
                     Text(

@@ -113,7 +113,7 @@ fun ProfileIdentity(student: Student, look: com.univibe.app.data.model.ProfileLo
             // Verification comes from the server's student-verified flag (set in ProfileViewModel), never from sample data.
             if (student.verified) {
                 Spacer(Modifier.width(6.dp))
-                VerifiedBadge(size = 20.dp, ringColor = t.background)
+                VerifiedBadge(size = 20.dp, ringColor = t.background, tint = badgeTint(look))
             }
         }
         Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = t.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)

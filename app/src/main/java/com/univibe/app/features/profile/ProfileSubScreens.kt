@@ -246,7 +246,7 @@ fun FollowListScreen(kind: FollowKind, onBack: () -> Unit, studentId: String? = 
                         ) {
                             StudentAvatar(entry.student.name, size = 48.dp, accent = entry.student.accent, online = entry.student.online, imagePath = entry.student.avatarUrl, look = entry.student.look)
                             Column(Modifier.weight(1f).padding(horizontal = Spacing.md)) {
-                                VerifiedName(entry.student.name, entry.student.verified, style = MaterialTheme.typography.titleSmall)
+                                VerifiedName(entry.student.name, entry.student.verified, look = entry.student.look, style = MaterialTheme.typography.titleSmall)
                                 Text(entry.student.course.ifBlank { entry.student.handle }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (!entry.isMe) FollowButton(entry.isFollowing, { viewModel.toggle(entry.student.id) }, compact = true)
@@ -295,7 +295,7 @@ fun StudentProfileScreen(studentId: String, onBack: () -> Unit, onOpenChat: (Str
                         }
                         Column(Modifier.offset(y = (-40).dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                VerifiedName(student.name, student.verified, style = MaterialTheme.typography.headlineSmall, badgeSize = 22.dp)
+                                VerifiedName(student.name, student.verified, look = student.look, style = MaterialTheme.typography.headlineSmall, badgeSize = 22.dp)
                             }
                             Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(

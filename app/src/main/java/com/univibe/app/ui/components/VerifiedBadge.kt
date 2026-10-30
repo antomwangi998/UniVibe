@@ -38,10 +38,12 @@ fun VerifiedBadge(
     modifier: Modifier = Modifier,
     size: Dp = 16.dp,
     ringColor: Color = Color.Unspecified,
+    /** Matches the owner's Premium theme or accent; unspecified keeps the standard brand colour. */
+    tint: Color = Color.Unspecified,
 ) {
     Box(modifier.size(size).semantics { contentDescription = "Verified student" }, contentAlignment = Alignment.Center) {
         if (ringColor != Color.Unspecified) Box(Modifier.size(size * 0.7f).background(ringColor, CircleShape))
-        Icon(Icons.Filled.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
+        Icon(Icons.Filled.Verified, contentDescription = null, tint = if (tint != Color.Unspecified) tint else MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
     }
 }
 
@@ -59,6 +61,8 @@ fun VerifiedName(
     fontWeight: FontWeight? = null,
     maxLines: Int = 1,
     badgeSize: Dp = 16.dp,
+    /** The person's Premium look, when the server sent one; the seal then takes its accent. */
+    look: com.univibe.app.data.model.ProfileLook? = null,
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
         Text(
@@ -67,7 +71,7 @@ fun VerifiedName(
         )
         if (verified) {
             Spacer(Modifier.width(4.dp))
-            VerifiedBadge(size = badgeSize)
+            VerifiedBadge(size = badgeSize, tint = com.univibe.app.features.profile.badgeTint(look))
         }
     }
 }

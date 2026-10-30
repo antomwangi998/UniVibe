@@ -66,6 +66,10 @@ fun parseAccent(hex: String?): Color? {
 /** The accent to draw with: the chosen colour, else the theme's light colour, else the fallback. */
 fun lookAccent(look: ProfileLook?, fallback: Color): Color = parseAccent(look?.accent) ?: themeColors(look?.theme)?.last() ?: fallback
 
+/** Seal colour for a person with a look: their accent or theme colour. Unspecified (the brand colour) for everyone else. */
+fun badgeTint(look: ProfileLook?): Color =
+    if (look?.theme != null || look?.accent != null) lookAccent(look, Color.Unspecified) else Color.Unspecified
+
 fun readableOn(c: Color): Color = if (c.luminance() > 0.5f) Color(0xFF111111) else Color.White
 
 /** Saving needs the parts it uses to be unlocked: theme, accent and badge need themes; a frame needs frames. */

@@ -103,7 +103,7 @@ fun EventAttendeesScreen(eventId: String, onBack: () -> Unit, onOpenStudent: (St
                     ) {
                         StudentAvatar(p.student.name, size = 44.dp, accent = p.student.accent, imagePath = p.student.avatarUrl, look = p.student.look)
                         Column(Modifier.weight(1f)) {
-                            VerifiedName(p.student.name, p.student.verified, style = MaterialTheme.typography.titleSmall)
+                            VerifiedName(p.student.name, p.student.verified, look = p.student.look, style = MaterialTheme.typography.titleSmall)
                             Text(p.student.handle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (p.checkedIn == true) Text("Checked in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)

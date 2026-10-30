@@ -59,7 +59,7 @@ fun EventFeedCard(
                     StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl, look = post.author.look)
                     Spacer(Modifier.width(Spacing.sm + 2.dp))
                     Column(Modifier.weight(1f)) {
-                        VerifiedName(post.author.name, post.author.verified, style = MaterialTheme.typography.titleSmall)
+                        VerifiedName(post.author.name, post.author.verified, look = post.author.look, style = MaterialTheme.typography.titleSmall)
                         Text(
                             "Hosting an event · ${post.timeAgo}",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
