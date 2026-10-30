@@ -121,11 +121,12 @@ fun FullProfileScreen(
                     ProfileCover(
                         accent = student.accent + 1,
                         coverPath = null,
+                        look = profile.look,
                         modifier = Modifier.fullBleed(Spacing.md),
                         leading = { CoverIconButton(VibeIcons.Back, "Back", onBack) },
                         actions = { if (!s.isMe) CoverIconButton(VibeIcons.More, "More options", { viewModel.openMenu(true) }) },
                         avatar = {
-                            Box {
+                            Box(Modifier.profileFrame(profile.look?.frame, lookAccent(profile.look, colors.primary))) {
                                 Surface(shape = CircleShape, color = colors.background, modifier = Modifier.size(116.dp)) {
                                     Box(
                                         Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = "View profile photo") { showPhoto = true },
@@ -142,6 +143,7 @@ fun FullProfileScreen(
                     Spacer(Modifier.height(64.dp))
                     Text(student.name, style = MaterialTheme.typography.headlineSmall)
                     Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                    ProfileBadgeChip(profile.look?.badge, lookAccent(profile.look, colors.primary), Modifier.padding(top = Spacing.xs))
                     Text(
                         "${student.courseLine}\n${student.university}".trim(),
                         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,

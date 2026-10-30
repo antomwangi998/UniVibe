@@ -373,6 +373,8 @@ data class StudentProfile(
     val followers: Int,
     val following: Int,
     val communityIds: List<String> = emptyList(),
+    /** Premium look the server chose to show on this profile, or null. */
+    val look: ProfileLook? = null,
 )
 
 enum class NotificationType { Like, Comment, Follow, Connection, Event, Community, Message, System }

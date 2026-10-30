@@ -51,7 +51,7 @@ private val FAQ = listOf(
 )
 
 @Composable
-fun PremiumScreen(onBack: () -> Unit, viewModel: PremiumViewModel = viewModel()) {
+fun PremiumScreen(onBack: () -> Unit, onCustomizeProfile: () -> Unit = {}, viewModel: PremiumViewModel = viewModel()) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.load(quiet = true) }
     Column(Modifier.fillMaxSize()) {
@@ -67,6 +67,9 @@ fun PremiumScreen(onBack: () -> Unit, viewModel: PremiumViewModel = viewModel())
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 item(key = "status") { StatusCard(overview.status.active, overview.status.planName, overview.status.daysLeft) }
+                if (overview.entitlements.any { it == "premium.profile_themes" || it == "premium.profile_frames" }) {
+                    item(key = "customize") { VibeButton("Customise your profile", onCustomizeProfile, Modifier.fillMaxWidth(), style = VibeButtonStyle.Secondary) }
+                }
                 s.notice?.let { n -> item(key = "notice") { Text(n, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) } }
 
                 val checkout = s.checkout

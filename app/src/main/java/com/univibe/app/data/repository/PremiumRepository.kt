@@ -17,6 +17,9 @@ interface PremiumRepository {
     suspend fun overview(): PremiumOverview
     /** Just the keys the server says are live right now. */
     suspend fun entitlements(): List<String>
+    suspend fun myProfileLook(): com.univibe.app.data.model.MyProfileLook
+    /** Replaces my look. The server refuses anything that is not unlocked right now. */
+    suspend fun saveProfileLook(look: com.univibe.app.data.model.ProfileLook)
     suspend fun billing(cursor: String?): PromoPage<BillingItem>
     /** [key] makes a repeated tap return the same order instead of creating another. */
     suspend fun checkout(planId: String, key: String): CheckoutResult
@@ -29,6 +32,8 @@ object NoPremiumRepository : PremiumRepository {
     private fun unavailable(): Nothing = throw UnsupportedOperationException("Premium needs a connection to UniVibe.")
     override suspend fun overview() = unavailable()
     override suspend fun entitlements() = unavailable()
+    override suspend fun myProfileLook() = unavailable()
+    override suspend fun saveProfileLook(look: com.univibe.app.data.model.ProfileLook) = unavailable()
     override suspend fun billing(cursor: String?) = unavailable()
     override suspend fun checkout(planId: String, key: String) = unavailable()
     override suspend fun submitReceipt(orderId: String, receipt: String) = unavailable()
@@ -53,6 +58,23 @@ class RemotePremiumRepository(private val api: AuthedApi) : PremiumRepository {
     }
 
     override suspend fun entitlements(): List<String> = get("/me/entitlements").optJSONArray("entitlements").toStrings()
+
+    override suspend fun myProfileLook(): com.univibe.app.data.model.MyProfileLook {
+        val o = get("/me/profile-look")
+        val u = o.optJSONObject("unlocked")
+        return com.univibe.app.data.model.MyProfileLook(
+            saved = parseLook(o.optJSONObject("look")) ?: com.univibe.app.data.model.ProfileLook(),
+            shown = parseLook(o.optJSONObject("shown")),
+            themesUnlocked = u?.optBoolean("themes") ?: false, framesUnlocked = u?.optBoolean("frames") ?: false,
+        )
+    }
+
+    override suspend fun saveProfileLook(look: com.univibe.app.data.model.ProfileLook) {
+        val body = JSONObject()
+            .put("theme", look.theme ?: JSONObject.NULL).put("accent", look.accent ?: JSONObject.NULL)
+            .put("frame", look.frame ?: JSONObject.NULL).put("badge", look.badge ?: JSONObject.NULL)
+        api.send("PUT", "$PROMO_API/me/profile-look", body)
+    }
 
     override suspend fun billing(cursor: String?): PromoPage<BillingItem> {
         val o = get("/me/billing-history" + if (cursor != null) "?cursor=" + java.net.URLEncoder.encode(cursor, "UTF-8") else "")
@@ -84,3 +106,10 @@ internal fun parsePlan(o: JSONObject) = PremiumPlan(
     priceMinor = o.optLong("priceMinor"), price = o.optString("price"), periodDays = o.optInt("periodDays", 30),
     entitlements = o.optJSONArray("entitlements").toStrings(),
 )
+
+/** A look from the server's JSON; null when absent or when every field is empty. */
+internal fun parseLook(o: JSONObject?): com.univibe.app.data.model.ProfileLook? {
+    if (o == null) return null
+    fun f(name: String) = if (o.isNull(name)) null else o.optString(name).ifEmpty { null }
+    return com.univibe.app.data.model.ProfileLook(f("theme"), f("accent"), f("frame"), f("badge")).takeUnless { it.isEmpty }
+}

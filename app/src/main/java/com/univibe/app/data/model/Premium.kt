@@ -32,3 +32,14 @@ data class BillingItem(
     val amount: String,
     val createdAtMillis: Long,
 )
+
+/**
+ * A Premium profile look. Every field is an id from a fixed list (or a #RRGGBB colour); null means "not set".
+ * The server only sends the parts whose Premium is live, so showing exactly what arrives is correct.
+ */
+data class ProfileLook(val theme: String? = null, val accent: String? = null, val frame: String? = null, val badge: String? = null) {
+    val isEmpty: Boolean get() = theme == null && accent == null && frame == null && badge == null
+}
+
+/** My own look as saved, what is shown to others right now, and which parts I may change. */
+data class MyProfileLook(val saved: ProfileLook, val shown: ProfileLook?, val themesUnlocked: Boolean, val framesUnlocked: Boolean)

@@ -4,8 +4,8 @@ import com.univibe.app.data.model.PremiumPlan
 
 /** Plain-language names for the keys the server sends. An unknown key is hidden, never shown raw. */
 private val FEATURE_TEXT = mapOf(
-    "premium.profile_themes" to ("Profile themes" to "Extra looks and accent colours for your profile"),
-    "premium.profile_frames" to ("Profile frames" to "Frames around your profile photo"),
+    "premium.profile_themes" to ("Profile themes" to "Themes, accent colours and badges that other students see on your profile"),
+    "premium.profile_frames" to ("Profile frames" to "Frames around your profile photo, visible to everyone"),
     "premium.chat_themes" to ("Chat themes" to "Extra backgrounds for your conversations"),
     "premium.sticker_packs" to ("Sticker packs" to "Extra stickers and reactions"),
     "premium.creator_analytics" to ("Post insights" to "How your posts are doing"),

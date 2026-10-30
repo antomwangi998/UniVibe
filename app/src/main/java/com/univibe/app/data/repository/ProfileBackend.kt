@@ -47,6 +47,7 @@ class RemoteProfileBackend(private val api: AuthedApi) : ProfileBackend {
             posts = o.optInt("posts"),
             followers = o.optInt("followers"),
             following = o.optInt("following"),
+            look = parseLook(o.optJSONObject("look")),
         )
     }
 
