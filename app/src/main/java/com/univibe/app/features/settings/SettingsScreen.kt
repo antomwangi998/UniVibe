@@ -115,6 +115,13 @@ fun SettingsScreen(
         } else {
             item {
                 SettingsGroup {
+                    SettingsNavRow(VibeIcons.Sparkle, "UniVibe Premium", { onNavigate(com.univibe.app.navigation.AppRoutes.PREMIUM) }, subtitle = "Plans, chat themes and your subscription")
+                    RowDivider()
+                    SettingsNavRow(VibeIcons.Palette, "Profile look", { onNavigate(com.univibe.app.navigation.AppRoutes.PROFILE_LOOK) }, subtitle = "Themes, frames and badges other students see")
+                }
+            }
+            item {
+                SettingsGroup {
                     SettingsNavRow(VibeIcons.Profile, "Account", { onNavigate(SettingsRoutes.ACCOUNT) }, subtitle = user?.email)
                     RowDivider()
                     SettingsNavRow(VibeIcons.Lock, "Security", { onNavigate(SettingsRoutes.SECURITY) })
