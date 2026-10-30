@@ -170,6 +170,32 @@ export function premiumRoutes(ctx: Ctx) {
       return { status: 'ok' };
     });
 
+    /**
+     * Opens a full refund for a paid subscription. Before this existed a Premium purchase could never be handed back,
+     * because refunds only started from campaigns. A different staff member then approves and records the payout
+     * (same rules as every refund); the period ends only when the payout is recorded.
+     */
+    app.post('/admin/monetization/subscription-orders/:id/refund', async (req, reply) => {
+      const me = await need(req, 'payments.confirm');
+      const id = idParam((req.params as { id?: string }).id);
+      const b = z.object({ reason: z.string().trim().min(3).max(500) }).strict().parse(req.body ?? {});
+      const out = await withTx(pool, async (client) => {
+        const o = (await client.query<{ status: string; plan_id: string | null }>('select status, plan_id from orders where id = $1 for update', [id])).rows[0];
+        if (!o || !o.plan_id) throw new HttpError(404, 'not_found', 'Not found.');
+        if (o.status !== 'paid') throw new HttpError(409, 'invalid_state', 'Only a paid subscription can be refunded.');
+        const p = (await client.query<{ id: string; amount_minor: string }>("select id, amount_minor from payments where order_id = $1 and status = 'confirmed' limit 1", [id])).rows[0];
+        if (!p) throw new HttpError(409, 'invalid_state', 'There is no confirmed payment to refund.');
+        const r = await client.query<{ id: string }>(
+          `insert into refunds (payment_id, order_id, amount_minor, reason, requested_by) values ($1, $2, $3, $4, $5) on conflict do nothing returning id`,
+          [p.id, id, p.amount_minor, b.reason, me.id]);
+        if (!r.rows[0]) throw new HttpError(409, 'invalid_state', 'A refund is already open for this payment.');
+        await audit(client, me.id, 'subscription.refund_request', 'order', id, { refundId: r.rows[0].id });
+        return { refundId: r.rows[0].id };
+      });
+      reply.code(201);
+      return out;
+    });
+
     /** Who has Premium. Names and handles only (no email, no phone), newest first, a page at a time. */
     app.get('/admin/monetization/subscriptions', async (req) => {
       await need(req, 'payments.view');
