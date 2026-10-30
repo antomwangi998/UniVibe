@@ -18,7 +18,8 @@ export const MONETIZATION_JS = String.raw`
   PAGES.refunds = { title: 'Refunds', group: 'Monetization', cap: 'payments.view', desc: 'Money owed back to advertisers. Approve, decline, then record the M-Pesa reference once it is sent.', view: viewRefunds };
   PAGES.packages = { title: 'Packages and payment', group: 'Monetization', cap: 'packages.manage', desc: 'What advertisers can buy, what it costs, and where they pay. A price change never alters an order already placed.', view: viewPackages };
   PAGES.advertisers = { title: 'Businesses and ad reports', group: 'Monetization', cap: 'advertisers.view', desc: 'Approve business listings and look into ads students have reported.', view: viewAdvertisers };
-  NAV.splice(3, 0, ['Monetization', ['revenue', 'campaigns', 'payments', 'refunds', 'packages', 'advertisers']]);
+  PAGES.premium = { title: 'Premium', group: 'Monetization', cap: 'packages.manage', desc: 'UniVibe Premium: switch plans on and off, change prices, turn a feature off for everyone if it misbehaves, and see who is subscribed.', view: viewPremium };
+  NAV.splice(3, 0, ['Monetization', ['revenue', 'campaigns', 'payments', 'refunds', 'packages', 'premium', 'advertisers']]);
 
   // ---------- small helpers
   function kes(minor) {
@@ -373,5 +374,79 @@ export const MONETIZATION_JS = String.raw`
             actionForm('Uphold', true, 'Uphold the reports? A running ad is paused.', function (b) { return api('POST', base, { decision: 'upheld', note: b.note }).then(again); }))));
       });
     }).catch(function (e) { fail(el, e); });
+  }
+
+  // ---------- Premium: plans, feature switches, subscribers
+  var FEATURE_LABELS = {
+    'premium.chat_themes': 'Chat theme packs', 'premium.profile_themes': 'Profile themes, accent and badge', 'premium.profile_frames': 'Profile avatar frames',
+    'premium.sticker_packs': 'Sticker packs (not built)', 'premium.creator_analytics': 'Post insights (not built)',
+    'premium.post_scheduling': 'Post scheduling (not built)', 'premium.advanced_feed_controls': 'Feed controls (not built)',
+    'business.analytics': 'Business analytics (not built)', 'business.offers': 'Business offers (not built)', 'business.scheduled_posts': 'Business scheduled posts (not built)'
+  };
+  function viewPremium() {
+    var out = h('div', null, 'Loading...'); body.appendChild(out);
+    function load() {
+      api('GET', '/admin/monetization/premium/overview').then(function (d) { draw(d); }).catch(function (e) { fail(out, e); });
+    }
+    function check(ok, text) { return h('div', { class: 'row' }, h('span', { class: 'pill' + (ok ? ' teal' : ' amber') }, ok ? 'ready' : 'not yet'), h('span', null, text)); }
+    function draw(d) {
+      clear(out);
+      var anyOn = d.plans.some(function (p) { return p.active; });
+      out.appendChild(h('h2', null, 'Ready to sell?'));
+      out.appendChild(h('div', { class: 'card' },
+        check(d.payments.enabled, 'Payments are switched on with a till or paybill number (Packages and payment page).'),
+        check(anyOn, 'At least one plan is switched on below.'),
+        check(d.features.some(function (f) { return f.enabled && f.inAnyPlan; }), 'At least one feature in a plan is switched on.'),
+        h('p', { class: 'small muted' }, 'Students pay by M-Pesa and send a receipt code. Their Premium starts only when you confirm the payment on the Payments page. Nothing renews by itself.')));
+      out.appendChild(h('div', { class: 'grid' },
+        kpi('Students with Premium now', d.totals.liveStudents, ''), kpi('Businesses subscribed now', d.totals.liveBusinesses, ''),
+        kpi('Orders waiting for payment', d.totals.pendingOrders, ''), h('div', { class: 'card kpi' }, h('div', { class: 'n' }, kes(d.totals.confirmedGrossMinor)), h('div', { class: 'l' }, 'Confirmed subscription payments'), h('div', { class: 'small muted' }, 'Before refunds. Not earned revenue.'))));
+
+      out.appendChild(h('h2', null, 'Plans'));
+      d.plans.forEach(function (p) { out.appendChild(planCard(p)); });
+
+      out.appendChild(h('h2', null, 'Features'));
+      out.appendChild(h('p', { class: 'small muted' }, 'Turning a feature off removes it for everyone at once, even people who paid. Nobody loses days: when you turn it back on it works again for the rest of their period.'));
+      var t = h('table'); t.appendChild(h('tr', null, h('th', null, 'Feature'), h('th', null, 'In a plan'), h('th', null, 'Status'), h('th', null, '')));
+      d.features.forEach(function (f) {
+        t.appendChild(h('tr', null, h('td', null, FEATURE_LABELS[f.key] || f.key, h('div', { class: 'small muted' }, f.key)), h('td', null, f.inAnyPlan ? 'yes' : 'no'), h('td', null, pill(f.enabled ? 'active' : 'suspended')),
+          h('td', null, confirmButton(f.enabled ? 'Turn off for everyone' : 'Turn on', (f.enabled ? 'Turn off ' : 'Turn on ') + (FEATURE_LABELS[f.key] || f.key) + (f.enabled ? ' for everyone, including people who paid?' : '?'), function () { return api('PATCH', '/admin/monetization/premium/features/' + encodeURIComponent(f.key), { enabled: !f.enabled }).then(load); }, f.enabled))));
+      });
+      out.appendChild(t);
+
+      out.appendChild(h('h2', null, 'Subscribers'));
+      var state = 'live', holder = h('div'), tabs = h('div', { class: 'row seg' });
+      function show() {
+        clear(tabs); clear(holder);
+        [['live', 'Active now'], ['ended', 'Ended'], ['refunded', 'Refunded']].forEach(function (o) {
+          tabs.appendChild(h('button', { class: 'tab' + (state === o[0] ? ' on' : ''), type: 'button', onclick: function () { state = o[0]; show(); } }, o[1]));
+        });
+        cursorList(holder, '/admin/monetization/subscriptions', { state: state }, function (x) {
+          return h('div', { class: 'card' }, h('b', null, x.name), ' ', h('span', { class: 'muted' }, '@' + x.handle), ' ', h('span', { class: 'pill' }, x.business ? 'business' : 'student'),
+            h('div', { class: 'small' }, x.plan + ' - ' + new Date(x.startsAt).toLocaleDateString() + ' to ' + new Date(x.endsAt).toLocaleDateString()),
+            h('div', { class: 'small muted' }, 'Order ' + x.reference));
+        }, 'Nobody here yet.');
+      }
+      out.appendChild(tabs); out.appendChild(holder); show();
+    }
+    function planCard(p) {
+      var price = h('input', { type: 'text', inputmode: 'decimal', value: (p.priceMinor / 100).toFixed(2), 'aria-label': 'Price in KES', size: 10 });
+      var msg = h('div', { class: 'small', role: 'status' }), set = h('button', { class: 'btn ghost', type: 'button' }, 'Change price');
+      set.addEventListener('click', function () {
+        var minor = toMinor(price.value);
+        if (minor == null) { msg.textContent = 'Enter the price as a plain number, for example 99 or 99.00.'; msg.className = 'small err'; return; }
+        if (minor === p.priceMinor) { msg.textContent = 'That is already the price.'; return; }
+        if (!window.confirm('Change the price of ' + p.name + ' from ' + kes(p.priceMinor) + ' to ' + kes(minor) + '? Orders already placed keep their price.')) return;
+        set.disabled = true; api('PATCH', '/admin/monetization/plans/' + p.id, { priceMinor: minor, confirmPriceChange: true }).then(load).catch(function (e) { set.disabled = false; msg.textContent = e.message; msg.className = 'small err'; });
+      });
+      var toggle = confirmButton(p.active ? 'Take off sale' : 'Put on sale', (p.active ? 'Take ' : 'Put ') + p.name + (p.active ? ' off sale? People with it keep it until it ends.' : ' on sale? Students will see it and can start paying for it.'), function () { return api('PATCH', '/admin/monetization/plans/' + p.id, { active: !p.active }).then(load); }, p.active);
+      return h('div', { class: 'card' },
+        h('div', null, h('span', { class: 'pill' + (p.active ? ' teal' : '') }, p.active ? 'on sale' : 'not on sale'), h('span', { class: 'pill' }, p.audience === 'business' ? 'business' : 'student')),
+        h('div', null, h('b', null, p.name), ' - ', kes(p.priceMinor), ' for ', p.periodDays + ' days, no automatic renewal'),
+        h('div', { class: 'small muted' }, p.entitlements.length ? 'Includes: ' + p.entitlements.map(function (k) { return FEATURE_LABELS[k] || k; }).join(', ') : 'Includes no working features yet, so it cannot be put on sale.'),
+        h('div', { class: 'small muted' }, p.liveSubscribers + ' subscribed now - code ' + p.code),
+        h('div', { class: 'row' }, field('Price (KES)', price), set, toggle), msg);
+  }
+  load();
   }
 `;

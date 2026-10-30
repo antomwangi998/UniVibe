@@ -155,3 +155,21 @@ Entry: Settings (searchable as "UniVibe Premium") opens route `premium`. Code: `
 - **Android:** `Student.look` and `Chat.look` are read from the server; `StudentAvatar(look = ...)` draws the frame (thinner on small avatars); a badge glyph sits beside names on post cards and comments. 26 avatar call sites that have a `Student` were updated.
 - **Not covered, and why:** message sender avatars inside a conversation, story and note rings, and event host rows only carry a name or id, not a person object, so they show no frame yet. Community member lists that do not use the shared person serializers need checking on a real device.
 - **Risks to check before release:** any query that selects `cardColumns`/`AUTHOR_COLS` inside a `group by` or `union` must still run (the new column is a function call, so it needs to be in the group by or both union sides); run the whole backend test suite on a database with migrations applied.
+
+## Admin: Premium page and a small real-money test (migration `060_premium_controls.sql`) - NOT run against Postgres
+**Where:** admin dashboard > Monetization > Premium (needs `packages.manage`; the subscriber list needs `payments.view`).
+- **Ready to sell?** checklist (payments on with a number, a plan on sale, a feature on) and counts: students and businesses subscribed now, orders waiting, confirmed gross (before refunds, not earned revenue).
+- **Plans:** put on / take off sale, change price (confirmed, audited, existing orders keep their price). A plan with no working features cannot be put on sale.
+- **Feature switches:** `premium_feature_flags` kill switch per feature. Off removes it for everyone at once (app, routes, profile looks everywhere); nobody's subscription or payment changes, and turning it on restores it for the rest of their period. Audited.
+- **Subscribers:** active, ended, refunded; name and handle only.
+- **Not built:** granting free Premium (it would need an order, and a silent grant would bypass payment verification), per-user revocation, subscription revenue recognition in the Revenue page.
+
+**Small real-money test (a few friends, KSh 99):**
+1. Run migrations 056 to 060 on a Neon branch, then production; deploy the backend.
+2. Admin > Packages and payment: enter your till or paybill number and switch payments on.
+3. Admin > Premium: put "UniVibe Premium - monthly" on sale. Leave annual and business off.
+4. In the app: Settings > UniVibe Premium > Subscribe, pay the till, enter the M-Pesa receipt code.
+5. Admin > Payments: check the receipt against your M-Pesa statement, confirm. Their Premium starts at that moment.
+6. In the app: open a chat > theme > Premium packs; Settings > Profile look; ask a friend to view your profile.
+7. Refund path: Admin > Refunds, approve, send the money, record the reference; their Premium ends.
+Take the plan off sale afterwards if you want to pause. People who already paid keep their days.

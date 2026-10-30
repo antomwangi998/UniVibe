@@ -1,6 +1,6 @@
 import { HttpError } from '../../errors';
 import { audit } from '../moderation';
-import { daysLeft, effectiveEntitlements, nextPeriod, type EntitlementKey, type PeriodRow } from './entitlements';
+import { applySwitches, daysLeft, effectiveEntitlements, nextPeriod, type EntitlementKey, type PeriodRow } from './entitlements';
 import type { Q } from './service';
 
 type DbPeriod = { status: 'active' | 'refunded'; period_start: Date; period_end: Date; entitlements: string[]; business_id: string | null; plan_code: string; plan_name: string; audience: string };
@@ -12,16 +12,21 @@ async function periodsOf(q: Q, where: string, id: string): Promise<DbPeriod[]> {
       where ${where} and s.status = 'active' and s.period_end > now() order by s.period_end desc`, [id])).rows;
 }
 
-/** A person's own (non-business) entitlements, decided by the server clock. */
+/** Keys staff have switched off (premium_feature_flags). A tiny table; no row means on. */
+export async function disabledKeys(q: Q): Promise<string[]> {
+  return (await q.query<{ key: string }>('select key from premium_feature_flags where not enabled')).rows.map((r) => r.key);
+}
+
+/** A person's own (non-business) entitlements, decided by the server clock and the staff switches. */
 export async function userEntitlements(q: Q, userId: string, now = new Date()): Promise<EntitlementKey[]> {
   const rows = await periodsOf(q, 's.user_id = $1 and s.business_id is null', userId);
-  return effectiveEntitlements(rows as PeriodRow[], now);
+  return applySwitches(effectiveEntitlements(rows as PeriodRow[], now), await disabledKeys(q));
 }
 
 /** A business's entitlements. Paid status only; verification is a separate, explicit staff decision. */
 export async function businessEntitlements(q: Q, businessId: string, now = new Date()): Promise<EntitlementKey[]> {
   const rows = await periodsOf(q, 's.business_id = $1', businessId);
-  return effectiveEntitlements(rows as PeriodRow[], now);
+  return applySwitches(effectiveEntitlements(rows as PeriodRow[], now), await disabledKeys(q));
 }
 
 /** Route guard: call at the top of any route that serves a Premium feature. */
