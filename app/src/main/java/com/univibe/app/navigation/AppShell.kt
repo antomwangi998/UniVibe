@@ -369,6 +369,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                                 chatId = entry.arg("chatId"), onBack = back,
                                 onOpenGroupInfo = { open(AppRoutes.groupInfo(entry.arg("chatId"))) },
                                 onOpenStudent = { open(AppRoutes.student(it)) },
+                                onOpenPremium = { open(AppRoutes.PREMIUM) },
                             )
                         }
                     }
@@ -434,6 +435,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLog
                         )
                     }
                     subScreen(AppRoutes.CREATE_POST) { CreatePostScreen(onBack = back) }
+                    subScreen(AppRoutes.PREMIUM) { com.univibe.app.features.premium.PremiumScreen(onBack = back, onCustomizeProfile = { open(AppRoutes.PROFILE_LOOK) }) }
+                    subScreen(AppRoutes.PROFILE_LOOK) { com.univibe.app.features.profile.ProfileLookScreen(onBack = back, onOpenPremium = { open(AppRoutes.PREMIUM) }) }
                     subScreen(AppRoutes.PROMOTIONS) {
                         com.univibe.app.features.promotions.PromotionsScreen(
                             onBack = back, onNewPromotion = { open(AppRoutes.PROMOTION_NEW) },

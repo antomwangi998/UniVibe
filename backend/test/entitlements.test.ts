@@ -34,3 +34,10 @@ describe('helpers', () => {
   it('daysLeft rounds up and never goes negative', () => { expect(daysLeft(D('2026-10-16'), now)).toBe(1); expect(daysLeft(D('2026-10-01'), now)).toBe(0); });
   it('recognises only known keys', () => { expect(isEntitlementKey('premium.chat_themes')).toBe(true); expect(isEntitlementKey('x')).toBe(false); });
 });
+
+import { applySwitches } from '../src/modules/monetization/entitlements';
+describe('applySwitches (staff kill switches)', () => {
+  it('removes only the switched-off keys', () => expect(applySwitches(['premium.chat_themes', 'premium.profile_themes'], ['premium.chat_themes'])).toEqual(['premium.profile_themes']));
+  it('leaves everything when nothing is off', () => expect(applySwitches(['premium.chat_themes'], [])).toEqual(['premium.chat_themes']));
+  it('switching off a key nobody has changes nothing', () => expect(applySwitches(['premium.chat_themes'], ['business.offers'])).toEqual(['premium.chat_themes']));
+});

@@ -364,7 +364,7 @@ private fun ChatRow(
                     contentAlignment = Alignment.Center,
                 ) {
                     if (story != null) StoryStatusRing(unviewed = story.hasUnviewed, modifier = Modifier.matchParentSize())
-                    StudentAvatar(chat.title, size = AvatarSize - if (story != null) 6.dp else 0.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl)
+                    StudentAvatar(chat.title, size = AvatarSize - if (story != null) 6.dp else 0.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl, look = chat.look)
                 }
                 // Teal dot = active now (only when they share it). Drawn outside the clipped box so it is never cut off.
                 if (chat.online) ActiveDot(Modifier.align(Alignment.BottomEnd).padding(end = 3.dp, bottom = 3.dp), borderColor = colors.background)
@@ -495,7 +495,7 @@ private fun ChatActionsSheet(
 ) {
     VibeBottomSheet(onDismiss = onDismiss) {
         Row(Modifier.fillMaxWidth().padding(bottom = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-            if (chat.isGroup) GroupAvatar(chat.groupPhotoUrl, 40.dp, name = chat.title, memberNames = chat.members.map { it.name }) else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl)
+            if (chat.isGroup) GroupAvatar(chat.groupPhotoUrl, 40.dp, name = chat.title, memberNames = chat.members.map { it.name }) else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), imagePath = chat.avatarUrl, look = chat.look)
             VerifiedName(chat.title, chat.verified, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(start = Spacing.md))
         }
         if (archived) {

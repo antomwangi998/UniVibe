@@ -114,7 +114,7 @@ object AppContainer {
         // The mock screens (feed, chats, comments) show "you" from this identity, so keep it on the real student.
         appScope.launch { authRepository.session.collect { MockData.applyAccount(accountOf(it)) } }
         // Unsent drafts belong to the account that wrote them: a deliberate sign-out clears them.
-        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) { com.univibe.app.data.prefs.DraftStore.clearAll(); com.univibe.app.data.prefs.ChatAppearanceStore.clearAll() } } }
+        appScope.launch { authRepository.session.collect { if (it is AuthState.SignedOut && it.reason == null) { com.univibe.app.data.prefs.DraftStore.clearAll(); com.univibe.app.data.prefs.ChatAppearanceStore.clearAll() }; if (it is AuthState.SignedOut) com.univibe.app.data.prefs.EntitlementsStore.clear() } }
         // Saved screens belong to the signed-in account: switching accounts or signing out on purpose wipes them.
         appScope.launch {
             authRepository.session.collect { state ->
@@ -266,6 +266,10 @@ object AppContainer {
     /** Businesses, promotions, payments and analytics. Needs the server; the offline demo says so. */
     val promotionsRepository: com.univibe.app.data.repository.PromotionsRepository by lazy {
         api?.let { com.univibe.app.data.repository.RemotePromotionsRepository(it, MediaUploader(it, UrlConnectionFileUploader())) } ?: com.univibe.app.data.repository.NoPromotionsRepository
+    }
+    /** UniVibe Premium plans, status and purchase. Needs the server; the offline demo says so. */
+    val premiumRepository: com.univibe.app.data.repository.PremiumRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemotePremiumRepository(it) } ?: com.univibe.app.data.repository.NoPremiumRepository
     }
     /** Search the campus (students, posts, events). Needs the server; the offline demo says so. */
     val searchRepository: SearchRepository by lazy { api?.let { RemoteSearchRepository(it) } ?: UnavailableSearchRepository }

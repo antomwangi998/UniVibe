@@ -69,9 +69,9 @@ import com.univibe.app.ui.components.accentGradient
 
 /** Circular avatar: turquoise ring, thin dark inner border, the real profile image, camera button at the lower right. */
 @Composable
-fun ProfileAvatar(profile: MyProfile, outer: androidx.compose.ui.unit.Dp, onChangePhoto: () -> Unit) {
+fun ProfileAvatar(profile: MyProfile, outer: androidx.compose.ui.unit.Dp, onChangePhoto: () -> Unit, look: com.univibe.app.data.model.ProfileLook? = null) {
     val t = rememberProfileTokens()
-    Box(Modifier.size(outer)) {
+    Box(Modifier.size(outer).profileFrame(look?.frame, lookAccent(look, t.primary))) {
         Box(
             Modifier.fillMaxSize().clip(CircleShape)
                 .background(Brush.linearGradient(listOf(t.primary, t.secondary)))
@@ -101,7 +101,7 @@ fun ProfileAvatar(profile: MyProfile, outer: androidx.compose.ui.unit.Dp, onChan
  * join date are not part of the profile data yet, so they are left out rather than invented.
  */
 @Composable
-fun ProfileIdentity(student: Student) {
+fun ProfileIdentity(student: Student, look: com.univibe.app.data.model.ProfileLook? = null) {
     val t = rememberProfileTokens()
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
@@ -117,6 +117,7 @@ fun ProfileIdentity(student: Student) {
             }
         }
         Text(student.handle, style = MaterialTheme.typography.bodyMedium, color = t.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ProfileBadgeChip(look?.badge, lookAccent(look, t.primary), Modifier.padding(top = 4.dp))
         if (student.courseLine.isNotBlank()) {
             Text(
                 student.courseLine, style = MaterialTheme.typography.bodyMedium, fontSize = 13.sp, color = t.textSecondary,

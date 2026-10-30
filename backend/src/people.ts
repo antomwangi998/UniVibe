@@ -3,6 +3,7 @@ import { userVisible } from './access';
 import { withTx } from './db';
 import { HttpError } from './errors';
 import { notify, retract } from './modules/notify';
+import { publicLookFor } from './modules/monetization/profile_look_routes';
 import { AUTHOR_COLS, AuthorCols, RouteContext, authorJson, paramId, signAuthors } from './shared';
 
 const PEOPLE_FROM = 'from users a join universities uni on uni.id = a.university_id';
@@ -50,6 +51,8 @@ export function registerPeopleRoutes(app: FastifyInstance, ctx: RouteContext): v
       followers: r.followers,
       following: r.following,
       followedByMe: r.followed_by_me,
+      // A Premium look, only while its owner's Premium is live. Null for everyone else.
+      look: await publicLookFor(pool, id),
     };
   });
 

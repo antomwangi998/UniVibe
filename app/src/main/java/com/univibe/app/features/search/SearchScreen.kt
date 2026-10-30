@@ -89,7 +89,7 @@ fun SearchScreen(
                         item(key = "h-people") { SectionTitle("Students") }
                         items(results.people, key = { "u-" + it.id }) { s ->
                             ResultRow(s.name, "${s.handle}${if (s.course.isNotBlank()) " · ${s.course}" else ""}",
-                                lead = { StudentAvatar(s.name, size = 40.dp, accent = s.accent, imagePath = s.avatarUrl) }, verified = s.verified) {
+                                lead = { StudentAvatar(s.name, size = 40.dp, accent = s.accent, imagePath = s.avatarUrl, look = s.look) }, verified = s.verified) {
                                 viewModel.remember(); onOpenStudent(s.id)
                             }
                         }
@@ -104,7 +104,7 @@ fun SearchScreen(
                         item(key = "h-posts") { SectionTitle("Posts") }
                         items(results.posts, key = { "p-" + it.id }) { p ->
                             ResultRow(p.snippet.ifBlank { "Photo or video post" }, "by ${p.author.name}",
-                                lead = { StudentAvatar(p.author.name, size = 40.dp, accent = p.author.accent, imagePath = p.author.avatarUrl) }) {
+                                lead = { StudentAvatar(p.author.name, size = 40.dp, accent = p.author.accent, imagePath = p.author.avatarUrl, look = p.author.look) }) {
                                 viewModel.remember(); onOpenPost(p.id)
                             }
                         }

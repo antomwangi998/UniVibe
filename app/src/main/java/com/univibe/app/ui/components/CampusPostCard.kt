@@ -185,11 +185,12 @@ private fun AuthorRow(post: Post, onAuthorClick: () -> Unit, onMore: () -> Unit,
             Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthorClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl)
+            StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl, look = post.author.look)
             Spacer(Modifier.width(Spacing.sm + 2.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     VerifiedName(post.author.name, post.author.verified, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+                    com.univibe.app.features.profile.BadgeGlyph(post.author.look?.badge, Modifier.padding(start = 4.dp))
                     // The campus badge. A person from another campus always gets one (in the accent colour), so a mixed feed never hides where someone is from.
                     val home = com.univibe.app.data.campus.CampusScopeStore.homeId
                     val otherCampus = home != null && post.author.universityCode.isNotBlank() && post.author.universityCode != home

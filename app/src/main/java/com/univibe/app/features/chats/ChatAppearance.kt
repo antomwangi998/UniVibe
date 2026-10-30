@@ -26,7 +26,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import com.univibe.app.ui.components.GlassSurface
 import com.univibe.app.ui.components.GlassTone
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,7 +66,7 @@ val ChatThemes = listOf(
     ChatTheme("graphite", "Graphite", Color(0xFF475569) to Color.White, Color(0xFFCBD5E1) to Color(0xFF0F172A)),
 )
 
-fun chatThemeById(id: String): ChatTheme = ChatThemes.firstOrNull { it.id == id } ?: ChatThemes.first()
+fun chatThemeById(id: String): ChatTheme = ChatThemes.firstOrNull { it.id == id } ?: PremiumChatThemes.firstOrNull { it.id == id } ?: ChatThemes.first()
 
 /** Re-colours everything inside with the chosen accent, so bubbles, buttons and links all follow without each knowing. */
 @Composable
@@ -131,6 +134,7 @@ fun ChatWallpaperLayer(wallpaperId: String, photoPath: String?, modifier: Modifi
                 }
             }
         }
+        isPremiumLook(wallpaperId) -> PremiumWallpaperLayer(wallpaperId, modifier)
         else -> gradientFor(wallpaperId)?.let { Box(modifier.background(Brush.verticalGradient(it))) }
     }
 }
@@ -141,16 +145,20 @@ fun ChatAppearanceSheet(
     themeId: String, wallpaperId: String, wallpaperPhoto: String?,
     onTheme: (String) -> Unit, onWallpaper: (String) -> Unit, onPickPhoto: () -> Unit,
     onReset: () -> Unit, onDismiss: () -> Unit,
+    /** True only while the server says Premium chat themes are unlocked. Locked packs show a lock and explain, never apply. */
+    premiumUnlocked: Boolean = false, onPack: (String) -> Unit = {}, onOpenPremium: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
+    var lockedTapped by remember { mutableStateOf(false) }
+    val shownWallpaper = wallpaperShown(wallpaperId, premiumUnlocked)
     VibeBottomSheet(onDismiss = onDismiss) {
         Text("Chat theme and wallpaper", style = MaterialTheme.typography.titleMedium)
         Text("Only you see this, on this phone.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(bottom = Spacing.sm))
 
         // A small live preview of what the chat will look like.
         Box(Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(16.dp)).background(colors.background).border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))) {
-            ChatWallpaperLayer(wallpaperId, wallpaperPhoto, Modifier.matchParentSize())
+            ChatWallpaperLayer(shownWallpaper, wallpaperPhoto, Modifier.matchParentSize())
             Column(Modifier.fillMaxSize().padding(Spacing.sm), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 GlassSurface(shape = RoundedCornerShape(14.dp), tone = GlassTone.Incoming) {
                     Text("Hey, are you coming today?", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
@@ -161,6 +169,23 @@ fun ChatAppearanceSheet(
                     }
                 }
             }
+        }
+
+        Row(Modifier.padding(top = Spacing.md, bottom = Spacing.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Text("Premium packs", style = MaterialTheme.typography.labelLarge)
+            Icon(VibeIcons.Sparkle, contentDescription = null, tint = colors.primary, modifier = Modifier.size(16.dp))
+        }
+        if (premiumLookPaused(themeId, wallpaperId, premiumUnlocked)) {
+            Text("Your Premium look is paused. It comes back when UniVibe Premium is active.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(bottom = Spacing.xs))
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            items(PremiumPacks, key = { it.id }) { p ->
+                PackTile(p, picked = themeId == p.id && wallpaperId == p.id, locked = !premiumUnlocked) { if (premiumUnlocked) onPack(p.id) else lockedTapped = true }
+            }
+        }
+        if (lockedTapped && !premiumUnlocked) {
+            Text("Premium packs change your accent and animate your wallpaper. They are part of UniVibe Premium.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = Spacing.xs))
+            TextButton(onClick = onOpenPremium) { Text("See UniVibe Premium") }
         }
 
         Text("Theme", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = Spacing.md, bottom = Spacing.xs))
@@ -216,5 +241,30 @@ private fun WallpaperTile(label: String, picked: Boolean, onClick: () -> Unit, p
                 .border(BorderStroke(if (picked) 3.dp else 1.dp, if (picked) colors.primary else colors.outlineVariant), RoundedCornerShape(14.dp)),
         ) { preview() }
         Text(label, style = MaterialTheme.typography.labelSmall, color = if (picked) colors.onSurface else colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+@Composable
+private fun PackTile(pack: PremiumPack, picked: Boolean, locked: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val dark = colors.background.luminance() < 0.5f
+    val accent = chatThemeById(pack.id).let { if (dark) it.dark else it.light }?.first ?: colors.primary
+    Column(
+        Modifier.width(84.dp)
+            .clickable(role = Role.RadioButton, onClickLabel = if (locked) "${pack.name}, needs UniVibe Premium" else "Use ${pack.name}", onClick = onClick)
+            .semantics { selected = picked; contentDescription = "${pack.name} pack" + if (locked) ", locked" else "" },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(width = 84.dp, height = 112.dp).clip(RoundedCornerShape(14.dp)).background(colors.background)
+                .border(BorderStroke(if (picked) 3.dp else 1.dp, if (picked) accent else colors.outlineVariant), RoundedCornerShape(14.dp)),
+        ) {
+            PremiumWallpaperLayer(pack.id, Modifier.fillMaxSize(), animate = false)
+            Box(Modifier.align(Alignment.BottomEnd).padding(6.dp).size(18.dp).clip(CircleShape).background(accent))
+            if (locked) Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(24.dp).clip(CircleShape).background(colors.surface.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
+                Icon(VibeIcons.Lock, contentDescription = null, tint = colors.onSurface, modifier = Modifier.size(14.dp))
+            }
+        }
+        Text(pack.name, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, color = if (picked) colors.onSurface else colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
     }
 }

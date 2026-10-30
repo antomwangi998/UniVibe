@@ -113,3 +113,63 @@ Entry points: Profile has **Promotions** and **Campus businesses** rows; a promo
 ## Not implemented yet
 Financial reports, CSV export and cost tracking (stage 10), event-view and business-view tracking, logo/cover/creative image upload, Daraja, subscriptions, a "Promote" button on the event page, and calendar pickers for promotion dates.
 Tests: `campaign-state`, `sponsored-token`, `analytics-calc` and `admin-monetization-ui` run under Node with a stand-in runner; the `*.integration` tests need Postgres and have not run; all Kotlin tests need Gradle and have not run.
+
+## Premium and Premium Business subscriptions (migration `056_subscriptions.sql`) - written, NOT run against Postgres
+Built on the existing `orders` / `payments` / `refunds` tables, so receipt claims, staff confirmation, mismatch handling, duplicate-receipt protection and refunds are the same code paths as promotions. `promotion_packages` is untouched.
+- **Tables:** `subscription_plans` (price in KES minor units, period days, entitlement keys, `active`), `subscriptions` (one row per paid period; `order_id` unique so an order activates once), `orders.plan_id` and `orders.business_id`.
+- **Seeded, but OFF:** `premium_monthly` (KSh 99), `premium_annual` (KSh 799), `business_premium` (KSh 499). All plans ship `active = false`. Staff switch one on (`PATCH /admin/monetization/plans/:id`, `packages.manage`) only after every feature it lists works end to end. The Android app is not built yet, so nothing is on sale.
+- **No automatic renewal.** With manual M-Pesa confirmation one paid order buys one period; buying again extends from the current end. Responses carry `renews: false`. Real auto-renewal needs Google Play Billing (digital features on Android generally must use it; check current Play policy before selling in-app) or a provider that supports it.
+- **Entitlements are derived, never stored as a flag:** `entitlements.ts` (pure, tested) computes the live keys from `subscriptions` using the server clock. Expired, not-yet-started and refunded periods grant nothing; unknown keys grant nothing. Guards: `requireEntitlement` / `requireBusinessEntitlement` in `subscriptions.ts`.
+- **API:** `GET /monetization/premium/plans?audience=user|business`, `GET /me/entitlements` (cacheable 60 s), `POST /monetization/premium/checkout` (price from the plan row; no price field; idempotent with `createKey`; max 3 open orders; business plans need an owner of an approved business), `GET /me/billing-history`, then the existing `POST /orders/:id/payment` for the receipt claim. Staff: `GET|PATCH /admin/monetization/plans`.
+- **Activation:** only inside the staff payment-confirm transaction (`activateSubscriptionForOrder`). A paid-out full refund ends that period (`endSubscriptionForOrder`).
+- **Paid is not verified:** a business subscription changes nothing about `businesses.verification`.
+- **Not built yet:** every Premium feature itself (themes, frames, chat themes, sticker packs, creator analytics, scheduling, feed controls), business analytics/offers/scheduled posts, all Android Premium/Business screens, Google Play Billing, Daraja, admin subscription revenue figures (subscription cash appears in "received" but not in "recognised"), and integration tests for these routes.
+- **Tests:** `test/entitlements.test.ts` (12) passed under a temporary stand-in for vitest; real vitest, `tsc` and Postgres were not available in this session.
+
+## Android: UniVibe Premium screen - written, NOT compiled or run
+Entry: Settings (searchable as "UniVibe Premium") opens route `premium`. Code: `features/premium/` (screen, view model, pure wording logic), `data/repository/PremiumRepository.kt`, `data/model/Premium.kt`; the container exposes `premiumRepository`.
+- Shows status (Free, or Premium with days left, never "renews"), the plans the server has switched on, a Free vs Premium list built only from the keys those plans carry, billing history (paged), and a short FAQ. When no plan is on sale it says "Premium is not available yet"; when payments are off, Subscribe is disabled with the reason.
+- Subscribe creates an order (price from the server, one idempotency key per attempt) and shows the till, amount and reference. "I have paid" only records the receipt claim and says Premium starts after confirmation. A waiting order in the history can be resumed with "Enter receipt code".
+- No sample data: the offline demo shows "needs a connection" (`NoPremiumRepository`).
+- Not built: Profile entry point, actual Premium features, business subscription screens, cached entitlement use by other screens. Tests: `PremiumLogicTest` (wording and comparison rows) has not run; Gradle was not available.
+
+## Premium chat themes (first working Premium feature) - written, NOT compiled or run
+- **What it is:** six Premium packs (Aurora Live, Neon Nights, Golden Hour, Starfield, Rainy Window, Sakura). Each sets an accent for my bubbles and an animated wallpaper together. They sit beside the existing free themes and wallpapers, which are unchanged. Chat menu > Theme and wallpaper > "Premium packs".
+- **Gate:** entitlement key `premium.chat_themes`. The app holds the server's answer in memory only (`EntitlementsStore`, refreshed at most once a minute when a chat opens or the Premium screen loads, cleared on sign-out). Nothing is stored on disk, so editing local preferences grants nothing. If the plan ends, or the server cannot be reached, a stored Premium look shows the free default and the sheet says it is paused; the choice comes back with Premium.
+- **Honest limit:** these looks are visible only to the person who picked them, on their own phone. The server decides whether the person is entitled, but it cannot stop a modified app from drawing the animation locally. That is acceptable for a private cosmetic; anything other people see (profile themes) must be enforced by the server.
+- **Performance:** plain Canvas drawing, no assets. Holds still on Reduce motion and on low-memory phones (glass off). Time is read while drawing only, so the chat does not recompose per frame.
+- **Migration 057:** plans now list only `premium.chat_themes`; the business plan lists nothing. Keys return one migration per shipped feature.
+- **Tests (not run):** `PremiumChatThemesTest`.
+
+## Premium profile looks (visible to other students) - written, NOT compiled; backend rules tested with a stand-in runner
+- **What:** a theme (cover gradient and artwork), an accent colour, an avatar frame and a small badge. Every choice comes from a fixed list or a #RRGGBB colour, so there is no free text: nothing can carry an insult, a link or a fake "verified" mark. Badges show their words ("Night owl") and look nothing like the verified student mark.
+- **Server is the authority:** migration `058_profile_looks.sql` adds `profile_looks`. `PUT /me/profile-look` refuses anything not unlocked right now (theme, accent, badge need `premium.profile_themes`; a frame needs `premium.profile_frames`); clearing is always allowed. `GET /me/profile-look` returns the saved look, what is shown, and what is unlocked.
+- **Others see it:** `GET /students/:id` now includes `look`, computed per request from the owner's live entitlements. When the owner's Premium ends the look stops showing at once, stays saved, and returns when Premium does. Existing visibility rules (blocks, suspended students, campus rules) are untouched: the look rides on the same route.
+- **Android:** rendered on the full student profile and on my own profile tab (cover gradient and artwork, rim colour, avatar frame, badge chip). Editor at Settings > Profile look (also reachable from the Premium screen): live preview, free to try; Save needs the unlocked parts and the server checks again.
+- **Scope limit:** the look shows on profile screens only. It is not yet on post author rows, comments or lists, which keeps those lists fast and the change reviewable.
+- **Plans:** 058 lists `premium.profile_themes` and `premium.profile_frames` on the personal plans beside chat themes. Plans stay inactive until staff switch one on.
+- **Tests:** `test/profile-look.test.ts` (16, passed under a stand-in runner), `ProfileLookTest` (Android, not run). The Android ids test must stay equal to the server lists.
+
+## Profile looks everywhere (migration `059_profile_look_fn.sql`) - NOT run against Postgres
+- **One rule, one place:** SQL function `profile_look_for(uuid)` returns the look other people may see (null for most students: one indexed lookup, then stop). Person queries select it: `AUTHOR_COLS` (feed and post authors, comments, follower/following lists, student profile) and `cardColumns` (chat members and chat list, discover, search, notifications, community channels, privacy lists, notes, stories, events). The TypeScript `effectiveLook` stays as the tested statement of the same rule for `/me/profile-look`; if you change one, change the other.
+- **Android:** `Student.look` and `Chat.look` are read from the server; `StudentAvatar(look = ...)` draws the frame (thinner on small avatars); a badge glyph sits beside names on post cards and comments. 26 avatar call sites that have a `Student` were updated.
+- **Not covered, and why:** message sender avatars inside a conversation, story and note rings, and event host rows only carry a name or id, not a person object, so they show no frame yet. Community member lists that do not use the shared person serializers need checking on a real device.
+- **Risks to check before release:** any query that selects `cardColumns`/`AUTHOR_COLS` inside a `group by` or `union` must still run (the new column is a function call, so it needs to be in the group by or both union sides); run the whole backend test suite on a database with migrations applied.
+
+## Admin: Premium page and a small real-money test (migration `060_premium_controls.sql`) - NOT run against Postgres
+**Where:** admin dashboard > Monetization > Premium (needs `packages.manage`; the subscriber list needs `payments.view`).
+- **Ready to sell?** checklist (payments on with a number, a plan on sale, a feature on) and counts: students and businesses subscribed now, orders waiting, confirmed gross (before refunds, not earned revenue).
+- **Plans:** put on / take off sale, change price (confirmed, audited, existing orders keep their price). A plan with no working features cannot be put on sale.
+- **Feature switches:** `premium_feature_flags` kill switch per feature. Off removes it for everyone at once (app, routes, profile looks everywhere); nobody's subscription or payment changes, and turning it on restores it for the rest of their period. Audited.
+- **Subscribers:** active, ended, refunded; name and handle only.
+- **Not built:** granting free Premium (it would need an order, and a silent grant would bypass payment verification), per-user revocation, subscription revenue recognition in the Revenue page.
+
+**Small real-money test (a few friends, KSh 99):**
+1. Run migrations 056 to 060 on a Neon branch, then production; deploy the backend.
+2. Admin > Packages and payment: enter your till or paybill number and switch payments on.
+3. Admin > Premium: put "UniVibe Premium - monthly" on sale. Leave annual and business off.
+4. In the app: Settings > UniVibe Premium > Subscribe, pay the till, enter the M-Pesa receipt code.
+5. Admin > Payments: check the receipt against your M-Pesa statement, confirm. Their Premium starts at that moment.
+6. In the app: open a chat > theme > Premium packs; Settings > Profile look; ask a friend to view your profile.
+7. Refund path: Admin > Refunds, approve, send the money, record the reference; their Premium ends.
+Take the plan off sale afterwards if you want to pause. People who already paid keep their days.

@@ -70,7 +70,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
                     contentPadding = PaddingValues(start = ProfileHorizontalPadding, end = ProfileHorizontalPadding, bottom = rememberBottomClearance() + Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    item(key = "header") { ProfileHeader(profile, actions) }
+                    item(key = "header") { ProfileHeader(profile, actions, state.look) }
                     item(key = "about") { AboutMeCard(profile.bio, actions.onEditProfile) }
                     item(key = "interests") { InterestsCard(profile.student.interests, actions.onEditProfile) }
                     item(key = "photos") { PhotosCard(profile.photos, actions.onOpenPhotos) }
@@ -85,7 +85,7 @@ fun ProfileScreen(actions: ProfileActions, viewModel: ProfileViewModel = viewMod
 }
 
 @Composable
-private fun ProfileHeader(profile: MyProfile, actions: ProfileActions) {
+private fun ProfileHeader(profile: MyProfile, actions: ProfileActions, look: com.univibe.app.data.model.ProfileLook?) {
     // About 32% of the screen width, kept between 108dp and 136dp so it suits small phones and tablets alike.
     val avatarOuter = (LocalConfiguration.current.screenWidthDp * 0.32f).coerceIn(108f, 136f).dp
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -96,10 +96,11 @@ private fun ProfileHeader(profile: MyProfile, actions: ProfileActions) {
             leading = { CoverBellButton(actions.unreadNotifications, actions.onOpenNotifications) },
             actions = { CoverIconButton(VibeIcons.Settings, "Settings", actions.onOpenSettings) },
             avatarSize = avatarOuter,
-            avatar = { ProfileAvatar(profile, avatarOuter, onChangePhoto = actions.onEditProfile) },
+            look = look,
+            avatar = { ProfileAvatar(profile, avatarOuter, onChangePhoto = actions.onEditProfile, look = look) },
         )
         Spacer(Modifier.height(avatarOuter / 2 + 8.dp))
-        ProfileIdentity(profile.student)
+        ProfileIdentity(profile.student, look)
         Spacer(Modifier.height(10.dp))
         ProfileStatsCard(profile, actions.onOpenFollowers, actions.onOpenFollowing)
         Spacer(Modifier.height(10.dp))

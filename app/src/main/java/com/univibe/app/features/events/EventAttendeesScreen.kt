@@ -101,7 +101,7 @@ fun EventAttendeesScreen(eventId: String, onBack: () -> Unit, onOpenStudent: (St
                         Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open profile") { onOpenStudent(p.student.id) }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md),
                     ) {
-                        StudentAvatar(p.student.name, size = 44.dp, accent = p.student.accent, imagePath = p.student.avatarUrl)
+                        StudentAvatar(p.student.name, size = 44.dp, accent = p.student.accent, imagePath = p.student.avatarUrl, look = p.student.look)
                         Column(Modifier.weight(1f)) {
                             VerifiedName(p.student.name, p.student.verified, style = MaterialTheme.typography.titleSmall)
                             Text(p.student.handle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

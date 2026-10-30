@@ -1,5 +1,8 @@
 package com.univibe.app.ui.components
 
+import com.univibe.app.features.profile.lookAccent
+import com.univibe.app.features.profile.profileFrame
+
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.BorderStroke
@@ -30,9 +33,11 @@ fun StudentAvatar(
     accent: Int = 0,
     online: Boolean = false,
     imagePath: String? = null,
+    /** A Premium look chosen by the server; draws the frame around the avatar. Null for most people. */
+    look: com.univibe.app.data.model.ProfileLook? = null,
 ) {
     val initials = name.split(" ").filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }
-    Box(modifier.size(size)) {
+    Box(modifier.size(size).then(if (look?.frame != null) Modifier.profileFrame(look.frame, lookAccent(look, BrandTeal)) else Modifier)) {
         Box(
             Modifier.size(size).clip(CircleShape).background(accentSolid(accent)),
             contentAlignment = Alignment.Center,

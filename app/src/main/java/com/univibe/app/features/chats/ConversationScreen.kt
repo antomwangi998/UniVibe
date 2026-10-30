@@ -220,17 +220,19 @@ private fun buildRows(messages: List<Message>): List<ChatRow> {
 }
 
 @Composable
-fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}) {
+fun ConversationScreen(chatId: String, onBack: () -> Unit, onOpenGroupInfo: () -> Unit = {}, onOpenStudent: (String) -> Unit = {}, onOpenPremium: () -> Unit = {}) {
     val viewModel = keyedViewModel("chat-$chatId") { ConversationViewModel(chatId) }
     // Only the theme id is watched here, so typing and new messages do not recompose the wrapper.
     val themeId by remember(viewModel) { viewModel.state.map { it.themeId }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(viewModel.state.value.themeId)
     // The chat's accent colours everything inside: my bubbles, the send button, links and reply bars.
-    ChatThemed(themeId) { ConversationBody(chatId, viewModel, onBack, onOpenGroupInfo, onOpenStudent) }
+    val unlocked by com.univibe.app.data.prefs.EntitlementsStore.keys.collectAsStateWithLifecycle()
+    val entitled = CHAT_THEMES_KEY in unlocked
+    ChatThemed(themeShown(themeId, entitled)) { ConversationBody(chatId, viewModel, onBack, onOpenGroupInfo, onOpenStudent, entitled, onOpenPremium) }
 }
 
 @Composable
-private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, onBack: () -> Unit, onOpenGroupInfo: () -> Unit, onOpenStudent: (String) -> Unit) {
+private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, onBack: () -> Unit, onOpenGroupInfo: () -> Unit, onOpenStudent: (String) -> Unit, entitled: Boolean, onOpenPremium: () -> Unit) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     // Photos are chosen first, then looked over (and captioned) in a sheet; nothing is sent until the person taps Send.
     var pendingPhotos by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
@@ -277,6 +279,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         themeId = s.themeId, wallpaperId = s.wallpaperId, wallpaperPhoto = s.wallpaperPhoto,
         onTheme = viewModel::setChatTheme, onWallpaper = viewModel::setWallpaper, onPickPhoto = pickWallpaper,
         onReset = viewModel::resetLook, onDismiss = { showLook = false },
+        premiumUnlocked = entitled, onPack = viewModel::setPremiumPack, onOpenPremium = { showLook = false; onOpenPremium() },
     )
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     var confirmBlock by rememberSaveable { mutableStateOf(false) }
@@ -438,8 +441,9 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
     // The wallpaper sits behind the whole screen (header and message box included) so the glass has something to sit on.
     // It is outside imePadding, so the keyboard resizes the chat but never the wallpaper.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-    if (s.wallpaperId == "none") GlassAmbientLayer(Modifier.matchParentSize())
-    ChatWallpaperLayer(s.wallpaperId, s.wallpaperPhoto, Modifier.matchParentSize())
+    val wallShown = wallpaperShown(s.wallpaperId, entitled)
+    if (wallShown == "none") GlassAmbientLayer(Modifier.matchParentSize())
+    ChatWallpaperLayer(wallShown, s.wallpaperPhoto, Modifier.matchParentSize())
     Column(Modifier.fillMaxSize().imePadding()) {
         if (s.searching) {
             Surface(color = MaterialTheme.colorScheme.surface) {
@@ -476,7 +480,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                     // A fixed 46dp slot with a thin teal ring (brighter while they are online or typing), so nothing shifts when the photo loads.
                     Box(Modifier.size(46.dp).border(1.5.dp, colors.primary.copy(alpha = if (s.typing || chat.online) 0.8f else 0.28f), CircleShape).padding(3.dp)) {
                         if (chat.isGroup) GroupAvatar(s.group?.photoPath ?: chat.groupPhotoUrl, 40.dp, name = s.title)
-                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
+                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl, look = chat.look)
                     }
                     Column(Modifier.weight(1f).padding(start = Spacing.sm + 2.dp)) {
                         VerifiedName(s.title, chat.verified && !chat.isGroup, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -702,7 +706,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                                     Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Mention ${st.name}") { viewModel.pickMention(st) }.padding(horizontal = Spacing.sm),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent, imagePath = st.avatarUrl)
+                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent, imagePath = st.avatarUrl, look = st.look)
                                     Text(st.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = Spacing.sm + 4.dp))
                                     Text("  ${st.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }

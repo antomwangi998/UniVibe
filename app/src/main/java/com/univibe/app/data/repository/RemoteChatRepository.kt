@@ -91,6 +91,7 @@ class RemoteChatRepository(
             isGroup = isGroup,
             online = other?.takeIf { !it.isNull("online") }?.optBoolean("online", false) ?: false,
             avatarUrl = student?.avatarUrl,
+            look = student?.look,
             verified = student?.verified == true,
             groupPhotoUrl = json.strOrNull("photoUrl"),
             pinned = json.optBoolean("pinned", false),
@@ -220,6 +221,7 @@ class RemoteChatRepository(
             memberCount = o.optInt("memberCount", 0),
             lastDelivery = delivery,
             avatarUrl = with?.avatarUrl,
+            look = with?.look,
             verified = !isGroup && with?.verified == true,
             groupPhotoUrl = o.strOrNull("photoUrl"),
             // `presence` is null when the other person keeps their activity private: then there is no dot and no time.

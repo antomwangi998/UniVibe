@@ -32,6 +32,11 @@ export function effectiveEntitlements(rows: readonly PeriodRow[], now: Date): En
   return [...out].sort();
 }
 
+/** Staff kill switches: a key that is switched off is removed from the list, whatever the person has paid for. */
+export function applySwitches(keys: readonly EntitlementKey[], disabled: readonly string[]): EntitlementKey[] {
+  return keys.filter((k) => !disabled.includes(k));
+}
+
 /**
  * Where a purchase starts. Buying while a period is still running extends from its end (no days are lost);
  * buying after a lapse starts now. Returns [start, end].

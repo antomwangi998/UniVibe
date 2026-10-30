@@ -56,7 +56,7 @@ fun EventFeedCard(
                         .clickable(role = Role.Button, onClickLabel = "Open profile", onClick = onAuthorClick),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl)
+                    StudentAvatar(post.author.name, size = 40.dp, accent = post.author.accent, imagePath = post.author.avatarUrl, look = post.author.look)
                     Spacer(Modifier.width(Spacing.sm + 2.dp))
                     Column(Modifier.weight(1f)) {
                         VerifiedName(post.author.name, post.author.verified, style = MaterialTheme.typography.titleSmall)

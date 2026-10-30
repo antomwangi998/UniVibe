@@ -79,6 +79,7 @@ fun parseStudent(o: JSONObject): Student {
         verified = o.optBoolean("studentVerified", false),
         accent = accentFor(id),
         avatarUrl = if (o.isNull("avatarUrl")) null else o.optString("avatarUrl").ifEmpty { null },
+        look = com.univibe.app.data.repository.parseLook(o.optJSONObject("look")),
     )
 }
 

@@ -33,6 +33,8 @@ data class ProfileUiState(
     val latestSaved: Post? = null,
     /** True once the saved-post preview has been read (so an empty card is not shown while it is still loading). */
     val savedLoaded: Boolean = false,
+    /** My Premium look as other students see it right now (null when none or not unlocked). */
+    val look: com.univibe.app.data.model.ProfileLook? = null,
 )
 
 class ProfileViewModel(
@@ -61,6 +63,8 @@ class ProfileViewModel(
                 else loaded.copy(student = loaded.student.copy(verified = account.studentVerified))
                 val groups = communities.getCommunities().filter { it.role != CommunityRole.None }
                 _state.update { it.copy(loading = false, refreshing = false, profile = profile, groups = groups) }
+                // My look, as others see it. A failure leaves the standard profile, never an error.
+                runCatching { AppContainer.premiumRepository.myProfileLook() }.onSuccess { l -> _state.update { it.copy(look = l.shown) } }
                 // One small read for the preview; a failure here must not break the profile, so it keeps what it had.
                 runCatching { feed.getSavedPostsPage(null, 1) }.onSuccess { page ->
                     _state.update { it.copy(latestSaved = page.firstOrNull(), savedLoaded = true) }

@@ -8,6 +8,7 @@ import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../../http';
 import { audit } from '../moderation';
 import { manualPaymentSettings } from './advertiser_routes';
 import { formatMoney } from './money';
+import { ENTITLEMENT_KEYS, isEntitlementKey } from './entitlements';
 import { newUniqueReference } from './service';
 import { subscriptionStatus, userEntitlements } from './subscriptions';
 
@@ -118,10 +119,73 @@ export function premiumRoutes(ctx: Ctx) {
           throw new HttpError(422, 'confirm_required', `Confirm the price change from ${formatMoney(Number(cur.price_minor))} to ${formatMoney(b.priceMinor)}. Existing orders keep their price.`);
         }
         const next = { active: b.active ?? cur.active, price: b.priceMinor ?? Number(cur.price_minor) };
+        // Never put something on sale that has nothing to sell.
+        if (next.active && !cur.active && cur.entitlements.length === 0) throw new HttpError(422, 'validation', 'This plan lists no working features yet, so it cannot be switched on.');
         await client.query('update subscription_plans set active = $2, price_minor = $3, updated_at = now() where id = $1', [id, next.active, next.price]);
         await audit(client, me.id, 'plan.update', 'subscription_plan', id, { code: cur.code, from: { active: cur.active, priceMinor: Number(cur.price_minor) }, to: { active: next.active, priceMinor: next.price } });
         return { status: 'ok' };
       });
+    });
+
+    // ------------------------------------------------------------ staff: the Premium control page
+    /** Everything the Premium admin page needs in one read: is it ready to sell, what is on sale, who is subscribed. */
+    app.get('/admin/monetization/premium/overview', async (req) => {
+      await need(req, 'packages.manage');
+      const [pay, plans, flags, live, orders] = await Promise.all([
+        manualPaymentSettings(pool),
+        pool.query<PlanRow & { live: string }>(
+          `select p.*, (select count(*) from subscriptions s where s.plan_id = p.id and s.status = 'active' and s.period_start <= now() and s.period_end > now()) as live
+             from subscription_plans p order by p.sort_order`),
+        pool.query<{ key: string; enabled: boolean }>('select key, enabled from premium_feature_flags'),
+        pool.query<{ users: string; businesses: string }>(
+          `select count(*) filter (where business_id is null) as users, count(*) filter (where business_id is not null) as businesses
+             from subscriptions where status = 'active' and period_start <= now() and period_end > now()`),
+        pool.query<{ pending: string; paid: string; gross: string }>(
+          `select count(*) filter (where status = 'pending_payment') as pending, count(*) filter (where status = 'paid') as paid,
+                  coalesce(sum(amount_minor) filter (where status = 'paid'), 0) as gross
+             from orders where plan_id is not null`),
+      ]);
+      const off = new Set(flags.rows.filter((f) => !f.enabled).map((f) => f.key));
+      const o = orders.rows[0];
+      return {
+        payments: { enabled: pay.enabled, hasNumber: !!pay.number },
+        plans: plans.rows.map((p) => ({ ...planView(p), active: p.active, liveSubscribers: Number(p.live) })),
+        features: ENTITLEMENT_KEYS.map((key) => ({ key, enabled: !off.has(key), inAnyPlan: plans.rows.some((p) => p.entitlements.includes(key)) })),
+        totals: { liveStudents: Number(live.rows[0].users), liveBusinesses: Number(live.rows[0].businesses), pendingOrders: Number(o.pending), paidOrders: Number(o.paid), confirmedGrossMinor: Number(o.gross) },
+      };
+    });
+
+    /** The kill switch. Off removes the key from everyone at once; on restores it. Subscriptions and payments are untouched. */
+    app.patch('/admin/monetization/premium/features/:key', async (req) => {
+      const me = await need(req, 'packages.manage');
+      const key = String((req.params as { key?: string }).key ?? '');
+      if (!isEntitlementKey(key)) throw new HttpError(404, 'not_found', 'Not found.');
+      const b = z.object({ enabled: z.boolean() }).strict().parse(req.body ?? {});
+      await withTx(pool, async (client) => {
+        await client.query(
+          `insert into premium_feature_flags (key, enabled, updated_by) values ($1, $2, $3)
+           on conflict (key) do update set enabled = $2, updated_by = $3, updated_at = now()`, [key, b.enabled, me.id]);
+        await audit(client, me.id, b.enabled ? 'premium_feature.on' : 'premium_feature.off', 'premium_feature', null, { key });
+      });
+      return { status: 'ok' };
+    });
+
+    /** Who has Premium. Names and handles only (no email, no phone), newest first, a page at a time. */
+    app.get('/admin/monetization/subscriptions', async (req) => {
+      await need(req, 'payments.view');
+      const q = pageSchema.extend({ state: z.enum(['live', 'ended', 'refunded']).default('live') }).strict().parse(req.query ?? {});
+      const cur = decodeCursor(q.cursor);
+      const params: unknown[] = [];
+      const where = [q.state === 'live' ? "s.status = 'active' and s.period_start <= now() and s.period_end > now()"
+        : q.state === 'ended' ? "s.status = 'active' and s.period_end <= now()" : "s.status = 'refunded'"];
+      if (cur) { params.push(cur.t, cur.id); where.push('(s.created_at, s.id) < ($1::timestamptz, $2::uuid)'); }
+      params.push(q.limit + 1);
+      const { rows } = await pool.query(
+        `select s.id, s.period_start, s.period_end, s.business_id, u.full_name, u.handle, p.name as plan_name, o.reference, ${tsText('s.created_at')} as "cursorT"
+           from subscriptions s join users u on u.id = s.user_id join subscription_plans p on p.id = s.plan_id join orders o on o.id = s.order_id
+          where ${where.join(' and ')} order by s.created_at desc, s.id desc limit $${params.length}`, params);
+      const page = toPage(rows, q.limit);
+      return { items: page.items.map((r) => ({ id: r.id, name: r.full_name, handle: r.handle, plan: r.plan_name, reference: r.reference, business: r.business_id !== null, startsAt: r.period_start, endsAt: r.period_end })), nextCursor: page.nextCursor };
     });
   };
 }

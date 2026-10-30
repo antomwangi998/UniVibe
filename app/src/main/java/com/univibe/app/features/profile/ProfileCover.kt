@@ -91,13 +91,18 @@ fun ProfileCover(
     leading: @Composable RowScope.() -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     avatarSize: Dp = DefaultAvatarRing,
+    /** A Premium look, already filtered by the server. Null shows the standard cover. */
+    look: com.univibe.app.data.model.ProfileLook? = null,
     avatar: @Composable () -> Unit,
 ) {
     val tokens = rememberProfileTokens()
     val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val base = tokens.primary
-    val gradient = remember(tokens) {
-        if (tokens.dark) Brush.linearGradient(listOf(Color(0xFF02181B), Color(0xFF053C40), Color(0xFF0A7F7C)))
+    val palette = themeColors(look?.theme)
+    val rimColor = lookAccent(look, tokens.primary)
+    val gradient = remember(tokens, palette) {
+        if (palette != null) Brush.linearGradient(palette)
+        else if (tokens.dark) Brush.linearGradient(listOf(Color(0xFF02181B), Color(0xFF053C40), Color(0xFF0A7F7C)))
         else Brush.linearGradient(listOf(lerp(base, Color.Black, 0.22f), base, lerp(base, Color.White, 0.30f)))
     }
     val shape = remember { CurvedBottomShape(CoverCurveLift) }
@@ -118,13 +123,13 @@ fun ProfileCover(
                             radius = size.width * 0.75f,
                         ),
                     )
-                    if (coverPath == null) drawCampusSkyline(tokens.dark)
+                    if (coverPath == null) { val th = look?.theme; if (palette != null && th != null) drawThemeMotif(th) else drawCampusSkyline(tokens.dark) }
                 }
                 .drawWithContent {
                     drawContent()
                     // Thin turquoise rim along the curved edge (drawn 4dp wide; the clip leaves the inner 2dp).
                     val rim = Path().apply { moveTo(size.width, size.height); bottomCurve(size.width, size.height, CoverCurveLift.toPx()) }
-                    drawPath(rim, tokens.primary.copy(alpha = 0.85f), style = Stroke(width = 4.dp.toPx()))
+                    drawPath(rim, rimColor.copy(alpha = 0.85f), style = Stroke(width = 4.dp.toPx()))
                 },
         ) {
             if (coverPath != null) {
