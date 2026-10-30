@@ -853,7 +853,7 @@ private fun StoriesRow(stories: List<Student>) {
         items(stories, key = { it.id }) { student ->
             Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 StoryRing(ringSize = 72.dp) {
-                    StudentAvatar(student.name, size = 58.dp, accent = student.accent, online = student.online, imagePath = student.avatarUrl)
+                    StudentAvatar(student.name, size = 58.dp, accent = student.accent, online = student.online, imagePath = student.avatarUrl, look = student.look)
                 }
                 Text(
                     student.name.substringBefore(' '),

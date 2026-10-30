@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.univibe.app.data.model.ProfileLook
 import com.univibe.app.ui.theme.Spacing
@@ -79,16 +81,18 @@ fun Modifier.profileFrame(frame: String?, accent: Color): Modifier {
     return drawWithContent {
         drawContent()
         val r = size.minDimension / 2f
+        // Strokes are designed for the 116dp profile photo; smaller avatars (feed, lists) get proportionally thinner ones.
+        val k = (size.minDimension / 116.dp.toPx()).coerceIn(0.35f, 1f)
         when (frame) {
-            "ring" -> { val w = 4.dp.toPx(); drawCircle(Brush.sweepGradient(listOf(accent, second, accent), center), radius = r - w / 2f, style = Stroke(w)) }
+            "ring" -> { val w = 4.dp.toPx() * k; drawCircle(Brush.sweepGradient(listOf(accent, second, accent), center), radius = r - w / 2f, style = Stroke(w)) }
             "double" -> {
-                drawCircle(accent, radius = r - 1.dp.toPx(), style = Stroke(2.dp.toPx()))
-                drawCircle(second, radius = r - 5.dp.toPx(), style = Stroke(2.dp.toPx()))
+                drawCircle(accent, radius = r - 1.dp.toPx() * k, style = Stroke(2.dp.toPx() * k))
+                drawCircle(second, radius = r - 5.dp.toPx() * k, style = Stroke(2.dp.toPx() * k))
             }
-            "dashed" -> drawCircle(accent, radius = r - 2.dp.toPx(), style = Stroke(3.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 7.dp.toPx()))))
+            "dashed" -> drawCircle(accent, radius = r - 2.dp.toPx() * k, style = Stroke(3.dp.toPx() * k, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx() * k, 7.dp.toPx() * k))))
             "halo" -> {
                 drawCircle(Brush.radialGradient(0.7f to Color.Transparent, 0.85f to accent.copy(alpha = 0.5f), 1f to Color.Transparent, center = center, radius = r * 1.4f), radius = r * 1.4f)
-                drawCircle(accent, radius = r - 1.5.dp.toPx(), style = Stroke(3.dp.toPx()))
+                drawCircle(accent, radius = r - 1.5.dp.toPx() * k, style = Stroke(3.dp.toPx() * k))
             }
         }
     }
@@ -128,4 +132,11 @@ fun ProfileBadgeChip(badge: String?, accent: Color, modifier: Modifier = Modifie
         Text(info.glyph, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
         Text("  " + info.label, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface)
     }
+}
+
+/** Just the badge glyph, for tight rows (feed, comments). The words are in the accessibility description. */
+@Composable
+fun BadgeGlyph(badge: String?, modifier: Modifier = Modifier) {
+    val info = badgeInfo(badge) ?: return
+    Text(info.glyph, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, modifier = modifier.semantics { contentDescription = info.label })
 }

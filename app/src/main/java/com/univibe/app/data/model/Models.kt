@@ -20,6 +20,8 @@ data class Student(
     val photoPath: String? = null,
     /** Short-lived link to the student's profile picture; null when they have not uploaded one (initials are shown). */
     val avatarUrl: String? = null,
+    /** Premium look the server chose to show for this person (null for most). */
+    val look: ProfileLook? = null,
     /** The university's short code ("ku", "cuk"), shown as a small badge next to the name. Empty when unknown. */
     val universityCode: String = "",
     /** Short label for the campus badge ("KU"). Falls back to [universityCode] when the server sent none. */
@@ -162,6 +164,8 @@ data class Chat(
     val lastDelivery: Delivery = Delivery.None,
     /** Profile picture of the other person in a direct chat. */
     val avatarUrl: String? = null,
+    /** Premium look of the other person in a direct chat. */
+    val look: ProfileLook? = null,
     /** For groups: the uploaded group photo (a signed link), when there is one. */
     val groupPhotoUrl: String? = null,
     /** When the other person was last active (epoch ms). Null when they keep it private or have not been seen yet. */

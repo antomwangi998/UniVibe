@@ -148,7 +148,7 @@ private fun NotificationRow(n: AppNotification, onClick: () -> Unit) {
         Box {
             val actor = n.actor
             if (actor != null) {
-                StudentAvatar(actor.name, size = 48.dp, accent = actor.accent, imagePath = actor.avatarUrl)
+                StudentAvatar(actor.name, size = 48.dp, accent = actor.accent, imagePath = actor.avatarUrl, look = actor.look)
             } else {
                 Surface(shape = CircleShape, color = colors.surfaceVariant, modifier = Modifier.size(48.dp)) {
                     Box(contentAlignment = Alignment.Center) { Icon(n.type.icon(), contentDescription = null, tint = colors.primary) }

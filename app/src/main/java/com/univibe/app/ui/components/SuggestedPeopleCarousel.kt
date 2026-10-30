@@ -69,7 +69,7 @@ fun SuggestedPeopleCarousel(
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Box(Modifier.clickable(role = Role.Button, onClickLabel = "View ${student.name}'s profile") { onOpenStudent(student.id) }) {
-                                StudentAvatar(student.name, size = 84.dp, accent = student.accent, imagePath = student.avatarUrl)
+                                StudentAvatar(student.name, size = 84.dp, accent = student.accent, imagePath = student.avatarUrl, look = student.look)
                             }
                             Spacer(Modifier.height(Spacing.sm))
                             VerifiedName(student.name, student.verified, style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.CenterHorizontally))

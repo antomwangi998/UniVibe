@@ -480,7 +480,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                     // A fixed 46dp slot with a thin teal ring (brighter while they are online or typing), so nothing shifts when the photo loads.
                     Box(Modifier.size(46.dp).border(1.5.dp, colors.primary.copy(alpha = if (s.typing || chat.online) 0.8f else 0.28f), CircleShape).padding(3.dp)) {
                         if (chat.isGroup) GroupAvatar(s.group?.photoPath ?: chat.groupPhotoUrl, 40.dp, name = s.title)
-                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl)
+                        else StudentAvatar(chat.title, size = 40.dp, accent = chat.id.hashCode(), online = chat.online, imagePath = chat.avatarUrl, look = chat.look)
                     }
                     Column(Modifier.weight(1f).padding(start = Spacing.sm + 2.dp)) {
                         VerifiedName(s.title, chat.verified && !chat.isGroup, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -706,7 +706,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                                     Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = "Mention ${st.name}") { viewModel.pickMention(st) }.padding(horizontal = Spacing.sm),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent, imagePath = st.avatarUrl)
+                                    StudentAvatar(st.name, size = 32.dp, accent = st.accent, imagePath = st.avatarUrl, look = st.look)
                                     Text(st.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = Spacing.sm + 4.dp))
                                     Text("  ${st.handle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }

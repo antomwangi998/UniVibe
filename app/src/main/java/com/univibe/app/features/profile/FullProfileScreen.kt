@@ -131,7 +131,7 @@ fun FullProfileScreen(
                                     Box(
                                         Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = "View profile photo") { showPhoto = true },
                                         contentAlignment = Alignment.Center,
-                                    ) { StudentAvatar(student.name, size = 104.dp, accent = student.accent, imagePath = student.avatarUrl) }
+                                    ) { StudentAvatar(student.name, size = 104.dp, accent = student.accent, imagePath = student.avatarUrl, look = student.look) }
                                 }
                                 // Only when the server says this student is verified.
                                 if (student.verified) {

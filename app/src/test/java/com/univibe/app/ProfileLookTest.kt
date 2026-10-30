@@ -51,3 +51,17 @@ class ProfileLookTest {
         assertTrue(canSaveLook(ProfileLook(theme = "aurora", frame = "ring"), themesUnlocked = true, framesUnlocked = true))
     }
 }
+
+class ProfileLookParsingTest {
+    @Test fun serverLookIsReadFromAnyPersonObject() {
+        val json = org.json.JSONObject("""{"id":"u1","fullName":"Amina Otieno","handle":"amina","look":{"theme":"aurora","frame":"ring","badge":"moon"}}""")
+        val look = com.univibe.app.data.repository.parseLook(json.optJSONObject("look"))
+        assertEquals("aurora", look?.theme); assertEquals("ring", look?.frame); assertEquals("moon", look?.badge); assertNull(look?.accent)
+    }
+
+    @Test fun absentOrEmptyLookIsNull() {
+        assertNull(com.univibe.app.data.repository.parseLook(null))
+        assertNull(com.univibe.app.data.repository.parseLook(org.json.JSONObject("{}")))
+        assertNull(com.univibe.app.data.repository.parseLook(org.json.JSONObject("""{"theme":null,"frame":null}""")))
+    }
+}
