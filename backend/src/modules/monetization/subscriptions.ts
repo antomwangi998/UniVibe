@@ -1,6 +1,6 @@
 import { HttpError } from '../../errors';
 import { audit } from '../moderation';
-import { applySwitches, daysLeft, effectiveEntitlements, nextPeriod, type EntitlementKey, type PeriodRow } from './entitlements';
+import { applySwitches, coverageEnd, daysLeft, effectiveEntitlements, nextPeriod, type EntitlementKey, type PeriodRow } from './entitlements';
 import type { Q } from './service';
 
 type DbPeriod = { status: 'active' | 'refunded'; period_start: Date; period_end: Date; entitlements: string[]; business_id: string | null; plan_code: string; plan_name: string; audience: string };
@@ -40,10 +40,11 @@ export async function requireBusinessEntitlement(q: Q, businessId: string, key: 
 /** Status shown on the Premium screen. `renews` is always false: manual payments never renew by themselves. */
 export async function subscriptionStatus(q: Q, userId: string, now = new Date()) {
   const rows = await periodsOf(q, 's.user_id = $1 and s.business_id is null', userId);
-  const live = rows.filter((r) => r.period_start.getTime() <= now.getTime());
-  const cur = live[0];
-  if (!cur) return { active: false as const, renews: false as const };
-  return { active: true as const, renews: false as const, plan: cur.plan_code, planName: cur.plan_name, endsAt: cur.period_end, daysLeft: daysLeft(cur.period_end, now) };
+  const end = coverageEnd(rows, now);
+  const cur = rows.find((r) => r.period_start.getTime() <= now.getTime());
+  if (!end || !cur) return { active: false as const, renews: false as const };
+  // endsAt covers every period already paid for, including ones queued behind the running one.
+  return { active: true as const, renews: false as const, plan: cur.plan_code, planName: cur.plan_name, endsAt: end, daysLeft: daysLeft(end, now) };
 }
 
 /**

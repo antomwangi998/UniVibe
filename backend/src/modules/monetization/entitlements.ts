@@ -47,5 +47,16 @@ export function nextPeriod(existingEnds: readonly Date[], now: Date, periodDays:
   return [start, new Date(start.getTime() + periodDays * 86_400_000)];
 }
 
+/**
+ * When Premium stops for good: the latest end among active periods, provided one is live right now. A period bought
+ * while another was running starts when that one ends, so counting only the running period would hide days already paid for.
+ * Null when nothing is live (an ended or refunded history shows no coverage).
+ */
+export function coverageEnd(rows: readonly Pick<PeriodRow, 'status' | 'period_start' | 'period_end'>[], now: Date): Date | null {
+  if (!rows.some((r) => isLive(r, now))) return null;
+  return rows.filter((r) => r.status === 'active' && r.period_end.getTime() > now.getTime())
+    .reduce<Date | null>((m, r) => (!m || r.period_end.getTime() > m.getTime() ? r.period_end : m), null);
+}
+
 /** Whole days left, rounded up, never negative. */
 export const daysLeft = (end: Date, now: Date): number => Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 86_400_000));
