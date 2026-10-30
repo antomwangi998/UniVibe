@@ -10,9 +10,10 @@ const toLook = (r: Row | undefined): Look | null => (r ? { theme: r.theme, accen
 
 /** The look anyone may see on this student's profile, or null. Used by GET /students/:id. */
 export async function publicLookFor(q: Q, userId: string): Promise<Look | null> {
-  const row = (await q.query<Row>('select theme, accent, frame, badge from profile_looks where user_id = $1', [userId])).rows[0];
-  if (!row) return null;
-  return effectiveLook(toLook(row), await userEntitlements(q, userId));
+  // One rule for everyone: the same database function every list uses, so a profile and a feed row can never disagree.
+  const row = (await q.query<{ look: Partial<Look> | null }>('select profile_look_for($1) as look', [userId])).rows[0];
+  const l = row?.look;
+  return l ? { theme: l.theme ?? null, accent: l.accent ?? null, frame: l.frame ?? null, badge: l.badge ?? null } : null;
 }
 
 export function profileLookRoutes(ctx: Ctx) {
