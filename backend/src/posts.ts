@@ -1,6 +1,6 @@
 import { pollSchema, pollView } from './polls';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { ALL_CAMPUSES, blockedBetween, notSuspended, resolveScope } from './access';
+import { ALL_CAMPUSES, blockedBetween, inScope, notSuspended, resolveScope } from './access';
 import { enqueue } from './jobs';
 import { notify, retract } from './modules/notify';
 import { assertMayPostInCommunity, joinState } from './modules/community_state';
@@ -11,6 +11,7 @@ import { withTx } from './db';
 import { HttpError } from './errors';
 import { READ_LINK_SECONDS } from './media';
 import type { Storage } from './storage';
+import { forYouSql } from './modules/for_you_rank';
 import { AUTHOR_COLS, AuthorCols, RouteContext, SignedInUser, authorJson, isUniqueViolation, paramId, signAuthors } from './shared';
 
 const TEXT_MAX = 280;
@@ -32,6 +33,40 @@ const editSchema = z.object({ text: maybeText });
 const voteSchema = z.object({ optionIndex: z.number().int().min(0).max(3) });
 const viewsSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(50) });
 const reportSchema = z.object({ reason: z.string().trim().min(1).max(200) });
+// ---- Home gates, shared by the newest-first feed and the mixed one
+// Home never fans out every community post to everyone: only communities the viewer joined and has not muted.
+// (Public community posts reach non-members through Discover and community pages, not Home.)
+const HOME_COMMUNITY_GATE =
+  "(p.audience <> 'community' or exists (select 1 from community_members hm where hm.community_id = p.community_id and hm.user_id = $1 and hm.status = 'active' and hm.notification_level <> 'muted') and not exists (select 1 from community_mutes hmu where hmu.user_id = $1 and hmu.community_id = p.community_id) and not exists (select 1 from discover_feedback hf where hf.user_id = $1 and hf.kind = 'not_interested' and hf.post_id = p.id))";
+// Event announcements reach Home only when they are relevant to this person, so a busy campus cannot flood the feed:
+// the person follows the organizer, answered or saved the event, is the organizer, or the event belongs to a community
+// they joined (the community gate above already checked that). Upcoming and live events only, and never ones they
+// marked not interested or whose organizer they hid. Everyone else finds events in the Events tab and Discover.
+const HOME_EVENT_GATE =
+  "(p.event_id is null or (exists (select 1 from events fe where fe.id = p.event_id and fe.ends_at > now() and fe.status <> 'completed') " +
+        "and not exists (select 1 from event_feedback evf where evf.user_id = $1 and evf.event_id = p.event_id) " +
+        "and not exists (select 1 from discover_feedback ef where ef.user_id = $1 and ((ef.kind = 'not_interested' and ef.post_id = p.id) or (ef.kind = 'hide_author' and ef.author_id = p.author_id))) " +
+        "and (p.audience = 'community' or p.author_id = $1 " +
+        "or exists (select 1 from follows ef2 where ef2.follower_id = $1 and ef2.followee_id = p.author_id) " +
+        "or exists (select 1 from event_registrations er where er.event_id = p.event_id and er.user_id = $1 and er.status = 'registered') " +
+        "or exists (select 1 from event_interest ei where ei.event_id = p.event_id and ei.user_id = $1) " +
+        "or exists (select 1 from saved_events es where es.event_id = p.event_id and es.user_id = $1)))) ";
+/** Home's own campus reach: this university plus the people you follow, so a friend from another campus stays visible. */
+const HOME_CAMPUS_REACH = '(a.university_id = $2 or exists (select 1 from follows hf0 where hf0.follower_id = $1 and hf0.followee_id = p.author_id))';
+
+// ---- Mixed Home: the For You ranker, adapted to Home
+const MIX_WINDOW_HOURS = 14 * 24;
+const MIX_PER_AUTHOR = 4; // one author may fill at most this many slots of the ranked feed
+const MIX_FOLLOW_BONUS = 0.15; // on top of the ranker's own follow signal: Home is first about the people you chose
+const MIX_DEFAULT_LIMIT = 30;
+const MIX_MAX_ASOF_AGE_MS = 3 * 24 * 3600 * 1000;
+/** What this student asked not to see (communities and events are already handled by the Home gates). $1 = viewer. */
+const MIX_NOT_HIDDEN = `
+  not exists (select 1 from discover_feedback f where f.user_id = $1 and (
+       (f.kind = 'not_interested' and f.post_id = p.id) or (f.kind = 'hide_author' and f.author_id = p.author_id)))
+  and not exists (select 1 from discover_feedback f where f.user_id = $1 and f.kind = 'mute_topic'
+       and lower(p.text) ~ ('(^|[^a-z0-9_])#' || f.topic || '($|[^a-z0-9_])'))`;
+
 const feedQuery = z.object({
   filter: z.enum(['campus', 'following']).default('campus'),
   /** Page size. Without it the feed behaves as before (up to 100 posts at once). */
@@ -45,6 +80,13 @@ const feedQuery = z.object({
    * Any other value: that one university's id. Ignored on a profile (`author`), which always shows what you may see.
    */
   campusScope: z.string().trim().min(1).max(64).optional(),
+  /**
+   * `recent` (default): newest first. `mix`: Home ranked for this student with the For You signals, still limited to what
+   * Home allows. Only the campus Home feed is ranked; `following` and profiles stay newest first whatever is asked.
+   */
+  sort: z.enum(['recent', 'mix']).default('recent'),
+  /** Mix only: the instant the first page was ranked at, repeated on every later page so the order never reshuffles. */
+  asOf: z.string().refine((v) => !Number.isNaN(Date.parse(v))).optional(),
 });
 const savedQuery = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
@@ -269,10 +311,54 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     return row;
   }
 
+  /**
+   * Home ranked for this student. Candidates are exactly what newest-first Home would show (own campus plus the people
+   * they follow, followers-only posts, joined communities, relevant events), scored by the For You ranker as of one
+   * instant. People they follow get a bonus, their own fresh post stays on top, and no one author fills the feed.
+   * Pages continue after `before` in score order; `asOf` pins the scores, so the order holds while they scroll.
+   * Every post carries `feedAsOf`, which the app sends back with the next page.
+   */
+  async function homeMix(user: SignedInUser, q: { limit?: number; before?: string; asOf?: string; campusScope?: string }) {
+    const now = Date.now();
+    const asked = q.asOf ? Date.parse(q.asOf) : now;
+    const asOf = new Date(Math.min(now, Math.max(asked, now - MIX_MAX_ASOF_AGE_MS))).toISOString();
+    const home = q.campusScope === undefined || q.campusScope === 'home';
+    const scope = resolveScope(q.campusScope, user.university_id);
+    const { rows } = await pool.query<{ id: string }>(
+      `with cand as (${forYouSql(MIX_NOT_HIDDEN, {
+        audience: `(${HOME_COMMUNITY_GATE} and ${HOME_EVENT_GATE})`,
+        scope: home ? HOME_CAMPUS_REACH : inScope('a', '$8'),
+      })}),
+       boosted as (
+         select c.id, c.author_id,
+                round((c.score + (case when c.followed then ${MIX_FOLLOW_BONUS} else 0 end)
+                       + (case when c.author_id = $1 and c.created_at > $3::timestamptz - interval '1 hour' then 1 else 0 end))::numeric, 9) as final
+           from cand c),
+       ranked as (select b.*, row_number() over (partition by b.author_id order by b.final desc, b.id desc) as rn from boosted b),
+       shown as (select * from ranked where rn <= $7::int),
+       anchor as (select final, id from shown where id = $5::uuid)
+       select s.id from shown s
+        where $5::uuid is null or (s.final, s.id) < (select a.final, a.id from anchor a)
+        order by s.final desc, s.id desc limit $6`,
+      [user.id, user.university_id, asOf, MIX_WINDOW_HOURS, q.before ?? null, q.limit ?? MIX_DEFAULT_LIMIT, MIX_PER_AUTHOR, scope],
+    );
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) return [];
+    // Full post rows for the chosen ids, re-checked for visibility, in rank order.
+    const { rows: full } = await pool.query<PostRow>(
+      `select ${POST_COLS} ${POST_FROM} where p.id = any($3::uuid[]) and ${visible('p', 'a')}`,
+      [user.id, user.university_id, ids],
+    );
+    const byId = new Map(full.map((r) => [r.id, r]));
+    const ordered = ids.map((i) => byId.get(i)).filter((r): r is PostRow => !!r);
+    return (await present(ordered, user)).map((p) => ({ ...p, feedAsOf: asOf }));
+  }
+
   // ---- reading
   app.get('/posts', async (req) => {
     const user = await ctx.requireUser(req);
-    const { filter, limit, before, author, campusScope } = feedQuery.parse(req.query ?? {});
+    const { filter, limit, before, author, campusScope, sort, asOf } = feedQuery.parse(req.query ?? {});
+    if (sort === 'mix' && filter === 'campus' && !author) return homeMix(user, { limit, before, asOf, campusScope });
     const following =
       filter === 'following'
         ? 'and exists (select 1 from follows f2 where f2.follower_id = $1 and f2.followee_id = p.author_id)'
@@ -295,7 +381,7 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     if (!author) {
       const scope = resolveScope(campusScope, user.university_id);
       if (campusScope === undefined || campusScope === 'home') {
-        scopeGate = 'and (a.university_id = $2 or exists (select 1 from follows hf0 where hf0.follower_id = $1 and hf0.followee_id = p.author_id)) ';
+        scopeGate = `and ${HOME_CAMPUS_REACH} `;
       } else if (scope !== ALL_CAMPUSES) {
         params.push(scope);
         scopeGate = `and a.university_id = $${params.length} `;
@@ -303,23 +389,8 @@ export function registerPostRoutes(app: FastifyInstance, ctx: RouteContext): voi
     }
     // Home never fans out every community post to everyone: only communities the viewer joined and has not muted.
     // (Public community posts reach non-members through Discover and community pages, not Home.)
-    const communityGate = author
-      ? ''
-      : "and (p.audience <> 'community' or exists (select 1 from community_members hm where hm.community_id = p.community_id and hm.user_id = $1 and hm.status = 'active' and hm.notification_level <> 'muted') and not exists (select 1 from community_mutes hmu where hmu.user_id = $1 and hmu.community_id = p.community_id) and not exists (select 1 from discover_feedback hf where hf.user_id = $1 and hf.kind = 'not_interested' and hf.post_id = p.id)) ";
-    // Event announcements reach Home only when they are relevant to this person, so a busy campus cannot flood the feed:
-    // the person follows the organizer, answered or saved the event, is the organizer, or the event belongs to a community
-    // they joined (the community gate above already checked that). Upcoming and live events only, and never ones they
-    // marked not interested or whose organizer they hid. Everyone else finds events in the Events tab and Discover.
-    const eventGate = author
-      ? ''
-      : "and (p.event_id is null or (exists (select 1 from events fe where fe.id = p.event_id and fe.ends_at > now() and fe.status <> 'completed') " +
-        "and not exists (select 1 from event_feedback evf where evf.user_id = $1 and evf.event_id = p.event_id) " +
-        "and not exists (select 1 from discover_feedback ef where ef.user_id = $1 and ((ef.kind = 'not_interested' and ef.post_id = p.id) or (ef.kind = 'hide_author' and ef.author_id = p.author_id))) " +
-        "and (p.audience = 'community' or p.author_id = $1 " +
-        "or exists (select 1 from follows ef2 where ef2.follower_id = $1 and ef2.followee_id = p.author_id) " +
-        "or exists (select 1 from event_registrations er where er.event_id = p.event_id and er.user_id = $1 and er.status = 'registered') " +
-        "or exists (select 1 from event_interest ei where ei.event_id = p.event_id and ei.user_id = $1) " +
-        "or exists (select 1 from saved_events es where es.event_id = p.event_id and es.user_id = $1)))) ";
+    const communityGate = author ? '' : `and ${HOME_COMMUNITY_GATE} `;
+    const eventGate = author ? '' : `and ${HOME_EVENT_GATE} `;
     params.push(limit ?? 100);
     const { rows } = await pool.query<PostRow>(
       `select ${POST_COLS} ${POST_FROM} where ${visible('p', 'a')} ${scopeGate} ${communityGate} ${eventGate} ${following} ${older} order by p.created_at desc, p.id desc limit $${params.length}`,
