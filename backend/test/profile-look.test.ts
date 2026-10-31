@@ -24,7 +24,7 @@ describe('validateLook', () => {
     expect(validateLook('x').ok).toBe(false);
     expect(validateLook([]).ok).toBe(false);
   });
-  it('lists have the expected sizes', () => { expect(THEMES.length).toBe(6); expect(FRAMES.length).toBe(4); expect(BADGES.length).toBe(6); });
+  it('lists have the expected sizes', () => { expect(THEMES.length).toBe(10); expect(FRAMES.length).toBe(4); expect(BADGES.length).toBe(6); });
 });
 
 describe('keysNeeded', () => {

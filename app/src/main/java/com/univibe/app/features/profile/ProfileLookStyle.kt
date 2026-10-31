@@ -34,6 +34,7 @@ class FrameInfo(val id: String, val name: String)
 val ProfileThemes = listOf(
     ThemeInfo("aurora", "Aurora"), ThemeInfo("ember", "Ember"), ThemeInfo("tide", "Tide"),
     ThemeInfo("noir", "Noir"), ThemeInfo("bloom", "Bloom"), ThemeInfo("gold", "Gold"),
+    ThemeInfo("nature", "Nature"), ThemeInfo("midnight", "Midnight"), ThemeInfo("galaxy", "Galaxy"), ThemeInfo("minimal", "Minimal"),
 )
 val ProfileFrames = listOf(FrameInfo("ring", "Ring"), FrameInfo("double", "Double"), FrameInfo("dashed", "Dashed"), FrameInfo("halo", "Halo"))
 /** Badges say what they are in words, so none can be mistaken for the verified student mark. */
@@ -50,6 +51,10 @@ private val palettes: Map<String, List<Color>> = mapOf(
     "noir" to listOf(Color(0xFF050505), Color(0xFF1F2937), Color(0xFF6B7280)),
     "bloom" to listOf(Color(0xFF3B0A22), Color(0xFFBE185D), Color(0xFFF9A8D4)),
     "gold" to listOf(Color(0xFF2A1D02), Color(0xFFB45309), Color(0xFFFCD34D)),
+    "nature" to listOf(Color(0xFF052E16), Color(0xFF15803D), Color(0xFF86EFAC)),
+    "midnight" to listOf(Color(0xFF020617), Color(0xFF1E1B4B), Color(0xFF818CF8)),
+    "galaxy" to listOf(Color(0xFF0B0326), Color(0xFF5B21B6), Color(0xFFE879F9)),
+    "minimal" to listOf(Color(0xFF111827), Color(0xFF374151), Color(0xFFE5E7EB)),
 )
 
 /** Three colours for the cover gradient, or null for an unknown id (an old app meeting a newer theme just shows the default). */

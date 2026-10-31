@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 
-export type ImagePurpose = 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'group' | 'community' | 'story' | 'linkpreview';
+export type ImagePurpose = 'post' | 'avatar' | 'cover' | 'message' | 'event' | 'group' | 'community' | 'story' | 'linkpreview' | 'sticker';
 
 export interface ImageVariant {
   bytes: Uint8Array;
@@ -37,12 +37,18 @@ export const IMAGE_PRESETS: Record<ImagePurpose, { full: number; thumb: number |
   story: { full: 1440, thumb: 360 },
   // The picture on a link card: shown about a phone's width wide, so no bigger than this.
   linkpreview: { full: 640, thumb: null },
+  // A sticker is shown at most about 160 dp wide in chat, so 512 px covers any screen; the thumb is a still for lists.
+  sticker: { full: 512, thumb: 128 },
 };
 
 const FORMAT_OF: Record<string, string> = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' };
 export const DEFAULT_MAX_PIXELS = 30_000_000;
 const FULL_QUALITY = 82;
 const THUMB_QUALITY = 80;
+/** Animated stickers: at most this many frames, so a file stays light to decode on a low-end phone. */
+export const STICKER_MAX_FRAMES = 60;
+/** Frames x width x height ceiling for an animated sticker (decode memory). */
+const STICKER_MAX_ANIMATED_PIXELS = 24_000_000;
 /** Thumbnails are bounded by width first; a tall (portrait) photo may be taller than it is wide, up to this.
  *  Must allow a 1080 px wide thumbnail for the tallest photo (the feed crops at about 3:5, a 9:20 phone photo is taller). */
 const THUMB_MAX_HEIGHT: Partial<Record<ImagePurpose, number>> = { post: 2400 };
@@ -70,9 +76,32 @@ export function createSharpProcessor(options: { maxPixels?: number } = {}): Imag
     return { bytes: new Uint8Array(data), width: info.width, height: info.height, contentType: 'image/webp' };
   }
 
+  /** Stickers keep their frames and their transparency. Every other purpose stays a single upright still. */
+  async function renderSticker(bytes: Uint8Array, size: number, animated: boolean, quality: number): Promise<ImageVariant> {
+    const { data, info } = await sharp(bytes, { animated, limitInputPixels: maxPixels, failOn: 'error' })
+      .resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality, effort: 4, alphaQuality: 90 })
+      .toBuffer({ resolveWithObject: true });
+    return { bytes: new Uint8Array(data), width: info.width, height: info.pageHeight ?? info.height, contentType: 'image/webp' };
+  }
+
   return {
     async process(bytes, declaredType, purpose) {
       try {
+        if (purpose === 'sticker') {
+          const meta = await sharp(bytes, { animated: true, limitInputPixels: maxPixels, failOn: 'error' }).metadata();
+          const frames = meta.pages ?? 1;
+          const w = meta.width ?? 0;
+          const h = meta.pageHeight ?? meta.height ?? 0;
+          if (!w || !h) throw new ImageRejected('That is not a valid sticker.');
+          if (meta.format !== FORMAT_OF[declaredType]) throw new ImageRejected('The file type does not match.');
+          if (!meta.hasAlpha) throw new ImageRejected('A sticker needs a transparent background.');
+          if (frames > STICKER_MAX_FRAMES) throw new ImageRejected(`That sticker has too many frames (the limit is ${STICKER_MAX_FRAMES}).`);
+          if (w * h * frames > STICKER_MAX_ANIMATED_PIXELS) throw new ImageRejected('That animated sticker is too large.');
+          const full = await renderSticker(bytes, IMAGE_PRESETS.sticker.full, frames > 1, FULL_QUALITY);
+          const thumb = await renderSticker(bytes, IMAGE_PRESETS.sticker.thumb ?? 128, false, THUMB_QUALITY);
+          return { full, thumb };
+        }
         const meta = await open(bytes).metadata();
         if (!meta.width || !meta.height) throw new ImageRejected('That is not a valid photo.');
         if (meta.format !== FORMAT_OF[declaredType]) throw new ImageRejected('The file type does not match.');
