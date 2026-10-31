@@ -32,6 +32,7 @@ export const CAPABILITIES = [
   'refunds.approve',  // approve or reject refunds and record the payout
   'finance.view',     // revenue, costs and financial reports
   'finance.export',   // CSV exports of financial data
+  'personalization.manage', // publish, unpublish and remove Studio catalogue content
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
