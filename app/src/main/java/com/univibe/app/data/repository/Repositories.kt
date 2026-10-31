@@ -275,6 +275,10 @@ interface MessageRepository {
     suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef? = null): Unit =
         throw UnsupportedOperationException("Sharing a location isn't available yet.")
 
+    /** Sends one sticker from an installed pack. The server checks that the pack is installed and, for Premium packs, that Premium is live. */
+    suspend fun sendSticker(chatId: String, sticker: com.univibe.app.data.model.StickerRef, replyTo: ReplyRef? = null): Unit =
+        throw UnsupportedOperationException("Stickers aren't available.")
+
     /** Starts sharing a live position for [minutes]. The phone then keeps it fresh with [updateLiveLocation]. */
     suspend fun sendLiveLocation(chatId: String, latitude: Double, longitude: Double, minutes: Int, replyTo: ReplyRef? = null): LiveShareStarted =
         throw UnsupportedOperationException("Live location isn't available yet.")

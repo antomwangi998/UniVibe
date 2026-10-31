@@ -309,6 +309,28 @@ export function personalizationRoutes(ctx: Ctx) {
       return reply.status(201).send({ id: out.id, status: 'draft' });
     });
 
+    /** Staff list of catalogue images in any state, newest first, with preview links. */
+    app.get('/admin/personalization/assets', async (req) => {
+      await need(req, 'personalization.manage');
+      const q = z.object({
+        status: z.enum(['draft', 'published', 'unpublished', 'removed']).optional(),
+        limit: z.coerce.number().int().min(1).max(50).default(20), cursor: z.string().max(300).optional(),
+      }).strict().parse(req.query ?? {});
+      const cur = decodeCursor(q.cursor);
+      const params: unknown[] = [];
+      let where = 'true';
+      if (q.status) { params.push(q.status); where += ` and a.status = $${params.length}`; }
+      if (cur) { params.push(cur.t, cur.id); where += ` and (a.created_at, a.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`; }
+      params.push(q.limit + 1);
+      const rows = (await pool.query<{ id: string; title: string; status: string; premium: boolean; license: string; sourceAttribution: string; destinations: string[]; category: string; thumb_key: string; cursorT: string }>(
+        `select a.id, a.title, a.status, a.premium, a.license, a.source_attribution as "sourceAttribution", a.destinations, c.name as category, a.thumb_key,
+                ${tsText('a.created_at')} as "cursorT"
+           from theme_assets a join theme_categories c on c.id = a.category_id where ${where} order by a.created_at desc, a.id desc limit $${params.length}`, params)).rows;
+      const page = toPage(rows, q.limit);
+      const items = await Promise.all(page.items.map(async ({ thumb_key, ...rest }) => ({ ...rest, thumbUrl: await signedUrl(ctx, thumb_key) })));
+      return { items, nextCursor: page.nextCursor };
+    });
+
     app.patch('/admin/personalization/assets/:id/status', async (req) => {
       const me = await need(req, 'personalization.manage');
       const id = idParam((req.params as { id?: string }).id);

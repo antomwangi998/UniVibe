@@ -120,6 +120,12 @@ object VibeIcons {
         "M6.5 4.5 H17.5 Q20 4.5 20 7 V17 Q20 19.5 17.5 19.5 H6.5 Q4 19.5 4 17 V7 Q4 4.5 6.5 4.5 Z",
         "M8.6 9.2 H8.61", "M4.4 16.4 L9.4 12 L13 15.2 L15.4 13.2 L19.6 16.8",
     )
+    /** A sticker: a rounded square with a folded corner and a smile. */
+    val Sticker = icon(
+        "Sticker", 0f, LINE,
+        "M6.5 4.5 H17.5 Q20 4.5 20 7 V13.5 L13.5 20 H6.5 Q4 20 4 17.5 V7 Q4 4.5 6.5 4.5 Z",
+        "M20 13.5 H16 Q13.5 13.5 13.5 16 V20", "M8.8 9.4 H8.81", "M14.2 9.4 H14.21", "M8.6 13 Q10.6 15.2 12.2 14.2",
+    )
     val File = icon(
         "File", 0f, LINE,
         "M7.5 3.5 H13 L18.5 9 V19 Q18.5 20.5 17 20.5 H7.5 Q6 20.5 6 19 V5 Q6 3.5 7.5 3.5 Z",

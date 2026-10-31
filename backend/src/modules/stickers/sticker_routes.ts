@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
+import { z } from 'zod';
 import { makeNeed } from '../../admin_guard';
 import type { Ctx } from '../../context';
 import { withTx } from '../../db';
@@ -295,6 +296,28 @@ export function stickerRoutes(ctx: Ctx) {
         await audit(client, me.id, 'stickers.pack_status', 'sticker_pack', id, { from: cur.status, to: b.status });
         return { status: 'ok' };
       });
+    });
+
+    /** Staff list of sticker packs in any state, newest first. */
+    app.get('/admin/stickers/packs', async (req) => {
+      await need(req, 'personalization.manage');
+      const q = z.object({
+        status: z.enum(['draft', 'published', 'unpublished', 'removed']).optional(),
+        limit: z.coerce.number().int().min(1).max(50).default(20), cursor: z.string().max(300).optional(),
+      }).strict().parse(req.query ?? {});
+      const cur = decodeCursor(q.cursor);
+      const params: unknown[] = [];
+      let where = 'true';
+      if (q.status) { params.push(q.status); where += ` and p.status = $${params.length}`; }
+      if (cur) { params.push(cur.t, cur.id); where += ` and (p.created_at, p.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`; }
+      params.push(q.limit + 1);
+      const rows = (await pool.query<{ id: string; slug: string; name: string; status: string; premium: boolean; featured: boolean; category: string; stickerCount: number; cover_thumb_key: string; cursorT: string }>(
+        `select p.id, p.slug, p.name, p.status, p.premium, p.featured, p.category, p.cover_thumb_key,
+                (select count(*) from stickers s where s.pack_id = p.id and s.status = 'active')::int as "stickerCount", ${tsText('p.created_at')} as "cursorT"
+           from sticker_packs p where ${where} order by p.created_at desc, p.id desc limit $${params.length}`, params)).rows;
+      const page = toPage(rows, q.limit);
+      const items = await Promise.all(page.items.map(async ({ cover_thumb_key, ...rest }) => ({ ...rest, coverThumbUrl: await signedUrl(ctx, cover_thumb_key) })));
+      return { items, nextCursor: page.nextCursor };
     });
 
     /** Staff view of one pack in any state, with its stickers. */

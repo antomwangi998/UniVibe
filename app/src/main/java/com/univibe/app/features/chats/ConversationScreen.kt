@@ -257,6 +257,8 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         )
     }
     var showShareLocation by rememberSaveable { mutableStateOf(false) }
+    var showStickers by rememberSaveable { mutableStateOf(false) }
+    var showStickerStore by rememberSaveable { mutableStateOf(false) }
     val appContext = LocalContext.current
     if (showShareLocation) ShareLocationSheet(
         recipient = s.chat?.title ?: "They",
@@ -267,6 +269,17 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         },
         onDismiss = { showShareLocation = false },
     )
+    if (showStickers) com.univibe.app.features.stickers.StickerPickerSheet(
+        onPick = { sticker -> showStickers = false; viewModel.sendSticker(sticker) },
+        onOpenStore = { showStickers = false; showStickerStore = true },
+        onDismiss = { showStickers = false },
+    )
+    if (showStickerStore) androidx.compose.ui.window.Dialog(
+        onDismissRequest = { showStickerStore = false },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        androidx.compose.material3.Surface(Modifier.fillMaxSize()) { com.univibe.app.features.stickers.StickerStoreScreen(onClose = { showStickerStore = false }) }
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -483,7 +496,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     val wallShown = wallpaperShown(s.wallpaperId, entitled)
     if (wallShown == "none") GlassAmbientLayer(Modifier.matchParentSize())
-    ChatWallpaperLayer(wallShown, s.wallpaperPhoto, Modifier.matchParentSize())
+    ChatWallpaperLayer(wallShown, s.wallpaperPhoto, Modifier.matchParentSize(), remoteUrl = s.wallpaperUrl, remoteDim = s.wallpaperDim)
     Column(Modifier.fillMaxSize().imePadding()) {
         if (s.searching) {
             Surface(color = MaterialTheme.colorScheme.surface) {
@@ -766,7 +779,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                     } else {
                         MessageComposerCard(
                             s = s, showMic = showMic, focus = composerFocus,
-                            onInput = viewModel::onInput, onPhoto = pickPhoto, onCamera = takePhoto, onFile = pickFile, onLocation = { showShareLocation = true },
+                            onInput = viewModel::onInput, onPhoto = pickPhoto, onCamera = takePhoto, onFile = pickFile, onLocation = { showShareLocation = true }, onSticker = { showStickers = true },
                             onAction = { if (showMic) onMic() else viewModel.send() },
                             holding = recordingStartedAt != null && holdMode, holdMs = recordedMs, holdLevel = recordLevel,
                             onHoldStart = ::onMicHold, onHoldEnd = ::onHoldEnd, onHoldLock = { holdMode = false },
@@ -839,6 +852,7 @@ private fun MessageComposerCard(
     onCamera: () -> Unit,
     onFile: () -> Unit,
     onLocation: () -> Unit,
+    onSticker: () -> Unit = {},
     onAction: () -> Unit,
     onImeSend: () -> Unit,
     holding: Boolean = false,
@@ -903,6 +917,11 @@ private fun MessageComposerCard(
                     keyboardOptions = (if (s.enterToSend) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default).withSentenceCaps(),
                     keyboardActions = KeyboardActions(onSend = { onImeSend() }),
                 )
+                }
+            }
+            if (!holding && s.editing == null) {
+                IconButton(onClick = onSticker, modifier = Modifier.size(44.dp).align(Alignment.Bottom)) {
+                    Icon(VibeIcons.Sticker, contentDescription = "Stickers", tint = colors.onSurfaceVariant, modifier = Modifier.size(VibeIconSize.Action))
                 }
             }
             if (tooLong) {
@@ -1179,7 +1198,11 @@ private fun MessageItem(
                 val mediaOnly = mediaFirst && m.text.isBlank() && m.linkPreview == null
                 val showTick = mine && (pos.isLast || m.status == MessageStatus.Sending)
                 val glassStyle = rememberGlassStyle(if (mine) GlassTone.Outgoing else GlassTone.Incoming)
-                Surface(
+                // A sticker is the picture alone, with no bubble around it.
+                if (m.sticker != null) com.univibe.app.features.stickers.StickerMessage(
+                    sticker = m.sticker, highlighted = highlighted, onLongPress = onLongPress, onDoubleTap = onDoubleTap,
+                    meta = { MessageMeta(m, showTick, showReceipts) },
+                ) else Surface(
                     shape = shape,
                     color = Color.Transparent,
                     contentColor = glassStyle.content,
