@@ -69,7 +69,7 @@ class FeedPagingTest {
         val repo = RemoteFeedRepository(api) { account }
         repo.getPostsPage(FeedFilter.Campus, null, 20)
         repo.getPostsPage(FeedFilter.Following, "abc", 20)
-        assertEquals(listOf("/posts?filter=campus&limit=20", "/posts?filter=following&limit=20&before=abc"), seen)
+        assertEquals(listOf("/posts?filter=campus&limit=20&sort=mix", "/posts?filter=following&limit=20&before=abc"), seen)
     }
 
     // ---- known photo and video sizes
