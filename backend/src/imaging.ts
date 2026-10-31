@@ -82,7 +82,7 @@ export function createSharpProcessor(options: { maxPixels?: number } = {}): Imag
       .resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
       .webp({ quality, effort: 4, alphaQuality: 90 })
       .toBuffer({ resolveWithObject: true });
-    return { bytes: new Uint8Array(data), width: info.width, height: info.pageHeight ?? info.height, contentType: 'image/webp' };
+    return { bytes: new Uint8Array(data), width: info.width, height: (info as { pageHeight?: number }).pageHeight ?? info.height, contentType: 'image/webp' };
   }
 
   return {

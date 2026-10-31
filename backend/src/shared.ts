@@ -18,7 +18,7 @@ export interface RouteContext {
   userView: (id: string) => Promise<object>;
 }
 
-export type SignedInUser = { id: string; university_id: string; full_name: string; handle: string };
+export type SignedInUser = { id: string; university_id: string; full_name: string; handle: string; role: string };
 
 /** Columns describing a student, from a query that joins `users a` and `universities uni`. */
 export const AUTHOR_COLS =
