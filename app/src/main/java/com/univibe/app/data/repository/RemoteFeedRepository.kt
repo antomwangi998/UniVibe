@@ -25,6 +25,7 @@ import org.json.JSONObject
 import com.univibe.app.data.net.Outbox
 import com.univibe.app.data.net.OutboxResult
 import java.io.IOException
+import java.net.URLEncoder
 
 private val NO_CONTENT = setOf(204)
 
@@ -137,10 +138,26 @@ class RemoteFeedRepository(
         return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}".withCampusScope()), following)
     }
 
+    /**
+     * The instant the Home mix was ranked at. The server picks it for the first page and stamps it on every post
+     * (`feedAsOf`); sending it back with each later page keeps the order from reshuffling while the student scrolls.
+     * A new first page (open, refresh, other campus) starts a fresh ranking.
+     */
+    @Volatile private var mixAsOf: String? = null
+
     override suspend fun getPostsPage(filter: FeedFilter, beforeId: String?, limit: Int): List<Post> {
         val following = filter == FeedFilter.Following
         val before = if (beforeId != null) "&before=$beforeId" else ""
-        return parsePosts(api.send("GET", "/posts?filter=${if (following) "following" else "campus"}&limit=$limit$before".withCampusScope()), following)
+        // Home is ranked for the student; the Following tab stays newest first.
+        val mix = if (following) "" else {
+            if (beforeId == null) mixAsOf = null
+            "&sort=mix" + (mixAsOf?.let { "&asOf=" + URLEncoder.encode(it, "UTF-8") } ?: "")
+        }
+        val body = api.send("GET", "/posts?filter=${if (following) "following" else "campus"}&limit=$limit$before$mix".withCampusScope())
+        if (!following && beforeId == null) {
+            mixAsOf = JSONArray(body).optJSONObject(0)?.optString("feedAsOf")?.takeIf { it.isNotBlank() }
+        }
+        return parsePosts(body, following)
     }
 
     override suspend fun getPost(id: String): Post? = try {
