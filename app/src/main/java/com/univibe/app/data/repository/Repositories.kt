@@ -242,6 +242,16 @@ interface CommentRepository {
     suspend fun setLiked(commentId: String, liked: Boolean)
     suspend fun deleteComment(commentId: String)
     suspend fun reportComment(commentId: String, reason: String)
+
+    /**
+     * Saves a delete to disk right away, to be sent once [notBefore] (epoch millis) has passed. Used for the few seconds
+     * the person can still undo, so closing the app in that window does not bring the comment back.
+     * False when it could not be saved; the caller then still sends the delete itself.
+     */
+    fun scheduleDelete(commentId: String, notBefore: Long): Boolean = false
+
+    /** Forgets a saved delete (undone, or already sent). */
+    fun cancelScheduledDelete(commentId: String) {}
 }
 
 data class LiveShareStarted(val messageId: String, val endsAtMillis: Long)

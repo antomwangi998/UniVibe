@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.io.IOException
 import com.univibe.app.data.repository.optimisticCall
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +40,10 @@ data class CommentsUiState(
     val error: String? = null,
     val comments: List<Comment> = emptyList(),
     val post: Post? = null,
+    /** The post could not be loaded (network or server error) while the comments could. The screen then offers a retry. */
+    val postFailed: Boolean = false,
+    /** The server answered but there is no such post any more (deleted, or hidden from this student). */
+    val postGone: Boolean = false,
     /** The signed-in student, for the avatar beside the reply box. */
     val me: Student? = null,
     val input: String = "",
@@ -83,6 +89,8 @@ class CommentsViewModel(
     private var pendingDelete: Job? = null
     private var removedWithComment: List<Comment> = emptyList()
     private var orderBeforeDelete: List<String> = emptyList()
+    /** Deletes saved to disk for the undo window (see [CommentRepository.scheduleDelete]), by comment id. */
+    private val savedDeletes = mutableSetOf<String>()
 
     init {
         _state.update { it.copy(input = DraftStore.get(draftKey)) }
@@ -104,8 +112,23 @@ class CommentsViewModel(
             _state.update { if (pull) it.copy(refreshing = true) else it.copy(loading = true, error = null) }
             try {
                 val list = repository.getComments(postId)
-                val post = runCatching { feed.getPost(postId) }.getOrNull()
-                _state.update { it.copy(loading = false, refreshing = false, comments = list, post = post ?: it.post.takeIf { pull }) }
+                var postFailed = false
+                val post = try {
+                    feed.getPost(postId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    postFailed = true
+                    null
+                }
+                _state.update {
+                    // A pull-to-refresh that fails to reload the post keeps the one already on screen.
+                    val shown = post ?: it.post.takeIf { pull }
+                    it.copy(
+                        loading = false, refreshing = false, comments = list, post = shown,
+                        postFailed = postFailed && shown == null, postGone = !postFailed && shown == null,
+                    )
+                }
             } catch (e: Exception) {
                 // A failed pull keeps the comments already on screen.
                 _state.update { if (pull && it.comments.isNotEmpty()) it.copy(refreshing = false) else it.copy(loading = false, refreshing = false, error = "We couldn't load the comments. Check your connection and try again.") }
@@ -220,12 +243,15 @@ class CommentsViewModel(
                 undoComment = c,
             )
         }
+        // Saved to disk first: if the app is closed during the undo window, the delete still goes out afterwards.
+        if (repository.scheduleDelete(c.id, System.currentTimeMillis() + UNDO_WINDOW_MS)) savedDeletes += c.id
         pendingDelete = deleteScope.launch { delay(UNDO_WINDOW_MS); commitDelete(c, removedWithComment) }
     }
 
     fun undoDelete() {
-        if (_state.value.undoComment == null) return
+        val undone = _state.value.undoComment ?: return
         pendingDelete?.cancel(); pendingDelete = null
+        repository.cancelScheduledDelete(undone.id); savedDeletes -= undone.id
         restore(removedWithComment)
         _state.update { it.copy(undoComment = null) }
     }
@@ -248,8 +274,16 @@ class CommentsViewModel(
 
     private suspend fun commitDelete(c: Comment, removed: List<Comment>) {
         _state.update { if (it.undoComment?.id == c.id) it.copy(undoComment = null) else it }
-        try { repository.deleteComment(c.id) }
-        catch (e: Exception) { restore(removed); _state.update { it.copy(notice = "Couldn't delete the comment. Try again.") } }
+        try {
+            repository.deleteComment(c.id)
+            repository.cancelScheduledDelete(c.id); savedDeletes -= c.id
+        } catch (e: Exception) {
+            // No connection and the delete is saved: keep the comment hidden, it is sent when the phone is online again.
+            if (e is IOException && c.id in savedDeletes) return
+            repository.cancelScheduledDelete(c.id); savedDeletes -= c.id
+            restore(removed)
+            _state.update { it.copy(notice = "Couldn't delete the comment. Try again.") }
+        }
     }
 
     fun startReport(c: Comment) = _state.update { it.copy(reporting = c, menuComment = null) }

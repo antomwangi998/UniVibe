@@ -39,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -124,7 +125,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
     // After you post, scroll to your comment once. Header and sort row come first, so offset by 2 (or 1 without a post).
     LaunchedEffect(s.scrollToId) {
         val id = s.scrollToId ?: return@LaunchedEffect
-        val head = if (s.post != null) 2 else 1
+        val head = if (s.post != null || s.postFailed || s.postGone) 2 else 1
         val index = threads.indexOfFirst { t -> t.parent.id == id || t.replies.any { it.id == id } }
         if (index >= 0) listState.animateScrollToItem(head + index)
         viewModel.consumeScroll()
@@ -154,6 +155,9 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                                 },
                             )
                         }
+                    }
+                    if (s.post == null && (s.postFailed || s.postGone)) item(key = "post-missing") {
+                        PostMissing(failed = s.postFailed, onRetry = viewModel::pullRefresh)
                     }
                     item(key = "sort") {
                         SortRow(s.total, s.sort, viewModel::setSort)
@@ -301,6 +305,20 @@ private fun PostDetail(
         HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
     }
     viewerIndex?.let { PhotoGalleryViewerDialog(photos, it, onDismiss = { viewerIndex = null }) }
+}
+
+/** Stands in for the post when it could not be shown, so the comments below never look like they belong to nothing. */
+@Composable
+private fun PostMissing(failed: Boolean, onRetry: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Text(
+            if (failed) "We couldn't load the post." else "This post isn't available any more.",
+            style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant,
+        )
+        if (failed) TextButton(onClick = onRetry) { Text("Try again") }
+    }
+    HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.6f), thickness = 0.5.dp)
 }
 
 /** "117 Likes": the number in bold, the word in the quiet colour. */
