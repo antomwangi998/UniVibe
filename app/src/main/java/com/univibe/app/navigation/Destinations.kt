@@ -94,6 +94,7 @@ object AppRoutes {
     const val STUDENT_FOLLOWING = "student/{studentId}/following"
     const val PREMIUM = "premium"
     const val PROFILE_LOOK = "profile-look"
+    const val THEMES_STUDIO = "themes-studio"
     const val PROMOTIONS = "promotions"
     const val PROMOTION_NEW = "promotion-new"
     const val PROMOTION = "promotion/{campaignId}"

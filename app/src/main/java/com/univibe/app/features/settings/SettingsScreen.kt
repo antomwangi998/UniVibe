@@ -118,6 +118,8 @@ fun SettingsScreen(
                     SettingsNavRow(VibeIcons.Sparkle, "UniVibe Premium", { onNavigate(com.univibe.app.navigation.AppRoutes.PREMIUM) }, subtitle = "Plans, chat themes and your subscription")
                     RowDivider()
                     SettingsNavRow(VibeIcons.Palette, "Profile look", { onNavigate(com.univibe.app.navigation.AppRoutes.PROFILE_LOOK) }, subtitle = "Themes, frames and badges other students see")
+                    RowDivider()
+                    SettingsNavRow(VibeIcons.Photo, "Themes Studio", { onNavigate(com.univibe.app.navigation.AppRoutes.THEMES_STUDIO) }, subtitle = "Browse wallpapers and set your chat background")
                 }
             }
             item {

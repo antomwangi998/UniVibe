@@ -106,9 +106,17 @@ private fun gradientFor(id: String): List<Color>? = when (id) {
 
 /** Draws behind the messages. Never blocks touches. A missing picture falls back to plain, never to a blank screen. */
 @Composable
-fun ChatWallpaperLayer(wallpaperId: String, photoPath: String?, modifier: Modifier = Modifier) {
+fun ChatWallpaperLayer(wallpaperId: String, photoPath: String?, modifier: Modifier = Modifier, remoteUrl: String? = null, remoteDim: Int = 0) {
     val photoOk = remember(photoPath) { photoPath != null && File(photoPath).exists() }
     when {
+        // A picture from the Themes Studio. Always dimmed at least a little so messages stay readable on any image.
+        remoteUrl != null -> Box(modifier) {
+            coil.compose.AsyncImage(
+                model = com.univibe.app.ui.components.rememberPhotoModel(remoteUrl), contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+            )
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = remoteDim.coerceIn(com.univibe.app.data.model.CHAT_DIM_MIN, com.univibe.app.data.model.CHAT_DIM_MAX) / 100f)))
+        }
         wallpaperId == "photo" && photoOk && photoPath != null -> Box(modifier) {
             PhotoImage(photoPath, contentDescription = null, modifier = Modifier.fillMaxSize())
             // A dim layer keeps the bubbles and the date chips readable on any picture.

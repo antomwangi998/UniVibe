@@ -50,6 +50,9 @@ data class ConversationUiState(
     val themeId: String = "default",
     val wallpaperId: String = "none",
     val wallpaperPhoto: String? = null,
+    /** A Themes Studio picture saved on the server for this chat (or for all chats), already a fresh link. Null when none. */
+    val wallpaperUrl: String? = null,
+    val wallpaperDim: Int = 0,
     val loading: Boolean = true,
     val notFound: Boolean = false,
     val chat: Chat? = null,
@@ -153,6 +156,14 @@ class ConversationViewModel(
     init {
         val look = ChatAppearanceStore.get(chatId)
         _state.update { it.copy(themeId = look.themeId, wallpaperId = look.wallpaperId, wallpaperPhoto = look.wallpaperPhoto) }
+        // A catalogue picture saved on the server shows only when this phone has no wallpaper of its own for the chat: a choice made here wins.
+        if (look.wallpaperId == "none") {
+            viewModelScope.launch {
+                runCatching { AppContainer.themeRepository.chatBackground(chatId) }.getOrNull()?.let { bg ->
+                    if (_state.value.wallpaperId == "none") _state.update { it.copy(wallpaperUrl = bg.url, wallpaperDim = bg.dim) }
+                }
+            }
+        }
         // Ask the server what this person has unlocked. Premium looks show only while the server says so.
         viewModelScope.launch { com.univibe.app.data.prefs.EntitlementsStore.refresh(AppContainer.premiumRepository) }
     }
@@ -436,12 +447,20 @@ class ConversationViewModel(
 
     fun setChatTheme(id: String) { _state.update { it.copy(themeId = id) }; saveLook() }
 
-    fun setWallpaper(id: String) { _state.update { it.copy(wallpaperId = id) }; saveLook() }
+    /** Picking a wallpaper here replaces a Studio picture. Picking "Plain" also tells the server, so the picture does not come back. */
+    private fun dropStudioBackground(tellServer: Boolean) {
+        val had = _state.value.wallpaperUrl != null
+        _state.update { it.copy(wallpaperUrl = null) }
+        if (had && tellServer) viewModelScope.launch { runCatching { AppContainer.themeRepository.saveChatBackground(chatId, null, 0) } }
+    }
+
+    fun setWallpaper(id: String) { _state.update { it.copy(wallpaperId = id) }; dropStudioBackground(tellServer = id == "none"); saveLook() }
 
     /** A Premium pack sets accent and wallpaper together. Refused unless the server currently says it is unlocked. */
     fun setPremiumPack(id: String) {
         if (!com.univibe.app.data.prefs.EntitlementsStore.has(CHAT_THEMES_KEY) || !isPremiumLook(id)) return
         _state.update { it.copy(themeId = id, wallpaperId = id) }
+        dropStudioBackground(tellServer = false)
         saveLook()
     }
 
@@ -449,6 +468,7 @@ class ConversationViewModel(
     fun setWallpaperPhoto(path: String) {
         val old = _state.value.wallpaperPhoto
         _state.update { it.copy(wallpaperId = "photo", wallpaperPhoto = path) }
+        dropStudioBackground(tellServer = false)
         saveLook()
         if (old != null && old != path) PhotoStore.delete(old)
     }
@@ -456,6 +476,7 @@ class ConversationViewModel(
     fun resetLook() {
         val old = _state.value.wallpaperPhoto
         _state.update { it.copy(themeId = "default", wallpaperId = "none", wallpaperPhoto = null) }
+        dropStudioBackground(tellServer = true)
         saveLook()
         PhotoStore.delete(old)
     }

@@ -496,7 +496,7 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     val wallShown = wallpaperShown(s.wallpaperId, entitled)
     if (wallShown == "none") GlassAmbientLayer(Modifier.matchParentSize())
-    ChatWallpaperLayer(wallShown, s.wallpaperPhoto, Modifier.matchParentSize())
+    ChatWallpaperLayer(wallShown, s.wallpaperPhoto, Modifier.matchParentSize(), remoteUrl = s.wallpaperUrl, remoteDim = s.wallpaperDim)
     Column(Modifier.fillMaxSize().imePadding()) {
         if (s.searching) {
             Surface(color = MaterialTheme.colorScheme.surface) {

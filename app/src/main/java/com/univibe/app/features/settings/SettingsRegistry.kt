@@ -49,6 +49,7 @@ object SettingsRegistry {
         e("data-export", "Download your data", "Get a copy of your own data as a file", SettingsRoutes.DATA_EXPORT, SettingsCategories.ACCOUNT, "Download your data", keywords = listOf("export", "download my information", "copy of my data", "my data", "archive", "gdpr")),
         e("premium", "UniVibe Premium", "Plans, your status and billing history", AppRoutes.PREMIUM, SettingsCategories.ACCOUNT, "UniVibe Premium", keywords = listOf("subscription", "upgrade", "billing", "plan", "pay")),
         e("profile-look", "Profile look", "Themes, frames and badges other students see", AppRoutes.PROFILE_LOOK, SettingsCategories.ACCOUNT, "Profile look", keywords = listOf("theme", "frame", "badge", "accent", "customize", "premium")),
+        e("themes-studio", "Themes Studio", "Browse wallpapers and set your chat background", AppRoutes.THEMES_STUDIO, SettingsCategories.ACCOUNT, "Themes Studio", keywords = listOf("wallpaper", "background", "chat theme", "customize", "personalize", "personalise")),
         // Security
         e("security", "Security", "Password and where you are logged in", SettingsRoutes.SECURITY, SettingsCategories.SECURITY, keywords = listOf("protect")),
         e("login-activity", "Login activity", "See your logged-in devices and log out the others", SettingsRoutes.LOGIN_ACTIVITY, SettingsCategories.SECURITY, "Login activity",

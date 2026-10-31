@@ -274,6 +274,10 @@ object AppContainer {
     val premiumRepository: com.univibe.app.data.repository.PremiumRepository by lazy {
         api?.let { com.univibe.app.data.repository.RemotePremiumRepository(it) } ?: com.univibe.app.data.repository.NoPremiumRepository
     }
+    /** The Themes Studio catalogue and my saved chat background. Needs the server; the offline demo says so. */
+    val themeRepository: com.univibe.app.data.repository.ThemeRepository by lazy {
+        api?.let { com.univibe.app.data.repository.RemoteThemeRepository(it) } ?: com.univibe.app.data.repository.NoThemeRepository
+    }
     /** Sticker packs and my installed stickers. Needs the server; the offline demo says so. */
     val stickerRepository: com.univibe.app.data.repository.StickerRepository by lazy {
         api?.let { com.univibe.app.data.repository.RemoteStickerRepository(it) } ?: com.univibe.app.data.repository.NoStickerRepository
