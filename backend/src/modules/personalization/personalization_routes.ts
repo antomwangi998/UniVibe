@@ -93,6 +93,7 @@ export function personalizationRoutes(ctx: Ctx) {
 
     app.get('/personalization/assets/:id', async (req) => {
       const me = await ctx.auth(req);
+      ctx.limit(`pz-browse:${me.id}`, 240, 60);
       const a = await publishedAsset(pool, idParam((req.params as { id?: string }).id), me.id);
       const entitled = (await userEntitlements(pool, me.id)).includes(PREMIUM_ASSETS);
       const related = (await pool.query<AssetRow>(
