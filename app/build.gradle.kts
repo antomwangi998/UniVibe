@@ -88,6 +88,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose) // loads picked photos from app storage
+    implementation(libs.coil.gif) // animated WebP stickers (ImageDecoderDecoder, Android 9+)
     implementation(libs.media3.exoplayer) // feed video: one shared player, autoplay as you scroll
     implementation(libs.media3.ui)
     implementation(libs.media3.datasource) // disk cache so re-scrolled videos are not downloaded again

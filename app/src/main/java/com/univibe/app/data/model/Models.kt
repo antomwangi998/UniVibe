@@ -511,6 +511,8 @@ data class Message(
     val live: LiveShare? = null,
     /** The sender is a verified student (as the server reports for this chat's members). */
     val senderVerified: Boolean = false,
+    /** A sticker message: only the id travels, the picture comes from the server. Null for every other kind of message. */
+    val sticker: StickerRef? = null,
 ) {
     val photos: List<String> get() = imagePaths.ifEmpty { listOfNotNull(imagePath) }
 }

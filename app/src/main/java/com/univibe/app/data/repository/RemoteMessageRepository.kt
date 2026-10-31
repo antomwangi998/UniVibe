@@ -344,6 +344,24 @@ class RemoteMessageRepository(
         api.send("DELETE", "/api/v1/messages/${enc(messageId)}/live", ok = setOf(200, 204))
     }
 
+    override suspend fun sendSticker(chatId: String, sticker: com.univibe.app.data.model.StickerRef, replyTo: ReplyRef?) {
+        val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
+        val s = state(chatId)
+        val clientId = UUID.randomUUID().toString()
+        val local = Message("$LOCAL$clientId", chatId, me, "You", "", System.currentTimeMillis(), true, MessageStatus.Sending, replyTo = replyTo, sticker = sticker)
+        s.messages.update { it + local }
+        try {
+            val body = JSONObject().put("clientId", clientId).put("stickerId", sticker.id)
+            replyTo?.let { body.put("replyToId", it.messageId) }
+            val sent = JSONObject(api.send("POST", "/api/v1/conversations/${enc(chatId)}/messages", body, ok = setOf(200, 201)))
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            merge(chatId, listOf(sent))
+        } catch (e: Exception) {
+            s.messages.update { list -> list.filterNot { it.id == local.id } }
+            throw e
+        }
+    }
+
     override suspend fun sendLocation(chatId: String, latitude: Double, longitude: Double, replyTo: ReplyRef?) {
         val me = myId() ?: throw IllegalStateException("Sign in to send messages.")
         val s = state(chatId)
@@ -556,6 +574,7 @@ class RemoteMessageRepository(
                 runCatching { LiveShare(java.time.Instant.parse(l.getString("endsAt")).toEpochMilli(), l.optBoolean("active", false)) }.getOrNull()
             },
             file = file,
+            sticker = o.optJSONObject("sticker")?.let { runCatching { it.toStickerRef() }.getOrNull() },
             linkPreview = o.optJSONObject("linkPreview")?.let { l ->
                 l.strOrNull("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
                     ?.let { u ->

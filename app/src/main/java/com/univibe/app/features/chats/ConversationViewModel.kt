@@ -296,6 +296,17 @@ class ConversationViewModel(
         }
     }
 
+    fun sendSticker(sticker: com.univibe.app.data.model.StickerRef) {
+        if (!_state.value.canPost || sticker.locked || !sticker.available) return
+        val s = _state.value
+        val reply = s.replyTo?.let { ReplyRef(it.id, if (it.isMine) "You" else it.senderName, replyPreview(it)) }
+        _state.update { it.copy(replyTo = null) }
+        viewModelScope.launch {
+            try { messages.sendSticker(chatId, sticker, reply) }
+            catch (e: Exception) { fail(e, "Couldn't send that sticker.") }
+        }
+    }
+
     /** Starts a live share and, once the server has it, lets the screen start the service that keeps it fresh. */
     fun shareLive(latitude: Double, longitude: Double, minutes: Int, onStarted: (LiveShareStarted) -> Unit) {
         if (!_state.value.canPost) return
