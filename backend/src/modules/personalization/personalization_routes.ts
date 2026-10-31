@@ -64,7 +64,8 @@ export function personalizationRoutes(ctx: Ctx) {
 
     // ------------------------------------------------------------ discovery
     app.get('/personalization/categories', async (req, reply) => {
-      await ctx.auth(req);
+      const me = await ctx.auth(req);
+      ctx.limit(`pz-categories:${me.id}`, 240, 60);
       reply.header('Cache-Control', 'private, max-age=300');
       const { rows } = await pool.query('select slug, name from theme_categories order by sort_order, name');
       return { categories: rows };
