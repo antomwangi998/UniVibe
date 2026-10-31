@@ -28,6 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +65,12 @@ fun SocialActionButton(
     enabled: Boolean = true,
     selected: Boolean = false,
     popOnSelect: Boolean = false,
+    /** Plays the full like burst (ring and dots) instead of the plain pop. Used by the heart. */
+    burstOnSelect: Boolean = false,
+    /** Colours the count with [tint] while [selected], like the icon. */
+    tintCount: Boolean = false,
+    /** Keeps the side padding of a button with a count even when [count] is null, so the layout does not shift. */
+    keepCountPadding: Boolean = false,
 ) {
     val reduced = rememberReducedMotion()
     val source = remember { MutableInteractionSource() }
@@ -71,8 +81,11 @@ fun SocialActionButton(
         label = "actionPress",
     )
     val pop = remember { Animatable(1f) }
+    var armed by remember { mutableStateOf(false) }
     LaunchedEffect(selected) {
-        if (selected && popOnSelect && !reduced) {
+        // Skip the first run, so an item that is already selected does not pop when it scrolls into view.
+        if (!armed) { armed = true; return@LaunchedEffect }
+        if (selected && popOnSelect && !burstOnSelect && !reduced) {
             pop.snapTo(0.78f)
             pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium))
         }
@@ -87,21 +100,29 @@ fun SocialActionButton(
             .heightIn(min = 48.dp)
             .widthIn(min = 48.dp)
             .clickable(interactionSource = source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = if (count != null) Spacing.sm else 0.dp)
+            .padding(horizontal = if (count != null || keepCountPadding) Spacing.sm else 0.dp)
             .semantics { this.role = Role.Button; this.contentDescription = contentDescription }
             .graphicsLayer { scaleX = pressScale; scaleY = pressScale },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(iconSize).graphicsLayer { scaleX = pop.value; scaleY = pop.value },
-        )
+        if (burstOnSelect) {
+            BurstIcon(icon, selected, color, iconSize = iconSize, ringColor = tint)
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(iconSize).graphicsLayer { scaleX = pop.value; scaleY = pop.value },
+            )
+        }
         if (count != null) {
             Spacer(Modifier.width(6.dp))
-            AnimatedActionCount(count, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val countColor by animateColorAsState(
+                if (tintCount && selected) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                tween(durationMillis = 180), label = "countTint",
+            )
+            AnimatedActionCount(count, color = countColor)
         }
     }
 }
@@ -123,19 +144,40 @@ private fun AnimatedActionCount(count: Int, color: Color) {
     }
 }
 
-/** Heart toggle. Outline when off, solid error-colored heart when on; same geometry in both states. */
+/**
+ * Heart toggle used by every post, Discover post, sponsored card and comment. Outline when off, solid error-coloured
+ * heart when on, with the shared [BurstIcon] animation and a light tick when you like (not when you unlike).
+ * [hideZero] hides a count of 0 (comments), keeping the button's width steady.
+ */
 @Composable
-fun AnimatedLikeButton(liked: Boolean, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun AnimatedLikeButton(
+    liked: Boolean,
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    iconSize: Dp = 22.dp,
+    hideZero: Boolean = false,
+) {
+    val haptics = LocalHapticFeedback.current
+    val shownCount = if (hideZero && count <= 0) null else count
     SocialActionButton(
         icon = if (liked) VibeIcons.HeartFilled else VibeIcons.Heart,
         contentDescription = if (liked) "Unlike, $count likes" else "Like, $count likes",
-        onClick = onClick,
+        onClick = {
+            if (!liked) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         modifier = modifier,
-        count = count,
+        count = shownCount,
         tint = if (liked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        iconSize = iconSize,
         enabled = enabled,
         selected = liked,
         popOnSelect = true,
+        burstOnSelect = true,
+        tintCount = true,
+        keepCountPadding = hideZero,
     )
 }
 
