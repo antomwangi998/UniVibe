@@ -381,6 +381,8 @@ export const MONETIZATION_JS = String.raw`
     'premium.chat_themes': 'Chat theme packs', 'premium.profile_themes': 'Profile themes, accent and badge', 'premium.profile_frames': 'Profile avatar frames',
     'premium.sticker_packs': 'Sticker packs (not built)', 'premium.creator_analytics': 'Post insights (not built)',
     'premium.post_scheduling': 'Post scheduling (not built)', 'premium.advanced_feed_controls': 'Feed controls (not built)',
+    'premium.wallpaper_collections': 'Premium wallpapers (app not built)', 'premium.animated_stickers': 'Animated stickers (not built)',
+    'premium.story_templates': 'Story templates (not built)', 'premium.note_themes': 'Note themes (not built)',
     'business.analytics': 'Business analytics (not built)', 'business.offers': 'Business offers (not built)', 'business.scheduled_posts': 'Business scheduled posts (not built)'
   };
   function viewPremium() {

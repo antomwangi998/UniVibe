@@ -6,6 +6,7 @@
 export const ENTITLEMENT_KEYS = [
   'premium.profile_themes', 'premium.profile_frames', 'premium.chat_themes', 'premium.sticker_packs',
   'premium.creator_analytics', 'premium.post_scheduling', 'premium.advanced_feed_controls',
+  'premium.wallpaper_collections', 'premium.animated_stickers', 'premium.story_templates', 'premium.note_themes',
   'business.analytics', 'business.offers', 'business.scheduled_posts',
 ] as const;
 export type EntitlementKey = (typeof ENTITLEMENT_KEYS)[number];
