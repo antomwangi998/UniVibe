@@ -170,7 +170,7 @@ fun AnimatedLikeButton(
         },
         modifier = modifier,
         count = shownCount,
-        tint = if (liked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        tint = if (liked) LikeColor else MaterialTheme.colorScheme.onSurfaceVariant,
         iconSize = iconSize,
         enabled = enabled,
         selected = liked,

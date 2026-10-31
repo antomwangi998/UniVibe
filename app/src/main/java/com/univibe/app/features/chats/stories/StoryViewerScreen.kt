@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import com.univibe.app.ui.components.BurstIcon
+import com.univibe.app.ui.components.LikeColor
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -318,7 +319,7 @@ private fun ReplyBar(item: StoryItem, text: String, sending: Boolean, vm: StoryV
         )
         if (text.isNotBlank()) ViewerIconButton(VibeIcons.SendFilled, "Send reply", ViewerTeal) { vm.sendReply() }
         // Same heart and burst as the feed. No clip here, so the burst can spread past the 48dp button.
-        val heartTint = if (liked) MaterialTheme.colorScheme.error else Color.White
+        val heartTint = if (liked) LikeColor else Color.White
         val heartLabel = if (liked) "Remove your reaction" else "React with a heart"
         Box(
             Modifier.size(48.dp)

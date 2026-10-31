@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -169,6 +170,9 @@ object VoicePlayer {
         private set
     var failed by mutableStateOf(false)
 
+    /** Called with the source of a message that has just played to its end, so the chat can start the next one. */
+    var onFinished: ((String) -> Unit)? = null
+
     /** 1x, 1.5x or 2x; kept from one message to the next. */
     var speed by mutableFloatStateOf(1f)
         private set
@@ -220,7 +224,7 @@ object VoicePlayer {
             p.setAudioAttributes(AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).setUsage(AudioAttributes.USAGE_MEDIA).build())
             p.setDataSource(src)
             p.setOnPreparedListener { startAtSpeed(it) }
-            p.setOnCompletionListener { release() }
+            p.setOnCompletionListener { val done = source; release(); if (done != null) onFinished?.invoke(done) }
             p.setOnErrorListener { _, _, _ -> release(); failed = true; true }
             player = p; source = src; positionMs = 0
             p.prepareAsync()
@@ -342,7 +346,7 @@ private fun WaveformBars(bars: List<Int>, played: Float, color: Color, seekable:
 
 /** Shown instead of the message box while recording: cancel, a running timer (the dot pulses with your voice), and send. */
 @Composable
-fun RecordingBar(elapsedMs: Long, onCancel: () -> Unit, onSend: () -> Unit, level: Float = 0f) {
+fun RecordingBar(elapsedMs: Long, onCancel: () -> Unit, onSend: () -> Unit, onReview: () -> Unit, level: Float = 0f) {
     val colors = MaterialTheme.colorScheme
     val reduced = rememberReducedMotion()
     val pulse by animateFloatAsState(if (reduced) 1f else 1f + level.coerceIn(0f, 1f) * 0.9f, label = "recordingLevel")
@@ -356,6 +360,32 @@ fun RecordingBar(elapsedMs: Long, onCancel: () -> Unit, onSend: () -> Unit, leve
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f).semantics { contentDescription = "Recording, ${formatDuration(elapsedMs.toInt())}" },
         )
+        // Stops recording and shows the message to listen to before sending.
+        IconButton(onClick = onReview, modifier = Modifier.size(52.dp)) {
+            Icon(VibeIcons.Stop, contentDescription = "Stop recording and listen before sending", tint = colors.onSurfaceVariant)
+        }
+        Surface(shape = CircleShape, color = colors.primary, contentColor = colors.onPrimary) {
+            IconButton(onClick = onSend, modifier = Modifier.size(52.dp)) { Icon(VibeIcons.SendFilled, contentDescription = "Send voice message") }
+        }
+    }
+}
+
+/**
+ * Shown after you stop a recording: play it (with the waveform, seeking and speed of a normal voice message), then
+ * delete it or send it.
+ */
+@Composable
+fun VoiceDraftBar(draft: Recording, onDelete: () -> Unit, onSend: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(Spacing.sm), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        IconButton(onClick = onDelete, modifier = Modifier.size(52.dp)) {
+            Icon(VibeIcons.Delete, contentDescription = "Discard recording", tint = colors.error)
+        }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            CompositionLocalProvider(LocalContentColor provides colors.primary) {
+                VoiceBubble(VoiceNote(draft.path, draft.durationMs, draft.waveform), sending = false)
+            }
+        }
         Surface(shape = CircleShape, color = colors.primary, contentColor = colors.onPrimary) {
             IconButton(onClick = onSend, modifier = Modifier.size(52.dp)) { Icon(VibeIcons.SendFilled, contentDescription = "Send voice message") }
         }
