@@ -589,7 +589,7 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
         return clean
     }
 
-    override suspend fun createCommunity(name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy, clientKey: String?): String {
+    override suspend fun createCommunity(name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy, clientKey: String?, avatar: PhotoChange): String {
         delay(400)
         val n = name.trim()
         require(n.length in 3..40) { "Name must be 3 to 40 characters" }
@@ -600,13 +600,14 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
         store.communities.add(0, Community(
             id, n, description.trim(), 1, category, accent, CommunityRole.Owner, rules = cleanRules,
             moderators = listOf(MockData.aisha.name), privacy = privacy, createdLabel = "Created today",
+            avatarUrl = (avatar as? PhotoChange.Replace)?.localPath,
         ))
         store.membersOf(id) // seeds me as owner
         sync(id)
         return id
     }
 
-    override suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy) {
+    override suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy, avatar: PhotoChange) {
         val c = need(id)
         check(c.role == CommunityRole.Owner) { "Only the owner can edit this community." }
         val cleanRules = validate(description, category, accent, rules)
@@ -618,7 +619,10 @@ class MockCommunityRepository(private val store: MockStore = MockStore()) : Comm
         }
         // Re-read: bump() above may have changed the stored member count, and a stale copy would undo it.
         val latest = store.communities[index(id)]
-        store.communities[index(id)] = latest.copy(description = description.trim(), category = category, accent = accent, rules = cleanRules, privacy = privacy)
+        store.communities[index(id)] = latest.copy(
+            description = description.trim(), category = category, accent = accent, rules = cleanRules, privacy = privacy,
+            avatarUrl = when (avatar) { PhotoChange.Keep -> latest.avatarUrl; PhotoChange.Remove -> null; is PhotoChange.Replace -> avatar.localPath },
+        )
         sync(id)
     }
 

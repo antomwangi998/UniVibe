@@ -1,5 +1,7 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.domain.auth.PhotoChange
+import com.univibe.app.data.net.MediaUploader
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.model.CommunityMember
 import com.univibe.app.data.model.CommunityPrivacy
@@ -70,6 +72,8 @@ fun parseCommunity(o: JSONObject): Community {
 class RemoteCommunityRepository(
     private val api: AuthedApi,
     private val myId: () -> String?,
+    /** Uploads the community's picture. Null when photos are not available (the picture then cannot be changed). */
+    private val media: MediaUploader? = null,
     private val onMembership: (id: String, state: MembershipState, memberCount: Int) -> Unit = { _, _, _ -> },
 ) : CommunityRepository, MembershipActions {
 
@@ -130,8 +134,13 @@ class RemoteCommunityRepository(
         throw UnsupportedOperationException("Reports are reviewed by UniVibe moderators.")
     }
 
+    /** The picture goes up first, so the community is saved already carrying it. Fails before anything is changed. */
+    private suspend fun uploadPicture(path: String): String =
+        (media ?: throw IllegalStateException("Photos aren't available right now.")).upload(path, "image", "community")
+
     override suspend fun createCommunity(
         name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy, clientKey: String?,
+        avatar: PhotoChange,
     ): String {
         val body = JSONObject()
             .put("name", name.trim())
@@ -141,17 +150,23 @@ class RemoteCommunityRepository(
             .put("rules", JSONArray(rules.map { it.trim() }.filter { it.isNotEmpty() }))
             // One key per form: a retried tap returns the community the first attempt made instead of a duplicate.
             .put("clientKey", (clientKey ?: UUID.randomUUID().toString()).replace("-", "_"))
+        if (avatar is PhotoChange.Replace) body.put("avatarMediaId", uploadPicture(avatar.localPath))
         val created = parseCommunity(JSONObject(api.send("POST", "$V1/communities", body, setOf(200, 201))))
         report(created)
         return created.id
     }
 
-    override suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy) {
+    override suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy, avatar: PhotoChange) {
         val body = JSONObject()
             .put("description", description.trim())
             .put("category", communityCategoryKey(category))
             .put("visibility", if (privacy == CommunityPrivacy.Private) "private" else "public")
             .put("rules", JSONArray(rules.map { it.trim() }.filter { it.isNotEmpty() }))
+        when (avatar) {
+            PhotoChange.Keep -> Unit
+            PhotoChange.Remove -> body.put("avatarMediaId", JSONObject.NULL)
+            is PhotoChange.Replace -> body.put("avatarMediaId", uploadPicture(avatar.localPath))
+        }
         report(parseCommunity(JSONObject(api.send("PATCH", "$V1/communities/$id", body))))
     }
 

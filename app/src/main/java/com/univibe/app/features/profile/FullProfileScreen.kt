@@ -209,10 +209,7 @@ fun FullProfileScreen(
                         s.communities.forEachIndexed { index, c ->
                             if (index > 0) HorizontalDivider(Modifier.padding(vertical = Spacing.xs), color = colors.outlineVariant)
                             LinkRow(onClick = { onOpenCommunity(c.id) }, onClickLabel = "Open ${c.name}") {
-                                Box(
-                                    Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(accentGradient(c.accent))),
-                                    contentAlignment = Alignment.Center,
-                                ) { Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White) }
+                                com.univibe.app.features.communities.CommunityBadge(c, 40.dp)
                                 Spacer(Modifier.width(Spacing.md))
                                 Column(Modifier.weight(1f)) {
                                     Text(c.name, style = MaterialTheme.typography.titleSmall)

@@ -78,6 +78,7 @@ import com.univibe.app.ui.components.EmptyState
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
 import com.univibe.app.ui.components.LoadingSkeleton
+import com.univibe.app.ui.components.PhotoImage
 import com.univibe.app.ui.components.StudentAvatar
 import com.univibe.app.ui.components.VibeBottomSheet
 import com.univibe.app.ui.components.CommunityMembershipButton
@@ -168,7 +169,11 @@ fun CommunityBadge(c: Community, size: Dp) {
     Box(
         Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(Brush.linearGradient(accentGradient(c.accent))),
         contentAlignment = Alignment.Center,
-    ) { Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White) }
+    ) {
+        // The community's own picture when it has one; the colour and icon otherwise.
+        val url = c.avatarUrl
+        if (url != null) PhotoImage(url, contentDescription = null) else Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White)
+    }
 }
 
 @Composable
@@ -208,6 +213,7 @@ fun CommunityDetailScreen(
             ) {
                 item {
                     Box(Modifier.fillMaxWidth().height(130.dp).clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(accentGradient(c.accent)))) {
+                        c.coverUrl?.let { PhotoImage(it, contentDescription = null) }
                         Row(Modifier.align(Alignment.BottomStart).padding(Spacing.md), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             Pill(c.category)
                             if (c.privacy == CommunityPrivacy.Private) Pill("Private", VibeIcons.Lock)
@@ -216,10 +222,13 @@ fun CommunityDetailScreen(
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        Text(
-                            "${c.members} members" + when (c.role) { CommunityRole.Owner -> " · You own this"; CommunityRole.Moderator -> " · You moderate"; else -> "" },
-                            style = MaterialTheme.typography.titleSmall, color = colors.primary,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                            CommunityBadge(c, 56.dp)
+                            Text(
+                                "${c.members} members" + when (c.role) { CommunityRole.Owner -> " · You own this"; CommunityRole.Moderator -> " · You moderate"; else -> "" },
+                                style = MaterialTheme.typography.titleSmall, color = colors.primary,
+                            )
+                        }
                         Text(c.description, style = MaterialTheme.typography.bodyLarge)
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             CommunityMembershipButton(

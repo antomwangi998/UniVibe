@@ -7,6 +7,7 @@ import com.univibe.app.data.model.CommunityCategories
 import com.univibe.app.data.model.CommunityPrivacy
 import com.univibe.app.data.model.CommunityRole
 import com.univibe.app.data.repository.CommunityRepository
+import com.univibe.app.domain.auth.PhotoChange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,10 +27,22 @@ data class CommunityFormUiState(
     val accent: Int = 0,
     val privacy: CommunityPrivacy = CommunityPrivacy.Public,
     val rules: List<String> = emptyList(),
+    /** The picture saved on the server (editing only). */
+    val savedAvatar: String? = null,
+    /** A photo chosen on this device that is uploaded when the form is saved. */
+    val newAvatarPath: String? = null,
+    val avatarRemoved: Boolean = false,
     val submitting: Boolean = false,
     val notice: String? = null,
     val doneId: String? = null,
 ) {
+    /** What the picture box shows right now. */
+    val shownAvatar get() = newAvatarPath ?: if (avatarRemoved) null else savedAvatar
+    val avatarChange: PhotoChange get() = when {
+        newAvatarPath != null -> PhotoChange.Replace(newAvatarPath)
+        avatarRemoved && editing -> PhotoChange.Remove
+        else -> PhotoChange.Keep
+    }
     val nameOk get() = name.trim().length in 3..40
     val descriptionOk get() = description.trim().length in 10..300
     val rulesOk get() = rules.size <= MAX_RULES && rules.all { it.length <= MAX_RULE_LENGTH }
@@ -51,7 +64,7 @@ class CommunityFormViewModel(
             val c = runCatching { repository.getCommunity(editId) }.getOrNull()
             if (c == null || c.role != CommunityRole.Owner) { _state.update { it.copy(loading = false, notFound = true) }; return@launch }
             _state.update {
-                it.copy(loading = false, name = c.name, description = c.description, category = c.category, accent = c.accent, privacy = c.privacy, rules = c.rules)
+                it.copy(loading = false, name = c.name, description = c.description, category = c.category, accent = c.accent, privacy = c.privacy, rules = c.rules, savedAvatar = c.avatarUrl)
             }
         }
     }
@@ -59,6 +72,8 @@ class CommunityFormViewModel(
     fun setName(v: String) = _state.update { it.copy(name = v) }
     fun setDescription(v: String) = _state.update { it.copy(description = v) }
     fun setCategory(v: String) = _state.update { it.copy(category = v) }
+    fun setAvatar(path: String) = _state.update { it.copy(newAvatarPath = path, avatarRemoved = false) }
+    fun removeAvatar() = _state.update { it.copy(newAvatarPath = null, avatarRemoved = true) }
     fun setAccent(v: Int) = _state.update { it.copy(accent = v) }
     fun setPrivacy(v: CommunityPrivacy) = _state.update { it.copy(privacy = v) }
     fun consumeNotice() = _state.update { it.copy(notice = null) }
@@ -75,13 +90,13 @@ class CommunityFormViewModel(
             try {
                 val rules = s.rules.map { it.trim() }.filter { it.isNotEmpty() }
                 val id = if (editId != null) {
-                    repository.updateCommunity(editId, s.description, s.category, s.accent, rules, s.privacy); editId
+                    repository.updateCommunity(editId, s.description, s.category, s.accent, rules, s.privacy, s.avatarChange); editId
                 } else {
-                    repository.createCommunity(s.name, s.description, s.category, s.accent, rules, s.privacy, clientKey)
+                    repository.createCommunity(s.name, s.description, s.category, s.accent, rules, s.privacy, clientKey, s.avatarChange)
                 }
                 _state.update { it.copy(submitting = false, doneId = id) }
             } catch (e: Exception) {
-                _state.update { it.copy(submitting = false, notice = e.message?.takeIf { m -> m.length < 90 } ?: "Couldn't save. Try again.") }
+                _state.update { it.copy(submitting = false, notice = if (e is java.io.IOException) "No connection. Check your internet and try again." else e.message?.takeIf { m -> m.length < 90 } ?: "Couldn't save. Try again.") }
             }
         }
     }
