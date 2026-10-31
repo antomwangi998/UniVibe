@@ -43,7 +43,14 @@ const W = FOR_YOU_WEIGHTS;
 const TAG = `'#([a-z0-9_]{2,30})'`;
 
 /** Returns a complete `with ... select ... where ...` query; the caller may append `and <more conditions>`. */
-export const forYouSql = (notHidden: string) => `
+export const forYouSql = (
+  notHidden: string,
+  /** Which posts may be candidates, and how far the campus reach goes. Discover's defaults: campus-wide posts, scope $8. */
+  gates: { audience?: string; scope?: string } = {},
+) => {
+  const audienceGate = gates.audience ?? discoverAudience('p');
+  const scopeGate = gates.scope ?? inScope('a', '$8');
+  return `
   with
   viewer as (select u.id, u.course, u.university_id from users u where u.id = $1),
 
@@ -113,7 +120,7 @@ export const forYouSql = (notHidden: string) => `
         (select count(*) from post_likes l where l.post_id = p.id and l.created_at <= $3::timestamptz and l.created_at > $3::timestamptz - interval '6 hours' and l.user_id <> p.author_id) as recent_likes,
         (select count(distinct c.author_id) from comments c where c.post_id = p.id and c.status = 'active' and c.created_at <= $3::timestamptz and c.created_at > $3::timestamptz - interval '6 hours' and c.author_id <> p.author_id) as recent_commenters,
         (select count(*) from post_reports r where r.post_id = p.id) as reports) sig
-     where p.status = 'active' and ${discoverAudience('p')} and ${inScope('a', '$8')} and ${notSuspended('a')}
+     where p.status = 'active' and ${audienceGate} and ${scopeGate} and ${notSuspended('a')}
        and p.created_at <= $3::timestamptz and p.created_at > $3::timestamptz - make_interval(hours => $4::int)
   ),
   -- eng = weighted engagement; imps = views, but never fewer than the engagements (views may not all be recorded).
@@ -170,4 +177,5 @@ export const forYouSql = (notHidden: string) => `
           - 0.3 * ((case when x.tag_count > 5 then 1 else 0 end)
                  + (case when x.len >= 12 and length(regexp_replace(p.text, '[^A-Z]', '', 'g')) > 0.7 * greatest(1, length(regexp_replace(p.text, '[^A-Za-z]', '', 'g'))) then 1 else 0 end))) as quality
    ) c
-   where ${visible('p', 'a')} and ${inScope('a', '$8')} and ${discoverAudience('p')} and ${notHidden}`;
+   where ${visible('p', 'a')} and ${scopeGate} and ${audienceGate} and ${notHidden}`;
+};
