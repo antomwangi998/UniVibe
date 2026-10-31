@@ -7,6 +7,7 @@ import { withTx } from '../db';
 import { HttpError } from '../errors';
 import { decodeCursor, idParam, pageSchema, toPage, tsText } from '../http';
 import { enqueue } from '../jobs';
+import { firstLink } from '../linkpreview';
 import type { Hub } from '../realtime';
 import { CARD_COLUMNS, CARD_JOIN, type CardRow, signedUrl, toCard } from './cards';
 import { likePattern } from './chat_extras';
@@ -15,6 +16,7 @@ import {
   canAcceptAnswer, channelPermissions, channelSlug, isStaffRole, mayDeleteChannel, messageShapeError, normalizeSettings,
 } from './channel_access';
 import { audit } from './moderation';
+import { createHash } from 'node:crypto';
 import { type PollView, pollSchema, pollView } from '../polls';
 
 type Q = Pick<PoolClient, 'query'>;
@@ -83,6 +85,32 @@ const msgSelect = (viewer: string) => `
     left join users ru on ru.id = r.author_id
     left join users u on u.id = m.author_id ${CARD_JOIN}`;
 
+const linkKey = (url: string) => createHash('sha1').update(url).digest('hex').slice(0, 16);
+
+/** Online people who may see this channel's content right now (computed from the database on every event). */
+async function audienceOfChannel(ctx: Ctx, hub: Hub, ch: { community_id: string; view_role: string }, actorId: string | null): Promise<string[]> {
+  const online = hub.onlineUserIds();
+  if (!online.length) return [];
+  const { rows } = await ctx.pool.query<{ user_id: string }>(
+    `select m.user_id from community_members m
+      where m.community_id = $1 and m.status = 'active' and m.user_id = any($4::uuid[])
+        and (m.role in ('owner', 'moderator') or $2::text = 'members')
+        and ($3::uuid is null or not ${blockedBetween('m.user_id', '$3::uuid')})`,
+    [ch.community_id, ch.view_role, actorId, online]);
+  return rows.map((r) => r.user_id);
+}
+
+/** Tells everyone watching a channel that one message changed (used by background jobs, such as a finished link card). */
+export async function emitChannelMessageUpdated(ctx: Ctx, hub: Hub, messageId: string): Promise<void> {
+  const ch = (await ctx.pool.query<{ id: string; community_id: string; view_role: string }>(
+    `select ch.id, ch.community_id, ch.view_role from community_channel_messages m join community_channels ch on ch.id = m.channel_id where m.id = $1`, [messageId])).rows[0];
+  if (!ch) return;
+  const { rows } = await ctx.pool.query<MsgRow>(`${msgSelect('$1')} where m.channel_id = $2 and m.id = any($3::uuid[])`, [null, ch.id, [messageId]]);
+  const [message] = await presentMessages(ctx, rows, null);
+  if (!message) return;
+  hub.sendMany(await audienceOfChannel(ctx, hub, ch, null), { type: 'channel:message:updated', communityId: ch.community_id, channelId: ch.id, message });
+}
+
 export interface ChannelMessageView {
   id: string; channelId: string; seq: number;
   author: Awaited<ReturnType<typeof toCard>> | null; authorRole: string | null;
@@ -93,6 +121,8 @@ export interface ChannelMessageView {
   acceptedAnswerId: string | null; isAcceptedAnswer: boolean;
   /** Same shape as a feed poll, so the app renders both with one component. Null for ordinary messages. */
   poll: PollView | null;
+  /** The title, description and picture of the first web address in the text, read by the server; null until ready. */
+  linkPreview: { url: string; host: string; title: string | null; description: string | null; siteName: string | null; imageUrl: string | null; imageWidth: number | null; imageHeight: number | null } | null;
   media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; fileName: string | null; sizeBytes: number | null }[];
   /** Counts per reaction, e.g. { heart: 2 }. `myReactions` is present only on responses made for one viewer. */
   reactions: Record<string, number>;
@@ -114,6 +144,13 @@ async function presentMessages(ctx: Ctx, rows: MsgRow[], viewerId: string | null
         `select id, channel_message_id, kind, content_type, object_key, width, height, file_name, size_bytes
            from media where channel_message_id = any($1::uuid[]) and status = 'ready' order by position`, [ids])).rows
     : [];
+  const previews = ids.length
+    ? (await ctx.pool.query<{ message_id: string; url: string; host: string; title: string | null; description: string | null; site_name: string | null; image_key: string | null; image_width: number | null; image_height: number | null }>(
+        'select message_id, url, host, title, description, site_name, image_key, image_width, image_height from community_channel_link_previews where message_id = any($1::uuid[])', [ids])).rows
+    : [];
+  const previewOf = new Map(previews.map((p) => [p.message_id, p] as const));
+  // The picture is private like all media: a short-lived link is made for each card.
+  const previewImage = new Map(await Promise.all(previews.map(async (p) => [p.message_id, await signedUrl(ctx, p.image_key)] as const)));
   const mediaViews = await Promise.all(media.map(async (m) => ({
     messageId: m.channel_message_id,
     view: {
@@ -136,6 +173,13 @@ async function presentMessages(ctx: Ctx, rows: MsgRow[], viewerId: string | null
         : null,
       acceptedAnswerId: gone ? null : r.accepted_answer_id, isAcceptedAnswer: !gone && r.is_accepted,
       poll: gone || !r.poll_options ? null : pollView(r.poll_options, r.poll_seconds_left, viewerId ? r.my_vote : null, r.vote_counts),
+      // Shown only while the stored address is still the first one in the text (an edit can change it).
+      linkPreview: (() => {
+        const p = gone ? undefined : previewOf.get(r.id);
+        return p && firstLink(r.content) === p.url
+          ? { url: p.url, host: p.host, title: p.title, description: p.description, siteName: p.site_name, imageUrl: previewImage.get(p.message_id) ?? null, imageWidth: p.image_width, imageHeight: p.image_height }
+          : null;
+      })(),
       media: gone ? [] : mediaViews.filter((m) => m.messageId === r.id).map((m) => m.view),
       reactions: gone ? {} : reacts.filter((x) => x.message_id === r.id).reduce<Record<string, number>>((acc, x) => { acc[x.reaction] = x.n; return acc; }, {}),
       ...(viewerId ? { myReactions: gone ? [] : mine } : {}),
@@ -237,18 +281,7 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
       return { ch, perms };
     }
 
-    /** Online people who may see this channel's content right now (computed from the database on every event). */
-    async function audienceOf(ch: { community_id: string; view_role: string }, actorId: string | null): Promise<string[]> {
-      const online = hub.onlineUserIds();
-      if (!online.length) return [];
-      const { rows } = await pool.query<{ user_id: string }>(
-        `select m.user_id from community_members m
-          where m.community_id = $1 and m.status = 'active' and m.user_id = any($4::uuid[])
-            and (m.role in ('owner', 'moderator') or $2::text = 'members')
-            and ($3::uuid is null or not ${blockedBetween('m.user_id', '$3::uuid')})`,
-        [ch.community_id, ch.view_role, actorId, online]);
-      return rows.map((r) => r.user_id);
-    }
+    const audienceOf = (ch: { community_id: string; view_role: string }, actorId: string | null) => audienceOfChannel(ctx, hub, ch, actorId);
 
     /** Layout changes carry only ids, so every active member may hear them; each app then re-reads what it may see. */
     async function announceChange(communityId: string, channelId: string | null, kind: 'created' | 'updated' | 'deleted' | 'reordered' | 'archived') {
@@ -576,6 +609,9 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
           `insert into community_channel_reads (channel_id, user_id, last_read_seq) values ($1, $2, $3)
            on conflict (channel_id, user_id) do update set last_read_seq = greatest(community_channel_reads.last_read_seq, excluded.last_read_seq), updated_at = now()`,
           [channelId, me.id, seq]);
+        // The link card is read in the background, so posting is never slowed down (written with the message, outbox).
+        const link = firstLink(b.content);
+        if (link) await enqueue(client, 'channel.link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
         // Announcements notify members through the job queue, written with the message (outbox).
         if (ch.type === 'announcement' && !isReply) await enqueue(client, 'channel.announce', { messageId, channelId, communityId }, { dedupeKey: messageId });
         return { id: messageId, created: true, ch };
@@ -612,6 +648,10 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
         const problem = messageShapeError({ type: ch.type, content, title, attachments: files, isReply: m.reply_to_id !== null });
         if (problem) throw new HttpError(400, 'validation', problem);
         await client.query('update community_channel_messages set title = $2, content = $3, edited_at = now() where id = $1', [messageId, title, content]);
+        const link = firstLink(content);
+        if (link) await enqueue(client, 'channel.link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
+        // The link was edited out: its card goes too (a trigger queues the picture file for deletion).
+        else await client.query('delete from community_channel_link_previews where message_id = $1', [messageId]);
         return ch;
       });
       await emitUpdated(ch, [messageId], me.id);
@@ -635,6 +675,8 @@ export function communityChannelRoutes(ctx: Ctx, hub: Hub) {
         const accepted = await client.query<{ id: string }>('update community_channel_messages set accepted_answer_id = null where accepted_answer_id = $1 returning id', [messageId]);
         // A deleted question can no longer be "resolved" by an answer either.
         await client.query('update community_channel_messages set accepted_answer_id = null where id = $1', [messageId]);
+        // The link card goes with the message (a trigger queues its picture file for deletion).
+        await client.query('delete from community_channel_link_previews where message_id = $1', [messageId]);
         const gone = await client.query<{ object_key: string; thumb_key: string | null }>('delete from media where channel_message_id = $1 returning object_key, thumb_key', [messageId]);
         const files = gone.rows.flatMap((r) => [r.object_key, r.thumb_key]).filter((k): k is string => Boolean(k));
         if (files.length) await client.query('insert into storage_garbage (object_key) select unnest($1::text[]) on conflict do nothing', [files]);

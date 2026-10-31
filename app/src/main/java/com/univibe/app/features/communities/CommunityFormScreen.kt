@@ -55,6 +55,8 @@ import com.univibe.app.data.model.CommunityCategories
 import com.univibe.app.data.model.CommunityPrivacy
 import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.InterestChip
+import com.univibe.app.ui.components.PhotoImage
+import com.univibe.app.ui.components.rememberPhotoPicker
 import com.univibe.app.ui.components.VibeButton
 import com.univibe.app.ui.components.VibeIconButton
 import com.univibe.app.ui.components.VibeTextField
@@ -69,6 +71,7 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
     val s by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
+    val pickPicture = rememberPhotoPicker("community") { viewModel.setAvatar(it) }
 
     LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
     LaunchedEffect(s.doneId) { s.doneId?.let(onDone) }
@@ -86,6 +89,10 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
+                    PicturePicker(
+                        shown = s.shownAvatar, accent = s.accent, onPick = pickPicture,
+                        onRemove = if (s.shownAvatar != null) viewModel::removeAvatar else null,
+                    )
                     VibeTextField(
                         s.name, viewModel::setName, label = "Community name", enabled = !s.editing,
                         isError = s.name.isNotEmpty() && !s.nameOk,
@@ -142,6 +149,25 @@ fun CommunityFormScreen(editId: String?, onBack: () -> Unit, onDone: (communityI
                     Modifier.fillMaxWidth().navigationBarsPadding().padding(Spacing.md), enabled = s.canSubmit, loading = s.submitting,
                 )
             }
+        }
+    }
+}
+
+/** The community's picture: tap it to choose a photo. Without one, the colour and icon below stand in. */
+@Composable
+private fun PicturePicker(shown: String?, accent: Int, onPick: () -> Unit, onRemove: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(96.dp).clip(RoundedCornerShape(28.dp)).background(Brush.linearGradient(accentGradient(accent)))
+                .clickable(role = Role.Button, onClickLabel = if (shown != null) "Change the community picture" else "Add a community picture", onClick = onPick),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (shown != null) PhotoImage(shown, contentDescription = "Community picture")
+            else Icon(VibeIcons.Groups, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            TextButton(onClick = onPick) { Text(if (shown != null) "Change picture" else "Add a picture") }
+            if (onRemove != null) TextButton(onClick = onRemove) { Text("Remove") }
         }
     }
 }

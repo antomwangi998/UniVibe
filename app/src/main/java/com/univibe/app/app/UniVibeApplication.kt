@@ -237,7 +237,7 @@ object AppContainer {
     }
     val communityRepository: CommunityRepository by lazy {
         api?.let {
-            RemoteCommunityRepository(it, myId = { accountOf(authRepository.session.value)?.id }) { id, state, count ->
+            RemoteCommunityRepository(it, myId = { accountOf(authRepository.session.value)?.id }, media = MediaUploader(it, UrlConnectionFileUploader())) { id, state, count ->
                 // Every membership answer from the server lands in the shared store, so all screens agree.
                 communityMembership.apply(id, state, count)
             }

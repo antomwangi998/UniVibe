@@ -325,7 +325,21 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
     // Holding the mic records until you let go (send), slide left (cancel) or slide up (lock: the bar with Send and Delete).
     var holdMode by remember { mutableStateOf(false) }
     val showMic = s.input.isBlank() && s.editing == null
-    DisposableEffect(Unit) { VoicePlayer.init(voiceContext); onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
+    // A recording you stopped to listen to, waiting to be sent or deleted.
+    var draft by remember { mutableStateOf<Recording?>(null) }
+    val latestState by rememberUpdatedState(s)
+    DisposableEffect(Unit) {
+        VoicePlayer.init(voiceContext)
+        // When a voice message ends, carry straight on with the next one if it is a received voice message that is ready.
+        VoicePlayer.onFinished = { finished ->
+            val all = latestState.messages
+            val next = all.getOrNull(all.indexOfFirst { it.voice?.source == finished } + 1)
+            val note = next?.voice
+            if (note != null && !next.isMine && next.status != MessageStatus.Sending && all.any { it.voice?.source == finished }) VoicePlayer.toggle(note.source)
+        }
+        // Leaving the chat discards an unsent recording.
+        onDispose { VoicePlayer.onFinished = null; recorder.cancel(); VoicePlayer.release(); draft?.let { java.io.File(it.path).delete() } }
+    }
     // Going to the background pauses a playing voice message and a recording (a background app only records silence);
     // coming back carries on where it left off.
     var recordingPausedByApp by remember { mutableStateOf(false) }
@@ -347,6 +361,22 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
             send -> viewModel.sendVoice(rec.path, rec.durationMs, rec.waveform)
             else -> java.io.File(rec.path).delete()
         }
+    }
+    fun reviewRecording() {
+        val rec = recorder.stop()
+        recordingStartedAt = null
+        holdMode = false
+        if (rec == null) Toast.makeText(voiceContext, "Recording too short.", Toast.LENGTH_SHORT).show() else draft = rec
+    }
+    fun discardDraft() {
+        draft?.let { VoicePlayer.release(); java.io.File(it.path).delete() }
+        draft = null
+    }
+    fun sendDraft() {
+        val d = draft ?: return
+        VoicePlayer.release()
+        draft = null
+        viewModel.sendVoice(d.path, d.durationMs, d.waveform)
     }
     fun beginRecording() {
         VoicePlayer.release()
@@ -729,8 +759,10 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(Spacing.md),
                         )
+                    } else if (draft != null) {
+                        VoiceDraftBar(draft!!, onDelete = ::discardDraft, onSend = ::sendDraft)
                     } else if (recordingStartedAt != null && !holdMode) {
-                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) }, level = recordLevel)
+                        RecordingBar(recordedMs, onCancel = { finishRecording(false) }, onSend = { finishRecording(true) }, onReview = ::reviewRecording, level = recordLevel)
                     } else {
                         MessageComposerCard(
                             s = s, showMic = showMic, focus = composerFocus,

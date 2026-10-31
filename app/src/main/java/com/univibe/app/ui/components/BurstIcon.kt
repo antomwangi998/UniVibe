@@ -88,12 +88,13 @@ fun BurstIcon(
     }
 }
 
-/** Heart colour first, then the brand teal and two warm tones. No purple, to match the rest of the app. */
+/** The colour of a liked heart everywhere in the app: the same hot pink X uses (#F91880). */
+val LikeColor = Color(0xFFF91880)
+
+/** Heart pink first, then the brand teal, a warm tone and a lighter pink. No purple, to match the rest of the app. */
 @Composable
-fun defaultLikeBurstColors(): List<Color> {
-    val heart = MaterialTheme.colorScheme.error
-    return listOf(heart, MaterialTheme.colorScheme.primary, Color(0xFFFFB74D), Color(0xFFFF8FB1))
-}
+fun defaultLikeBurstColors(): List<Color> =
+    listOf(LikeColor, MaterialTheme.colorScheme.primary, Color(0xFFFFB74D), Color(0xFFFF7AB6))
 
 /**
  * One frame of the burst: an expanding ring and a ring of dots, around the centre of this draw area. [p] runs from 0

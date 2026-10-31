@@ -1,5 +1,6 @@
 package com.univibe.app.data.repository
 
+import com.univibe.app.domain.auth.PhotoChange
 import com.univibe.app.data.model.CampusEvent
 import com.univibe.app.data.model.EventActivity
 import com.univibe.app.data.model.AttendeePage
@@ -349,9 +350,15 @@ interface CommunityRepository {
         name: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy,
         /** Stable per form, so a retried submit cannot create a duplicate community. */
         clientKey: String? = null,
+        /** The community's picture: a photo on this device to upload, or nothing. */
+        avatar: PhotoChange = PhotoChange.Keep,
     ): String
     /** Owner only. Switching a private community to public approves everyone waiting. */
-    suspend fun updateCommunity(id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy)
+    suspend fun updateCommunity(
+        id: String, description: String, category: String, accent: Int, rules: List<String>, privacy: CommunityPrivacy,
+        /** Keep the picture, replace it with a photo from this device, or remove it. */
+        avatar: PhotoChange = PhotoChange.Keep,
+    )
     /** Owner only. Removes the community, its posts and the events it hosts. */
     suspend fun deleteCommunity(id: String)
     /** Members of private communities are only visible to members. */

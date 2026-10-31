@@ -138,6 +138,8 @@ data class ChannelMessage(
     val myReactions: Set<String>,
     /** A poll, in the same shape as a feed poll (so the same component draws it). Null for ordinary messages. */
     val poll: Poll? = null,
+    /** The card for the first web address in the text, read by the server; null until it is ready. */
+    val linkPreview: LinkPreview? = null,
 ) {
     val resolved: Boolean get() = acceptedAnswerId != null
     val isStaffAuthor: Boolean get() = authorRole == "owner" || authorRole == "moderator"

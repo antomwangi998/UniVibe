@@ -34,7 +34,7 @@ fun DoubleTapHeart(burst: Int, modifier: Modifier = Modifier) {
     val scale = remember { Animatable(0f) }
     val heartAlpha = remember { Animatable(0f) }
     val burstProgress = remember { Animatable(0f) }
-    val ringColor = MaterialTheme.colorScheme.error
+    val ringColor = LikeColor
     val burstColors = defaultLikeBurstColors()
     var showing by remember { mutableStateOf(false) }
     LaunchedEffect(burst) {
@@ -58,7 +58,7 @@ fun DoubleTapHeart(burst: Int, modifier: Modifier = Modifier) {
             Icon(
                 VibeIcons.HeartFilled,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
+                tint = LikeColor,
                 modifier = Modifier
                     .size(96.dp)
                     .graphicsLayer { scaleX = scale.value; scaleY = scale.value; this.alpha = heartAlpha.value },
