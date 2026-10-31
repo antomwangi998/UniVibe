@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -76,35 +77,7 @@ fun BurstIcon(
         }
     }
     Box(
-        modifier.size(iconSize).drawBehind {
-            val p = burst.value
-            if (p <= 0f || p >= 1f) return@drawBehind
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val base = size.minDimension / 2f
-            // Ring: grows quickly and thins out as it fades.
-            val rp = (p / 0.6f).coerceIn(0f, 1f)
-            val grow = easeOutCubic(rp)
-            drawCircle(
-                color = ringColor.copy(alpha = (1f - rp) * 0.85f),
-                radius = base * (0.75f + 1.15f * grow),
-                center = center,
-                style = Stroke(width = (base * 0.6f * (1f - rp)).coerceAtLeast(0.5f)),
-            )
-            // Dots: start slightly after the ring, fly out, shrink and fade at the end.
-            val dpr = ((p - 0.12f) / 0.88f).coerceIn(0f, 1f)
-            val fly = easeOutCubic(dpr)
-            val fade = if (dpr < 0.55f) 1f else (1f - (dpr - 0.55f) / 0.45f)
-            for (i in 0 until PARTICLES) {
-                val angle = (2.0 * PI / PARTICLES * i + if (i % 2 == 0) 0.0 else 0.22).toFloat()
-                val reach = base * (if (i % 2 == 0) 2.0f else 1.65f) * (0.55f + 0.45f * fly)
-                val radius = base * (if (i % 2 == 0) 0.17f else 0.11f) * (1f - 0.7f * dpr)
-                drawCircle(
-                    color = burstColors[i % burstColors.size].copy(alpha = fade.coerceIn(0f, 1f)),
-                    radius = radius,
-                    center = Offset(center.x + cos(angle) * reach, center.y + sin(angle) * reach),
-                )
-            }
-        },
+        modifier.size(iconSize).drawBehind { drawLikeBurst(burst.value, ringColor, burstColors) },
     ) {
         Icon(
             imageVector = icon,
@@ -120,4 +93,37 @@ fun BurstIcon(
 fun defaultLikeBurstColors(): List<Color> {
     val heart = MaterialTheme.colorScheme.error
     return listOf(heart, MaterialTheme.colorScheme.primary, Color(0xFFFFB74D), Color(0xFFFF8FB1))
+}
+
+/**
+ * One frame of the burst: an expanding ring and a ring of dots, around the centre of this draw area. [p] runs from 0
+ * (nothing drawn) to 1 (finished); sizes follow the area, so the same burst works behind a small icon and a big heart.
+ */
+internal fun DrawScope.drawLikeBurst(p: Float, ringColor: Color, burstColors: List<Color>) {
+    if (p <= 0f || p >= 1f) return
+    val center = Offset(size.width / 2f, size.height / 2f)
+    val base = size.minDimension / 2f
+    // Ring: grows quickly and thins out as it fades.
+    val rp = (p / 0.6f).coerceIn(0f, 1f)
+    val grow = easeOutCubic(rp)
+    drawCircle(
+        color = ringColor.copy(alpha = (1f - rp) * 0.85f),
+        radius = base * (0.75f + 1.15f * grow),
+        center = center,
+        style = Stroke(width = (base * 0.6f * (1f - rp)).coerceAtLeast(0.5f)),
+    )
+    // Dots: start slightly after the ring, fly out, shrink and fade at the end.
+    val dpr = ((p - 0.12f) / 0.88f).coerceIn(0f, 1f)
+    val fly = easeOutCubic(dpr)
+    val fade = if (dpr < 0.55f) 1f else (1f - (dpr - 0.55f) / 0.45f)
+    for (i in 0 until PARTICLES) {
+        val angle = (2.0 * PI / PARTICLES * i + if (i % 2 == 0) 0.0 else 0.22).toFloat()
+        val reach = base * (if (i % 2 == 0) 2.0f else 1.65f) * (0.55f + 0.45f * fly)
+        val radius = base * (if (i % 2 == 0) 0.17f else 0.11f) * (1f - 0.7f * dpr)
+        drawCircle(
+            color = burstColors[i % burstColors.size].copy(alpha = fade.coerceIn(0f, 1f)),
+            radius = radius,
+            center = Offset(center.x + cos(angle) * reach, center.y + sin(angle) * reach),
+        )
+    }
 }

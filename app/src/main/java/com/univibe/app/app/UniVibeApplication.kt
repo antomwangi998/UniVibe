@@ -133,6 +133,7 @@ object AppContainer {
             outboxRunner.register("save") { r.deliverQueued(it) }
             outboxRunner.register("repost") { r.deliverQueued(it) }
         }
+        (commentRepository as? RemoteCommentRepository)?.let { r -> outboxRunner.register(com.univibe.app.data.repository.DELETE_KIND) { r.deliverQueued(it) } }
         (messageRepository as? RemoteMessageRepository)?.let { r -> outboxRunner.register("message") { r.deliverQueued(it) } }
         runCatching {
             val connectivity = application.getSystemService(android.net.ConnectivityManager::class.java)
@@ -206,7 +207,7 @@ object AppContainer {
         api?.let { RemoteFeedRepository(it, MediaUploader(it, UrlConnectionFileUploader())) { accountOf(authRepository.session.value) }.also { r -> r.outbox = outbox } }
             ?: MockFeedRepository(mockStore)
     }
-    val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it) } ?: MockCommentRepository(mockStore) }
+    val commentRepository: CommentRepository by lazy { api?.let { RemoteCommentRepository(it).also { r -> r.outbox = outbox } } ?: MockCommentRepository(mockStore) }
     val groupRepository: GroupRepository by lazy {
         api?.let {
             RemoteGroupRepository(it, MediaUploader(it, UrlConnectionFileUploader()), following = { profileRepository.getFollowing().map { f -> f.student } }) { accountOf(authRepository.session.value)?.id }

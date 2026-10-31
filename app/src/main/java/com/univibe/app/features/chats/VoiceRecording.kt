@@ -2,6 +2,8 @@ package com.univibe.app.features.chats
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.media.PlaybackParams
@@ -69,9 +71,32 @@ class VoiceRecorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
     private var file: File? = null
     private var startedAt = 0L
+    private var pausedAt: Long? = null
+    private var pausedTotal = 0L
     private val peaks = ArrayList<Int>()
 
     val isRecording: Boolean get() = recorder != null
+    val isPaused: Boolean get() = pausedAt != null
+
+    /** How long has been recorded, not counting time spent paused. */
+    fun elapsedMs(): Long {
+        if (recorder == null) return 0L
+        val end = pausedAt ?: SystemClock.elapsedRealtime()
+        return (end - startedAt - pausedTotal).coerceAtLeast(0L)
+    }
+
+    /** Pauses while the app is in the background (Android gives background apps silence from the microphone). */
+    fun pause() {
+        val r = recorder ?: return
+        if (pausedAt != null) return
+        if (runCatching { r.pause() }.isSuccess) pausedAt = SystemClock.elapsedRealtime()
+    }
+
+    fun resume() {
+        val r = recorder ?: return
+        val since = pausedAt ?: return
+        if (runCatching { r.resume() }.isSuccess) { pausedTotal += SystemClock.elapsedRealtime() - since; pausedAt = null }
+    }
 
     fun start(): Boolean {
         cancel()
@@ -83,11 +108,13 @@ class VoiceRecorder(private val context: Context) {
             r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             r.setAudioEncodingBitRate(64_000)
             r.setAudioSamplingRate(44_100)
-            r.setMaxDuration(MAX_MS)
+            // A few seconds above the app's own limit: the screen stops at MAX_MS and hands over a finished file. If the
+            // recorder hit its limit first, stop() could throw and the whole recording would be thrown away.
+            r.setMaxDuration(MAX_MS + 3_000)
             r.setOutputFile(out.absolutePath)
             r.prepare()
             r.start()
-            recorder = r; file = out; startedAt = SystemClock.elapsedRealtime(); peaks.clear()
+            recorder = r; file = out; startedAt = SystemClock.elapsedRealtime(); pausedAt = null; pausedTotal = 0L; peaks.clear()
             true
         } catch (e: Exception) {
             runCatching { r.release() }; out.delete()
@@ -99,8 +126,8 @@ class VoiceRecorder(private val context: Context) {
     fun stop(): Recording? {
         val r = recorder ?: return null
         val f = file
-        val ms = (SystemClock.elapsedRealtime() - startedAt).toInt().coerceAtMost(MAX_MS)
-        recorder = null; file = null
+        val ms = elapsedMs().toInt().coerceAtMost(MAX_MS)
+        recorder = null; file = null; pausedAt = null
         val ok = runCatching { r.stop() }.isSuccess // throws when nothing was captured
         runCatching { r.release() }
         if (f == null) return null
@@ -111,7 +138,7 @@ class VoiceRecorder(private val context: Context) {
     /** Throws the recording away. */
     fun cancel() {
         val r = recorder ?: return
-        recorder = null
+        recorder = null; pausedAt = null
         runCatching { r.stop() }; runCatching { r.release() }
         file?.delete(); file = null; peaks.clear()
     }
@@ -119,6 +146,7 @@ class VoiceRecorder(private val context: Context) {
     /** Call about ten times a second while recording: remembers the current peak for the waveform and returns the level, 0..1. */
     fun sample(): Float {
         val r = recorder ?: return 0f
+        if (pausedAt != null) return 0f
         val amp = runCatching { r.maxAmplitude }.getOrDefault(0).coerceIn(0, 32_767)
         peaks.add(amp)
         return kotlin.math.sqrt(amp / 32_767f)
@@ -146,10 +174,43 @@ object VoicePlayer {
         private set
 
     private var player: MediaPlayer? = null
+    private var audioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
+
+    /** Gives the player what it needs to share the phone's audio politely. Safe to call more than once. */
+    fun init(context: Context) {
+        if (audioManager == null) audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
+    }
+
+    // A call, an alarm or another app's audio takes over: pause rather than talk over it.
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) pause()
+    }
+
+    /** True when playback may start. Without an audio manager (not set up yet) nothing is blocked. */
+    private fun requestFocus(): Boolean {
+        val am = audioManager ?: return true
+        val request = focusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).setUsage(AudioAttributes.USAGE_MEDIA).build())
+            .setOnAudioFocusChangeListener(focusListener)
+            .build().also { focusRequest = it }
+        return am.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonFocus() {
+        val request = focusRequest ?: return
+        runCatching { audioManager?.abandonAudioFocusRequest(request) }
+    }
+
+    /** Pauses whatever is playing (the app went to the background, or something else took the audio). */
+    fun pause() {
+        player?.let { p -> if (isPlaying) { runCatching { p.pause() }; isPlaying = false } }
+        abandonFocus()
+    }
 
     fun toggle(src: String) {
         if (source == src) {
-            player?.let { p -> if (p.isPlaying) { p.pause(); isPlaying = false } else startAtSpeed(p) }
+            player?.let { p -> if (p.isPlaying) pause() else startAtSpeed(p) }
             return
         }
         release()
@@ -170,6 +231,7 @@ object VoicePlayer {
 
     /** On Android 8+ giving a prepared player a non-zero speed also starts it, so this is how playback starts or resumes. */
     private fun startAtSpeed(p: MediaPlayer) {
+        if (!requestFocus()) return // a call or another app has the audio right now
         runCatching { p.playbackParams = PlaybackParams().setSpeed(speed) }.onFailure { runCatching { p.start() } }
         isPlaying = true
     }
@@ -194,6 +256,7 @@ object VoicePlayer {
     fun release() {
         player?.let { runCatching { it.release() } }
         player = null; source = null; isPlaying = false; positionMs = 0
+        abandonFocus()
     }
 }
 

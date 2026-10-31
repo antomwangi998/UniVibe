@@ -325,7 +325,17 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
     // Holding the mic records until you let go (send), slide left (cancel) or slide up (lock: the bar with Send and Delete).
     var holdMode by remember { mutableStateOf(false) }
     val showMic = s.input.isBlank() && s.editing == null
-    DisposableEffect(Unit) { onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
+    DisposableEffect(Unit) { VoicePlayer.init(voiceContext); onDispose { recorder.cancel(); VoicePlayer.release() } } // leaving the chat discards an unsent recording
+    // Going to the background pauses a playing voice message and a recording (a background app only records silence);
+    // coming back carries on where it left off.
+    var recordingPausedByApp by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        VoicePlayer.pause()
+        if (recorder.isRecording && !recorder.isPaused) { recorder.pause(); recordingPausedByApp = recorder.isPaused }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        if (recordingPausedByApp) { recorder.resume(); recordingPausedByApp = false }
+    }
     LaunchedEffect(VoicePlayer.isPlaying) { while (VoicePlayer.isPlaying) { VoicePlayer.tick(); kotlinx.coroutines.delay(200) } }
     LaunchedEffect(VoicePlayer.failed) { if (VoicePlayer.failed) { Toast.makeText(voiceContext, "Couldn't play the voice message.", Toast.LENGTH_SHORT).show(); VoicePlayer.failed = false } }
     fun finishRecording(send: Boolean) {
@@ -371,9 +381,9 @@ private fun ConversationBody(chatId: String, viewModel: ConversationViewModel, o
         }
     }
     LaunchedEffect(recordingStartedAt) {
-        val t = recordingStartedAt ?: return@LaunchedEffect
+        if (recordingStartedAt == null) return@LaunchedEffect
         while (true) {
-            recordedMs = SystemClock.elapsedRealtime() - t
+            recordedMs = recorder.elapsedMs() // does not count time spent paused in the background
             recordLevel = recorder.sample()
             if (recordedMs >= VoiceRecorder.MAX_MS) { finishRecording(true); break } // five minutes is the limit
             kotlinx.coroutines.delay(100)

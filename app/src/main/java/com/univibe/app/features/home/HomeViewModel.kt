@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.univibe.app.data.repository.optimisticCall
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -228,21 +229,39 @@ class HomeViewModel(
         val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
         val nowLiked = !target.likedByMe
         updatePost(postId) { it.copy(likedByMe = nowLiked, likeCount = it.likeCount + if (nowLiked) 1 else -1) }
-        viewModelScope.launch { runCatching { repository.setLiked(postId, nowLiked) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setLiked(postId, nowLiked) },
+                revert = { updatePost(postId) { if (it.likedByMe == nowLiked) it.copy(likedByMe = !nowLiked, likeCount = (it.likeCount + if (nowLiked) -1 else 1).coerceAtLeast(0)) else it } },
+                onFail = { _state.update { it.copy(notice = if (nowLiked) "Couldn't like that post. Try again." else "Couldn't remove your like. Try again.") } },
+            )
+        }
     }
 
     fun toggleSave(postId: String) {
         val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
         val nowSaved = !target.savedByMe
         updatePost(postId) { it.copy(savedByMe = nowSaved) }
-        viewModelScope.launch { runCatching { repository.setSaved(postId, nowSaved) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setSaved(postId, nowSaved) },
+                revert = { updatePost(postId) { if (it.savedByMe == nowSaved) it.copy(savedByMe = !nowSaved) else it } },
+                onFail = { _state.update { it.copy(notice = if (nowSaved) "Couldn't save that post. Try again." else "Couldn't remove it from saved. Try again.") } },
+            )
+        }
     }
 
     fun toggleRepost(postId: String) {
         val target = _state.value.posts.firstOrNull { it.id == postId } ?: return
         val now = !target.repostedByMe
         updatePost(postId) { it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) }
-        viewModelScope.launch { runCatching { repository.setReposted(postId, now) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setReposted(postId, now) },
+                revert = { updatePost(postId) { if (it.repostedByMe == now) it.copy(repostedByMe = !now, repostCount = (it.repostCount + if (now) -1 else 1).coerceAtLeast(0)) else it } },
+                onFail = { _state.update { it.copy(notice = if (now) "Couldn't repost. Try again." else "Couldn't undo your repost. Try again.") } },
+            )
+        }
     }
 
     // Posts the student has looked at are reported in small batches; each id is sent once per session.
