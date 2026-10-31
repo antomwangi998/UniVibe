@@ -6,6 +6,7 @@ import com.univibe.app.app.AppContainer
 import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.Post
+import com.univibe.app.data.model.Student
 import com.univibe.app.data.repository.CommentRepository
 import com.univibe.app.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,8 @@ data class CommentsUiState(
     val error: String? = null,
     val comments: List<Comment> = emptyList(),
     val post: Post? = null,
+    /** The signed-in student, for the avatar beside the reply box. */
+    val me: Student? = null,
     val input: String = "",
     val sending: Boolean = false,
     val notice: String? = null,
@@ -83,6 +86,7 @@ class CommentsViewModel(
     init {
         _state.update { it.copy(input = DraftStore.get(draftKey)) }
         load()
+        viewModelScope.launch { runCatching { feed.getCurrentUser() }.onSuccess { me -> _state.update { it.copy(me = me) } } }
         // Keep what you typed, so leaving the screen or closing the app does not lose it.
         viewModelScope.launch {
             _state.map { it.input to it.replyingTo }.distinctUntilChanged().collectLatest { (text, replying) ->
@@ -148,6 +152,28 @@ class CommentsViewModel(
         val liked = !c.likedByMe
         _state.update { s -> s.copy(comments = s.comments.map { if (it.id == id) it.copy(likedByMe = liked, likeCount = it.likeCount + if (liked) 1 else -1) else it }) }
         viewModelScope.launch { runCatching { repository.setLiked(id, liked) } }
+    }
+
+    // The post at the top of the screen has the same actions as in the feed; each flips at once and tells the server.
+    fun togglePostLike() {
+        val p = _state.value.post ?: return
+        val on = !p.likedByMe
+        _state.update { s -> s.copy(post = s.post?.copy(likedByMe = on, likeCount = (p.likeCount + if (on) 1 else -1).coerceAtLeast(0))) }
+        viewModelScope.launch { runCatching { feed.setLiked(postId, on) } }
+    }
+
+    fun togglePostSave() {
+        val p = _state.value.post ?: return
+        val on = !p.savedByMe
+        _state.update { s -> s.copy(post = s.post?.copy(savedByMe = on)) }
+        viewModelScope.launch { runCatching { feed.setSaved(postId, on) } }
+    }
+
+    fun togglePostRepost() {
+        val p = _state.value.post ?: return
+        val on = !p.repostedByMe
+        _state.update { s -> s.copy(post = s.post?.copy(repostedByMe = on, repostCount = (p.repostCount + if (on) 1 else -1).coerceAtLeast(0))) }
+        viewModelScope.launch { runCatching { feed.setReposted(postId, on) } }
     }
 
     fun openMenu(c: Comment?) = _state.update { it.copy(menuComment = c) }
