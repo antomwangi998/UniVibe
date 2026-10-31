@@ -6,6 +6,7 @@ import { withTx } from './db';
 import { DOCUMENT_MAX_BYTES, DOCUMENT_TYPES, cleanFileName, documentLooksRight } from './documents';
 import { HttpError } from './errors';
 import { ImageRejected, type ImagePurpose, type ProcessedImage } from './imaging';
+import { can } from './permissions';
 import { RouteContext, paramId } from './shared';
 import type { Storage } from './storage';
 
@@ -25,6 +26,8 @@ export const MEDIA_LIMITS = {
   maxStoryVideoMs: 30 * 1000,
   /** Photos above this many pixels (width x height) are refused, however small the file is. */
   maxPixels: 30_000_000,
+  /** One sticker (staff upload only): PNG or WebP, animated WebP allowed. Small on purpose: stickers are sent a lot. */
+  stickerMaxBytes: 512 * 1024,
   /** Everything one student has stored (photos, videos, profile pictures), counted after processing. */
   perUserBytes: 300 * 1024 * 1024,
 } as const;
@@ -56,7 +59,7 @@ export function looksLike(contentType: string, b: Uint8Array): boolean {
 
 const uploadSchema = z.object({
   kind: z.enum(['image', 'video', 'audio', 'document']),
-  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group', 'community', 'story']),
+  purpose: z.enum(['post', 'avatar', 'cover', 'message', 'event', 'group', 'community', 'story', 'sticker']),
   contentType: z.string().max(100),
   size: z.number().int().positive(),
   // Pixel size, when the app knows it. Both or neither; used only to lay out the feed.
@@ -137,6 +140,12 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (b.kind === 'document' && (b.width !== undefined || b.durationMs !== undefined || b.waveform)) throw new HttpError(400, 'validation', 'A document has no size in pixels or length.');
     if (b.waveform && b.kind !== 'audio') throw new HttpError(400, 'validation', 'Only voice messages have a waveform.');
     if (b.kind !== 'audio' && !(b.kind === 'video' && b.purpose === 'story') && b.durationMs !== undefined) throw new HttpError(400, 'validation', 'Only voice messages and video Stories have a length.');
+    if (b.purpose === 'sticker') {
+      // Stickers become shared catalogue content, so only staff may upload them. Everyone else gets the usual "not found" feel.
+      if (!can(user.role, 'personalization.manage')) throw new HttpError(403, 'forbidden', 'Only staff can upload stickers.');
+      if (b.kind !== 'image' || b.contentType === 'image/jpeg') throw new HttpError(400, 'validation', 'A sticker must be a PNG or WebP image with a transparent background.');
+      if (b.size > MEDIA_LIMITS.stickerMaxBytes) throw new HttpError(400, 'validation', `A sticker can be at most ${MEDIA_LIMITS.stickerMaxBytes / 1024} KB.`);
+    }
     if ((b.purpose === 'group' || b.purpose === 'community') && b.kind !== 'image') throw new HttpError(400, 'validation', 'A group photo must be an image.');
     const used = await pool.query<{ total: string }>('select coalesce(sum(size_bytes), 0)::text as total from media where owner_id = $1', [user.id]);
     if (Number(used.rows[0].total) + b.size > MEDIA_LIMITS.perUserBytes) {

@@ -10,6 +10,7 @@ import type { Hub } from '../realtime';
 import { cardColumns, cardJoin, type CardRow, signedUrl, toCard } from './cards';
 import { enqueue } from '../jobs';
 import { firstLink } from '../linkpreview';
+import { userEntitlements } from './monetization/subscriptions';
 import { groupInOrder } from '../group';
 import { createHash } from 'node:crypto';
 import { notify } from './notify';
@@ -29,6 +30,8 @@ export const sendSchema = z.object({
   clientId: z.string().min(1).max(64).optional(),
   replyToId: z.string().uuid().optional(),
   mediaIds: z.array(z.string().uuid()).max(4).default([]),
+  /** A sticker from an installed pack. Sent on its own: no text, photo, place or reply-with-media. Only the id travels; the picture is never uploaded again. */
+  stickerId: z.string().uuid().optional(),
   /** "Send current location": one fixed point. Rounded to about 10 m before it is stored. */
   location: z.object({
     latitude: z.number().min(-90).max(90),
@@ -48,6 +51,8 @@ export interface MessageView {
   replyTo: { id: string; senderId: string | null; preview: string | null } | null;
   media: { id: string; kind: string; contentType: string; url: string | null; width: number | null; height: number | null; durationMs: number | null; waveform: number[] | null; fileName: string | null; sizeBytes: number | null }[];
   forwarded: boolean;
+  /** A sticker message. `available` is false when the sticker was removed; the app then shows a neutral placeholder. Null for every other kind of message. */
+  sticker: { id: string; packId: string | null; label: string | null; url: string | null; thumbUrl: string | null; width: number | null; height: number | null; animated: boolean; available: boolean } | null;
   /** Set when this message answers a Story. `available` is false once the Story has expired or been deleted; its content is never copied here. */
   story: { id: string | null; kind: 'photo' | 'video' | 'text'; available: boolean } | null;
   /** A shared event. Only the id travels in the message; each reader's app asks for the event itself, so people who may not see it get "not available". */
@@ -96,6 +101,16 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
     ? (await ctx.pool.query<{ message_id: string; user_id: string; reaction: string }>(
         'select message_id, user_id, reaction from message_reactions where message_id = any($1::uuid[])', [ids])).rows
     : [];
+  const stickerIds = [...new Set(rows.map((r) => r.sticker_id as string | null).filter((s): s is string => Boolean(s)))];
+  const stickerRows = stickerIds.length
+    ? (await ctx.pool.query<{ id: string; pack_id: string; object_key: string; thumb_key: string | null; width: number; height: number; animated: boolean; label: string | null; status: string }>(
+        'select id, pack_id, object_key, thumb_key, width, height, animated, label, status from stickers where id = any($1::uuid[])', [stickerIds])).rows
+    : [];
+  const stickerBy = new Map(await Promise.all(stickerRows.map(async (s) => [s.id, {
+    id: s.id, packId: s.pack_id as string | null, label: s.label, url: s.status === 'active' ? await signedUrl(ctx, s.object_key) : null,
+    thumbUrl: s.status === 'active' ? await signedUrl(ctx, s.thumb_key) : null, width: s.width as number | null, height: s.height as number | null,
+    animated: s.animated, available: s.status === 'active',
+  }] as const)));
   const media = ids.length
     ? (await ctx.pool.query(
         "select id, message_id, kind, content_type, object_key, position, width, height, duration_ms, waveform, file_name, size_bytes from media where message_id = any($1::uuid[]) and status = 'ready' order by position",
@@ -124,6 +139,8 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
       } : null,
       media: deleted ? [] : byMessage.get(r.id as string) ?? [],
       forwarded: Boolean(r.forwarded),
+      sticker: deleted || !r.sticker_id ? null : stickerBy.get(r.sticker_id as string)
+        ?? { id: r.sticker_id as string, packId: null, label: null, url: null, thumbUrl: null, width: null, height: null, animated: false, available: false },
       story: !deleted && r.story_kind ? { id: (r.story_id as string | null) ?? null, kind: r.story_kind as 'photo' | 'video' | 'text', available: Boolean(r.story_live) } : null,
       eventId: deleted ? null : (r.event_id as string | null) ?? null,
       live: (() => { const l = deleted ? undefined : liveBy.get(r.id as string); return l ? { active: l.active, endsAt: l.expires_at, updatedAt: l.updated_at } : null; })(),
@@ -147,7 +164,7 @@ async function toMessageViews(ctx: Ctx, rows: Record<string, unknown>[], viewerI
 
 const MESSAGE_SELECT = `
   select m.id, m.seq, m.conversation_id, m.sender_id, m.content, m.status, m.created_at, m.edited_at, m.forwarded, m.event_id,
-         m.location_lat, m.location_lng, m.location_label,
+         m.location_lat, m.location_lng, m.location_label, m.sticker_id,
          r.id as reply_id, r.sender_id as reply_sender, r.status as reply_status, r.content as reply_content,
          m.story_id, m.story_kind, (sr.id is not null) as story_live
     from messages m left join messages r on r.id = m.reply_to_id
@@ -169,8 +186,9 @@ export async function loadMessage(ctx: Ctx, id: string, viewerId?: string): Prom
 export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversationId: string, raw: unknown, opts: { forwarded?: boolean; story?: { id: string; kind: 'photo' | 'video' | 'text' }; eventId?: string } = {}) {
   const input = sendSchema.parse(raw ?? {});
   ctx.limit(`msg:${me.id}`, 40, 60);
-  if (!input.content && !input.mediaIds.length && !opts.eventId && !input.location) throw new HttpError(400, 'validation', 'Write a message, attach a photo or a file, or record a voice message.');
+  if (!input.content && !input.mediaIds.length && !opts.eventId && !input.location && !input.stickerId) throw new HttpError(400, 'validation', 'Write a message, attach a photo or a file, or record a voice message.');
   if (input.location && input.mediaIds.length) throw new HttpError(422, 'validation', 'A location is sent on its own.');
+  if (input.stickerId && (input.content || input.mediaIds.length || input.location || opts.eventId || opts.story || opts.forwarded)) throw new HttpError(422, 'validation', 'A sticker is sent on its own.');
   const isLive = Boolean(input.location?.liveMinutes);
   // A live place lives only in live_locations (so it can be wiped); a one-time place is stored on the message.
   const place = input.location && !isLive ? { lat: roundCoordinate(input.location.latitude), lng: roundCoordinate(input.location.longitude), label: input.location.label } : null;
@@ -197,10 +215,21 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       const ok = await client.query('select 1 from messages where id = $1 and conversation_id = $2', [input.replyToId, conversationId]);
       if (!ok.rowCount) throw new HttpError(422, 'validation', 'The message you are replying to is not in this conversation.');
     }
+    if (input.stickerId) {
+      // Server side, always: the sticker must be live, its pack published and INSTALLED by this sender, and a Premium pack needs Premium right now.
+      const st = (await client.query<{ premium: boolean; installed: boolean }>(
+        `select p.premium, (up.user_id is not null) as installed
+           from stickers s join sticker_packs p on p.id = s.pack_id and p.status = 'published'
+           left join user_sticker_packs up on up.pack_id = p.id and up.user_id = $2 and up.status = 'installed'
+          where s.id = $1 and s.status = 'active'`, [input.stickerId, me.id])).rows[0];
+      if (!st) throw new HttpError(422, 'sticker_unavailable', 'That sticker is not available any more.');
+      if (!st.installed) throw new HttpError(422, 'sticker_not_installed', 'Install this sticker pack to send it.');
+      if (st.premium && !(await userEntitlements(client, me.id)).includes('premium.sticker_packs')) throw new HttpError(403, 'premium_required', 'This sticker pack needs UniVibe Premium.');
+    }
     const inserted = await client.query<{ id: string; seq: string }>(
-      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind, event_id, location_lat, location_lng, location_label) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `insert into messages (conversation_id, sender_id, client_id, content, reply_to_id, forwarded, story_id, story_kind, event_id, location_lat, location_lng, location_label, sticker_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        on conflict (conversation_id, sender_id, client_id) where client_id is not null do nothing returning id, seq`,
-      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null, opts.eventId ?? null, place?.lat ?? null, place?.lng ?? null, place?.label ?? null],
+      [conversationId, me.id, input.clientId ?? null, input.content, input.replyToId ?? null, opts.forwarded ?? false, opts.story?.id ?? null, opts.story?.kind ?? null, opts.eventId ?? null, place?.lat ?? null, place?.lng ?? null, place?.label ?? null, input.stickerId ?? null],
     );
     if (!inserted.rowCount) {
       const existing = await client.query<{ id: string }>(
@@ -208,6 +237,14 @@ export async function sendMessage(ctx: Ctx, hub: Hub, me: AuthUser, conversation
       return { id: existing.rows[0].id, created: false, superseded: [] as { id: string; conversationId: string }[] };
     }
     const messageId = inserted.rows[0].id;
+    if (input.stickerId) {
+      // "Recently used": one row per sticker, newest first, trimmed to the last 30. Counts only; never the conversation.
+      await client.query(
+        `insert into user_recent_stickers (user_id, sticker_id, last_used_at, use_count) values ($1, $2, now(), 1)
+         on conflict (user_id, sticker_id) do update set last_used_at = now(), use_count = user_recent_stickers.use_count + 1`, [me.id, input.stickerId]);
+      await client.query(
+        `delete from user_recent_stickers where user_id = $1 and sticker_id in (select sticker_id from user_recent_stickers where user_id = $1 order by last_used_at desc, sticker_id offset 30)`, [me.id]);
+    }
     // The preview is read in the background, so sending is never slowed down. The job is written with the message (outbox).
     const link = firstLink(input.content);
     if (link) await enqueue(client, 'link.preview', { messageId, url: link }, { dedupeKey: `${messageId}:${linkKey(link)}`, maxAttempts: 2 });
@@ -412,7 +449,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
                     and x.sender_id is distinct from $1 and x.status = 'active') as unread,
                 lm.id as lm_id, lm.sender_id as lm_sender, lm.content as lm_content, lm.status as lm_status, lm.created_at as lm_created,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'image') as lm_media,
-                (lm.event_id is not null) as lm_event, (lm.location_lat is not null or exists (select 1 from live_locations ll where ll.message_id = lm.id)) as lm_location,
+                (lm.event_id is not null) as lm_event, (lm.sticker_id is not null) as lm_sticker, (lm.location_lat is not null or exists (select 1 from live_locations ll where ll.message_id = lm.id)) as lm_location,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'audio') as lm_audio,
                 (select count(*) from media md where md.message_id = lm.id and md.status = 'ready' and md.kind = 'document') as lm_docs,
                 (select su.full_name from users su where su.id = lm.sender_id) as lm_sender_name,
@@ -453,7 +490,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
           presence: r.card_id ? presence.get(r.card_id) ?? null : null,
           lastMessage: r.lm_id ? { id: r.lm_id, senderId: r.lm_sender, content: r.lm_status === 'active' ? r.lm_content : null, deleted: r.lm_status === 'deleted', createdAt: r.lm_created,
           // Additive: what kind of thing the last message was, so the app can show "Photo" instead of guessing from empty text.
-          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), hasLocation: r.lm_status === 'active' && Boolean(r.lm_location), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, documentCount: r.lm_status === 'active' ? Number(r.lm_docs) : 0, senderName: r.lm_sender_name ?? null,
+          hasEvent: r.lm_status === 'active' && Boolean(r.lm_event), hasSticker: r.lm_status === 'active' && Boolean(r.lm_sticker), hasLocation: r.lm_status === 'active' && Boolean(r.lm_location), mediaCount: r.lm_status === 'active' ? Number(r.lm_media) : 0, audioCount: r.lm_status === 'active' ? Number(r.lm_audio) : 0, documentCount: r.lm_status === 'active' ? Number(r.lm_docs) : 0, senderName: r.lm_sender_name ?? null,
           delivery: r.lm_delivery ?? null } : null,
         }))),
         nextCursor: more && last ? Buffer.from(JSON.stringify({ t: last.cursor_t, id: last.id })).toString('base64url') : null,
@@ -517,7 +554,7 @@ export function messagingRoutes(ctx: Ctx, hub: Hub) {
       const b = z.object({ content: z.string().trim().min(1).max(4000) }).strict().parse(req.body ?? {});
       // Own, still-active messages only, inside the edit window. Anything else is "not found".
       const res = await pool.query<{ conversation_id: string }>(
-        `update messages set content = $3, edited_at = now() where id = $1 and sender_id = $2 and status = 'active'
+        `update messages set content = $3, edited_at = now() where id = $1 and sender_id = $2 and status = 'active' and sticker_id is null
             and created_at > now() - make_interval(mins => $4::int) returning conversation_id`,
         [id, me.id, b.content, EDIT_WINDOW_MINUTES]);
       if (!res.rowCount) throw new HttpError(404, 'not_found', 'Not found.');
