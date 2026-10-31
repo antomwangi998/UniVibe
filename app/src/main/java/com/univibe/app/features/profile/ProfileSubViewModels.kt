@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.univibe.app.data.repository.optimisticCall
 
 const val MAX_PROFILE_BIO = 160
 val StudyYears = listOf("1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year+")
@@ -189,6 +190,7 @@ data class SavedUiState(
     val posts: List<Post> = emptyList(),
     val loadingMore: Boolean = false,
     val endReached: Boolean = false,
+    val notice: String? = null,
 )
 
 class SavedPostsViewModel(
@@ -242,23 +244,47 @@ class SavedPostsViewModel(
         }
     }
 
+    fun consumeNotice() = _state.update { it.copy(notice = null) }
+
     fun unsave(id: String) {
+        val before = _state.value.posts
+        val index = before.indexOfFirst { it.id == id }
+        val removed = before.getOrNull(index) ?: return
         _state.update { s -> s.copy(posts = s.posts.filterNot { it.id == id }) }
-        viewModelScope.launch { runCatching { repository.setSaved(id, false) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setSaved(id, false) },
+                // Put it back where it was, unless the list has already been reloaded with it.
+                revert = { _state.update { s -> if (s.posts.any { it.id == id }) s else s.copy(posts = s.posts.toMutableList().apply { add(index.coerceAtMost(size), removed) }) } },
+                onFail = { _state.update { it.copy(notice = "Couldn't remove it from saved. Try again.") } },
+            )
+        }
     }
 
     fun toggleLike(id: String) {
         val post = _state.value.posts.firstOrNull { it.id == id } ?: return
         val liked = !post.likedByMe
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(likedByMe = liked, likeCount = it.likeCount + if (liked) 1 else -1) else it }) }
-        viewModelScope.launch { runCatching { repository.setLiked(id, liked) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setLiked(id, liked) },
+                revert = { _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id && it.likedByMe == liked) it.copy(likedByMe = !liked, likeCount = (it.likeCount + if (liked) -1 else 1).coerceAtLeast(0)) else it }) } },
+                onFail = { _state.update { it.copy(notice = if (liked) "Couldn't like that post. Try again." else "Couldn't remove your like. Try again.") } },
+            )
+        }
     }
 
     fun toggleRepost(id: String) {
         val post = _state.value.posts.firstOrNull { it.id == id } ?: return
         val now = !post.repostedByMe
         _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id) it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) else it }) }
-        viewModelScope.launch { runCatching { repository.setReposted(id, now) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setReposted(id, now) },
+                revert = { _state.update { s -> s.copy(posts = s.posts.map { if (it.id == id && it.repostedByMe == now) it.copy(repostedByMe = !now, repostCount = (it.repostCount + if (now) -1 else 1).coerceAtLeast(0)) else it }) } },
+                onFail = { _state.update { it.copy(notice = if (now) "Couldn't repost. Try again." else "Couldn't undo your repost. Try again.") } },
+            )
+        }
     }
 
     fun noteShared(id: String) {

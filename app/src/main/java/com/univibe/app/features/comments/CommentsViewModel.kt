@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.univibe.app.data.repository.optimisticCall
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -151,7 +152,13 @@ class CommentsViewModel(
         val c = _state.value.comments.firstOrNull { it.id == id } ?: return
         val liked = !c.likedByMe
         _state.update { s -> s.copy(comments = s.comments.map { if (it.id == id) it.copy(likedByMe = liked, likeCount = it.likeCount + if (liked) 1 else -1) else it }) }
-        viewModelScope.launch { runCatching { repository.setLiked(id, liked) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { repository.setLiked(id, liked) },
+                revert = { _state.update { s -> s.copy(comments = s.comments.map { if (it.id == id && it.likedByMe == liked) it.copy(likedByMe = !liked, likeCount = (it.likeCount + if (liked) -1 else 1).coerceAtLeast(0)) else it }) } },
+                onFail = { _state.update { it.copy(notice = if (liked) "Couldn't like that comment. Try again." else "Couldn't remove your like. Try again.") } },
+            )
+        }
     }
 
     // The post at the top of the screen has the same actions as in the feed; each flips at once and tells the server.
@@ -159,21 +166,39 @@ class CommentsViewModel(
         val p = _state.value.post ?: return
         val on = !p.likedByMe
         _state.update { s -> s.copy(post = s.post?.copy(likedByMe = on, likeCount = (p.likeCount + if (on) 1 else -1).coerceAtLeast(0))) }
-        viewModelScope.launch { runCatching { feed.setLiked(postId, on) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { feed.setLiked(postId, on) },
+                revert = { _state.update { s -> s.copy(post = s.post?.takeIf { it.likedByMe == on }?.let { it.copy(likedByMe = !on, likeCount = (it.likeCount + if (on) -1 else 1).coerceAtLeast(0)) } ?: s.post) } },
+                onFail = { _state.update { it.copy(notice = if (on) "Couldn't like that post. Try again." else "Couldn't remove your like. Try again.") } },
+            )
+        }
     }
 
     fun togglePostSave() {
         val p = _state.value.post ?: return
         val on = !p.savedByMe
         _state.update { s -> s.copy(post = s.post?.copy(savedByMe = on)) }
-        viewModelScope.launch { runCatching { feed.setSaved(postId, on) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { feed.setSaved(postId, on) },
+                revert = { _state.update { s -> s.copy(post = s.post?.takeIf { it.savedByMe == on }?.copy(savedByMe = !on) ?: s.post) } },
+                onFail = { _state.update { it.copy(notice = if (on) "Couldn't save that post. Try again." else "Couldn't remove it from saved. Try again.") } },
+            )
+        }
     }
 
     fun togglePostRepost() {
         val p = _state.value.post ?: return
         val on = !p.repostedByMe
         _state.update { s -> s.copy(post = s.post?.copy(repostedByMe = on, repostCount = (p.repostCount + if (on) 1 else -1).coerceAtLeast(0))) }
-        viewModelScope.launch { runCatching { feed.setReposted(postId, on) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { feed.setReposted(postId, on) },
+                revert = { _state.update { s -> s.copy(post = s.post?.takeIf { it.repostedByMe == on }?.let { it.copy(repostedByMe = !on, repostCount = (it.repostCount + if (on) -1 else 1).coerceAtLeast(0)) } ?: s.post) } },
+                onFail = { _state.update { it.copy(notice = if (on) "Couldn't repost. Try again." else "Couldn't undo your repost. Try again.") } },
+            )
+        }
     }
 
     fun openMenu(c: Comment?) = _state.update { it.copy(menuComment = c) }

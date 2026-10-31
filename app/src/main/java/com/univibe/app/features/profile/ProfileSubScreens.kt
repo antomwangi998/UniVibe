@@ -175,6 +175,7 @@ fun SavedPostsScreen(
 ) {
     val s by viewModel.state.collectAsStateWithLifecycle()
     val shareContext = LocalContext.current
+    LaunchedEffect(s.notice) { s.notice?.let { Toast.makeText(shareContext, it, Toast.LENGTH_SHORT).show(); viewModel.consumeNotice() } }
     Column(Modifier.fillMaxSize()) {
         VibeTopBar("Saved posts", compactTitle = true, navigationIcon = { VibeIconButton(VibeIcons.Back, "Back", onBack) })
         when {

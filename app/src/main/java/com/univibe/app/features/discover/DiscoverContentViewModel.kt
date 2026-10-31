@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.univibe.app.data.repository.optimisticCall
 import java.io.IOException
 
 enum class DiscoverCategory(val label: String) {
@@ -222,21 +223,39 @@ class DiscoverContentViewModel(
         val target = findPost(postId) ?: return
         val nowLiked = !target.likedByMe
         updatePost(postId) { it.copy(likedByMe = nowLiked, likeCount = it.likeCount + if (nowLiked) 1 else -1) }
-        viewModelScope.launch { runCatching { feed.setLiked(postId, nowLiked) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { feed.setLiked(postId, nowLiked) },
+                revert = { updatePost(postId) { if (it.likedByMe == nowLiked) it.copy(likedByMe = !nowLiked, likeCount = (it.likeCount + if (nowLiked) -1 else 1).coerceAtLeast(0)) else it } },
+                onFail = { _state.update { it.copy(notice = if (nowLiked) "Couldn't like that post. Try again." else "Couldn't remove your like. Try again.") } },
+            )
+        }
     }
 
     fun toggleSave(postId: String) {
         val target = findPost(postId) ?: return
         val nowSaved = !target.savedByMe
         updatePost(postId) { it.copy(savedByMe = nowSaved) }
-        viewModelScope.launch { runCatching { feed.setSaved(postId, nowSaved) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { feed.setSaved(postId, nowSaved) },
+                revert = { updatePost(postId) { if (it.savedByMe == nowSaved) it.copy(savedByMe = !nowSaved) else it } },
+                onFail = { _state.update { it.copy(notice = if (nowSaved) "Couldn't save that post. Try again." else "Couldn't remove it from saved. Try again.") } },
+            )
+        }
     }
 
     fun toggleRepost(postId: String) {
         val target = findPost(postId) ?: return
         val now = !target.repostedByMe
         updatePost(postId) { it.copy(repostedByMe = now, repostCount = (it.repostCount + if (now) 1 else -1).coerceAtLeast(0)) }
-        viewModelScope.launch { runCatching { feed.setReposted(postId, now) } }
+        viewModelScope.launch {
+            optimisticCall(
+                call = { feed.setReposted(postId, now) },
+                revert = { updatePost(postId) { if (it.repostedByMe == now) it.copy(repostedByMe = !now, repostCount = (it.repostCount + if (now) -1 else 1).coerceAtLeast(0)) else it } },
+                onFail = { _state.update { it.copy(notice = if (now) "Couldn't repost. Try again." else "Couldn't undo your repost. Try again.") } },
+            )
+        }
     }
 
     fun vote(postId: String, optionIndex: Int) {
