@@ -91,6 +91,7 @@ import com.univibe.app.data.model.ChannelType
 import com.univibe.app.data.model.ReplyPreview
 import com.univibe.app.data.model.Community
 import com.univibe.app.data.repository.SearchFilters
+import com.univibe.app.features.chats.LinkPreviewCard
 import com.univibe.app.features.chats.SheetRow
 import com.univibe.app.ui.components.ConfirmDialog
 import com.univibe.app.ui.components.EmptyState
@@ -563,6 +564,8 @@ private fun MessageRow(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                    // The card for a link in the text, the same one chats use. Holding it opens the message menu.
+                    m.linkPreview?.let { LinkPreviewCard(it, onLongPress = onMore) }
                     // The same poll component the feed uses. Without voting rights (read-only member) it shows the results.
                     m.poll?.let { PostPoll(it, onVote = if (canReact) onVote else null) }
                     m.attachments.forEach { f ->

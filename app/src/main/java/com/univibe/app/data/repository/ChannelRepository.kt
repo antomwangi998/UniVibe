@@ -4,6 +4,7 @@ import com.univibe.app.data.model.Channel
 import com.univibe.app.data.model.ChannelAccess
 import com.univibe.app.data.model.ChannelAttachment
 import com.univibe.app.data.model.ChannelAuthor
+import com.univibe.app.data.model.LinkPreview
 import com.univibe.app.data.model.ChannelDirectory
 import com.univibe.app.data.model.ChannelDraft
 import com.univibe.app.data.model.ChannelGroup
@@ -161,6 +162,19 @@ fun parseChannelMessage(o: JSONObject): ChannelMessage {
         reactions = counts,
         myReactions = if (mineArray == null) emptySet() else (0 until mineArray.length()).map { mineArray.getString(it) }.toSet(),
         poll = parsePoll(o.optJSONObject("poll")),
+        linkPreview = parseLinkPreview(o.optJSONObject("linkPreview")),
+    )
+}
+
+/** Same rules as for chat messages: only web addresses are accepted, so the card can never open anything else. */
+private fun parseLinkPreview(l: JSONObject?): LinkPreview? {
+    if (l == null) return null
+    val url = l.str("url")?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) } ?: return null
+    val w = l.optInt("imageWidth", 0); val h = l.optInt("imageHeight", 0)
+    return LinkPreview(
+        url, l.optString("host", ""), l.str("title"), l.str("description"), l.str("siteName"),
+        imageUrl = l.str("imageUrl")?.takeIf { it.startsWith("https://", true) || it.startsWith("http://", true) },
+        imageRatio = if (w > 0 && h > 0) w.toFloat() / h else null,
     )
 }
 
