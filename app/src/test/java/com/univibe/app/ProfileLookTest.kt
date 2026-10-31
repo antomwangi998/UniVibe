@@ -20,7 +20,7 @@ import org.junit.Test
 class ProfileLookTest {
     /** Must equal the lists in backend/src/modules/monetization/profile_look.ts and migration 058. */
     @Test fun idsMatchTheServerLists() {
-        assertEquals(listOf("aurora", "ember", "tide", "noir", "bloom", "gold"), ProfileThemes.map { it.id })
+        assertEquals(listOf("aurora", "ember", "tide", "noir", "bloom", "gold", "nature", "midnight", "galaxy", "minimal"), ProfileThemes.map { it.id })
         assertEquals(listOf("ring", "double", "dashed", "halo"), ProfileFrames.map { it.id })
         assertEquals(listOf("spark", "book", "moon", "coffee", "flame", "bolt"), ProfileBadges.map { it.id })
     }

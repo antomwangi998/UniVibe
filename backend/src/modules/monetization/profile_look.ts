@@ -2,7 +2,7 @@
  * Premium profile looks. Pure rules (no database, no HTTP) so every one is testable alone.
  * Theme, accent and badge need `premium.profile_themes`; the frame needs `premium.profile_frames`.
  */
-export const THEMES = ['aurora', 'ember', 'tide', 'noir', 'bloom', 'gold'] as const;
+export const THEMES = ['aurora', 'ember', 'tide', 'noir', 'bloom', 'gold', 'nature', 'midnight', 'galaxy', 'minimal'] as const;
 export const FRAMES = ['ring', 'double', 'dashed', 'halo'] as const;
 export const BADGES = ['spark', 'book', 'moon', 'coffee', 'flame', 'bolt'] as const;
 
