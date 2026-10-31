@@ -87,6 +87,7 @@ import com.univibe.app.ui.components.ErrorState
 import com.univibe.app.ui.components.LoadingSkeleton
 import com.univibe.app.ui.components.PhotoGalleryViewerDialog
 import com.univibe.app.ui.components.PostGallery
+import com.univibe.app.ui.components.PostPoll
 import com.univibe.app.ui.components.PostVideo
 import com.univibe.app.ui.components.SocialActionButton
 import com.univibe.app.ui.components.StudentAvatar
@@ -149,6 +150,7 @@ fun CommentsScreen(postId: String, onBack: () -> Unit, onOpenStudent: (String) -
                                 onLike = viewModel::togglePostLike,
                                 onRepost = viewModel::togglePostRepost,
                                 onSave = viewModel::togglePostSave,
+                                onVote = viewModel::vote,
                                 onComment = { runCatching { composerFocus.requestFocus() } },
                                 onShare = {
                                     if (!sharePost(context, post)) Toast.makeText(context, "Only campus-wide posts can be shared outside UniVibe.", Toast.LENGTH_SHORT).show()
@@ -235,6 +237,7 @@ private fun PostDetail(
     onLike: () -> Unit,
     onRepost: () -> Unit,
     onSave: () -> Unit,
+    onVote: (Int) -> Unit,
     onComment: () -> Unit,
     onShare: () -> Unit,
 ) {
@@ -269,6 +272,7 @@ private fun PostDetail(
                     Text(mentionText(post.text), style = MaterialTheme.typography.bodyLarge, modifier = side.padding(top = Spacing.sm + 4.dp))
                 }
                 val mediaPadding = side.padding(top = Spacing.sm + 4.dp)
+                if (post.poll != null) PostPoll(post.poll, onVote, mediaPadding)
                 when {
                     post.videoPath != null -> PostVideo(post.videoPath, post.author.name, mediaPadding, knownRatio = post.videoRatio)
                     photos.isNotEmpty() -> PostGallery(

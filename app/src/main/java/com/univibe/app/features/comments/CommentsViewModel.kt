@@ -7,6 +7,7 @@ import com.univibe.app.data.model.Comment
 import com.univibe.app.data.model.FeedFilter
 import com.univibe.app.data.model.Post
 import com.univibe.app.data.model.Student
+import com.univibe.app.data.net.ApiException
 import com.univibe.app.data.repository.CommentRepository
 import com.univibe.app.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -221,6 +222,35 @@ class CommentsViewModel(
                 revert = { _state.update { s -> s.copy(post = s.post?.takeIf { it.repostedByMe == on }?.let { it.copy(repostedByMe = !on, repostCount = (it.repostCount + if (on) -1 else 1).coerceAtLeast(0)) } ?: s.post) } },
                 onFail = { _state.update { it.copy(notice = if (on) "Couldn't repost. Try again." else "Couldn't undo your repost. Try again.") } },
             )
+        }
+    }
+
+    /** Votes in the post's poll: the result shows at once and is put back if the server says no. */
+    fun vote(optionIndex: Int) {
+        val before = _state.value.post?.poll ?: return
+        if (before.myVote != null || optionIndex !in before.options.indices) return
+        if (before.hasEnded()) { _state.update { it.copy(notice = "This poll has ended.") }; return }
+        _state.update { s ->
+            s.copy(post = s.post?.let { post ->
+                val poll = post.poll ?: return@let post
+                val options = poll.options.mapIndexed { i, o -> if (i == optionIndex) o.copy(votes = o.votes + 1) else o }
+                post.copy(poll = poll.copy(options = options, myVote = optionIndex))
+            })
+        }
+        viewModelScope.launch {
+            try {
+                feed.vote(postId, optionIndex)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val closed = e is ApiException && e.code == "poll_ended"
+                _state.update { s ->
+                    s.copy(
+                        post = s.post?.copy(poll = if (closed) before.copy(endsAtMillis = System.currentTimeMillis()) else before),
+                        notice = if (closed) "This poll has ended." else "Couldn't record your vote. Please try again.",
+                    )
+                }
+            }
         }
     }
 
