@@ -64,7 +64,8 @@ export function personalizationRoutes(ctx: Ctx) {
 
     // ------------------------------------------------------------ discovery
     app.get('/personalization/categories', async (req, reply) => {
-      await ctx.auth(req);
+      const me = await ctx.auth(req);
+      ctx.limit(`pz-categories:${me.id}`, 240, 60);
       reply.header('Cache-Control', 'private, max-age=300');
       const { rows } = await pool.query('select slug, name from theme_categories order by sort_order, name');
       return { categories: rows };
@@ -92,6 +93,7 @@ export function personalizationRoutes(ctx: Ctx) {
 
     app.get('/personalization/assets/:id', async (req) => {
       const me = await ctx.auth(req);
+      ctx.limit(`pz-browse:${me.id}`, 240, 60);
       const a = await publishedAsset(pool, idParam((req.params as { id?: string }).id), me.id);
       const entitled = (await userEntitlements(pool, me.id)).includes(PREMIUM_ASSETS);
       const related = (await pool.query<AssetRow>(
@@ -305,6 +307,28 @@ export function personalizationRoutes(ctx: Ctx) {
         return row;
       });
       return reply.status(201).send({ id: out.id, status: 'draft' });
+    });
+
+    /** Staff list of catalogue images in any state, newest first, with preview links. */
+    app.get('/admin/personalization/assets', async (req) => {
+      await need(req, 'personalization.manage');
+      const q = z.object({
+        status: z.enum(['draft', 'published', 'unpublished', 'removed']).optional(),
+        limit: z.coerce.number().int().min(1).max(50).default(20), cursor: z.string().max(300).optional(),
+      }).strict().parse(req.query ?? {});
+      const cur = decodeCursor(q.cursor);
+      const params: unknown[] = [];
+      let where = 'true';
+      if (q.status) { params.push(q.status); where += ` and a.status = $${params.length}`; }
+      if (cur) { params.push(cur.t, cur.id); where += ` and (a.created_at, a.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`; }
+      params.push(q.limit + 1);
+      const rows = (await pool.query<{ id: string; title: string; status: string; premium: boolean; license: string; sourceAttribution: string; destinations: string[]; category: string; thumb_key: string; cursorT: string }>(
+        `select a.id, a.title, a.status, a.premium, a.license, a.source_attribution as "sourceAttribution", a.destinations, c.name as category, a.thumb_key,
+                ${tsText('a.created_at')} as "cursorT"
+           from theme_assets a join theme_categories c on c.id = a.category_id where ${where} order by a.created_at desc, a.id desc limit $${params.length}`, params)).rows;
+      const page = toPage(rows, q.limit);
+      const items = await Promise.all(page.items.map(async ({ thumb_key, ...rest }) => ({ ...rest, thumbUrl: await signedUrl(ctx, thumb_key) })));
+      return { items, nextCursor: page.nextCursor };
     });
 
     app.patch('/admin/personalization/assets/:id/status', async (req) => {
