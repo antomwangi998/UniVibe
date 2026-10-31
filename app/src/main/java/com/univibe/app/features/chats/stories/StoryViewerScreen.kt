@@ -18,7 +18,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import com.univibe.app.ui.components.BurstIcon
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -315,10 +317,15 @@ private fun ReplyBar(item: StoryItem, text: String, sending: Boolean, vm: StoryV
             },
         )
         if (text.isNotBlank()) ViewerIconButton(VibeIcons.SendFilled, "Send reply", ViewerTeal) { vm.sendReply() }
-        ViewerIconButton(
-            if (liked) VibeIcons.HeartFilled else VibeIcons.Heart, if (liked) "Remove your reaction" else "React with a heart",
-            if (liked) ViewerTeal else Color.White, onClick = vm::toggleHeart,
-        )
+        // Same heart and burst as the feed. No clip here, so the burst can spread past the 48dp button.
+        val heartTint = if (liked) MaterialTheme.colorScheme.error else Color.White
+        val heartLabel = if (liked) "Remove your reaction" else "React with a heart"
+        Box(
+            Modifier.size(48.dp)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClickLabel = heartLabel, onClick = vm::toggleHeart)
+                .semantics { contentDescription = heartLabel },
+            contentAlignment = Alignment.Center,
+        ) { BurstIcon(if (liked) VibeIcons.HeartFilled else VibeIcons.Heart, liked, heartTint, iconSize = 24.dp) }
     }
 }
 
